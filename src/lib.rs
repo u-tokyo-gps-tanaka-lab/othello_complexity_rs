@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-
-
 use std::cmp::Ordering;
 
 /**
@@ -15,24 +13,24 @@ use std::cmp::Ordering;
  * @version 4.4
  */
 
- /**
-  * edax-reversi-AVX
-  *
-  * https://github.com/okuhara/edax-reversi-AVX
-  *
-  * @date 1998 - 2018
-  * @author Toshihiko Okuhara
-  * @version 4.4
-  */
+/**
+ * edax-reversi-AVX
+ *
+ * https://github.com/okuhara/edax-reversi-AVX
+ *
+ * @date 1998 - 2018
+ * @author Toshihiko Okuhara
+ * @version 4.4
+ */
 
 /**
-  * retrospective-dfs-reversi
-  *
-  * https://github.com/eukaryo/retrospective-dfs-reversi
-  *
-  * @date 2020
-  * @author Hiroki Takizawa
-  */
+ * retrospective-dfs-reversi
+ *
+ * https://github.com/eukaryo/retrospective-dfs-reversi
+ *
+ * @date 2020
+ * @author Hiroki Takizawa
+ */
 
 /// translated with ChatGPT 4o
 #[inline]
@@ -43,7 +41,16 @@ fn bit_scan_forward64(mask: u64) -> Option<u32> {
         Some(mask.trailing_zeros())
     }
 }
-const DXYS: [(i32, i32);8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+const DXYS: [(i32, i32); 8] = [
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Board {
@@ -57,7 +64,10 @@ impl Board {
     }
 
     pub fn empty() -> Self {
-        Self { player: 0, opponent: 0 }
+        Self {
+            player: 0,
+            opponent: 0,
+        }
     }
 
     fn transpose(b: u64) -> u64 {
@@ -208,31 +218,55 @@ const MASKS: [u64; 4] = [
 ];
 
 #[inline(always)]
-const fn not_a_file() -> u64 { 0xFEFE_FEFE_FEFE_FEFE }
+const fn not_a_file() -> u64 {
+    0xFEFE_FEFE_FEFE_FEFE
+}
 #[inline(always)]
-const fn not_h_file() -> u64 { 0x7F7F_7F7F_7F7F_7F7F }
+const fn not_h_file() -> u64 {
+    0x7F7F_7F7F_7F7F_7F7F
+}
 #[inline(always)]
 //const fn not_rank_1() -> u64 { 0xFF00_FFFF_FFFF_FFFF }
-const fn not_rank_1() -> u64 { 0xFFFF_FFFF_FFFF_FF00 }
+const fn not_rank_1() -> u64 {
+    0xFFFF_FFFF_FFFF_FF00
+}
 #[inline(always)]
-const fn not_rank_8() -> u64 { 0x00FF_FFFF_FFFF_FFFF }
+const fn not_rank_8() -> u64 {
+    0x00FF_FFFF_FFFF_FFFF
+}
 
 #[inline(always)]
-fn east(x: u64)  -> u64 { (x << 1) & not_a_file() }
+fn east(x: u64) -> u64 {
+    (x << 1) & not_a_file()
+}
 #[inline(always)]
-fn west(x: u64)  -> u64 { (x >> 1) & not_h_file() }
+fn west(x: u64) -> u64 {
+    (x >> 1) & not_h_file()
+}
 #[inline(always)]
-fn north(x: u64) -> u64 { (x << 8) & not_rank_1() }
+fn north(x: u64) -> u64 {
+    (x << 8) & not_rank_1()
+}
 #[inline(always)]
-fn south(x: u64) -> u64 { (x >> 8) & not_rank_8() }
+fn south(x: u64) -> u64 {
+    (x >> 8) & not_rank_8()
+}
 #[inline(always)]
-fn ne(x: u64)    -> u64 { (x << 9) & (not_a_file() & not_rank_1()) }
+fn ne(x: u64) -> u64 {
+    (x << 9) & (not_a_file() & not_rank_1())
+}
 #[inline(always)]
-fn nw(x: u64)    -> u64 { (x << 7) & (not_h_file() & not_rank_1()) }
+fn nw(x: u64) -> u64 {
+    (x << 7) & (not_h_file() & not_rank_1())
+}
 #[inline(always)]
-fn se(x: u64)    -> u64 { (x >> 7) & (not_a_file() & not_rank_8()) }
+fn se(x: u64) -> u64 {
+    (x >> 7) & (not_a_file() & not_rank_8())
+}
 #[inline(always)]
-fn sw(x: u64)    -> u64 { (x >> 9) & (not_h_file() & not_rank_8()) }
+fn sw(x: u64) -> u64 {
+    (x >> 9) & (not_h_file() & not_rank_8())
+}
 
 /// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
 #[inline(always)]
@@ -251,7 +285,11 @@ where
     }
 
     // その先に自石があるなら挟めている→反転成立
-    if x & player != 0 { flips } else { 0 }
+    if x & player != 0 {
+        flips
+    } else {
+        0
+    }
 }
 
 /// 与えられた pos に打ったときにひっくり返る相手石の集合を返す（打った石は含まない）
@@ -264,14 +302,14 @@ pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
         return 0;
     }
 
-    ray_flips(move_bb, player, opponent, east)  |
-    ray_flips(move_bb, player, opponent, west)  |
-    ray_flips(move_bb, player, opponent, north) |
-    ray_flips(move_bb, player, opponent, south) |
-    ray_flips(move_bb, player, opponent, ne)    |
-    ray_flips(move_bb, player, opponent, nw)    |
-    ray_flips(move_bb, player, opponent, se)    |
-    ray_flips(move_bb, player, opponent, sw)
+    ray_flips(move_bb, player, opponent, east)
+        | ray_flips(move_bb, player, opponent, west)
+        | ray_flips(move_bb, player, opponent, north)
+        | ray_flips(move_bb, player, opponent, south)
+        | ray_flips(move_bb, player, opponent, ne)
+        | ray_flips(move_bb, player, opponent, nw)
+        | ray_flips(move_bb, player, opponent, se)
+        | ray_flips(move_bb, player, opponent, sw)
 }
 
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
@@ -295,7 +333,7 @@ struct VarMaker {
 }
 impl VarMaker {
     pub fn new() -> Self {
-        VarMaker {count: 0}
+        VarMaker { count: 0 }
     }
     fn mkVar(&mut self) -> i32 {
         self.count += 1;
@@ -337,7 +375,7 @@ pub fn is_connected(b: u64) -> bool {
 }
 
 fn no_cycle(g: Vec<Vec<usize>>) -> bool {
-    let mut icount = vec![0;64];
+    let mut icount = vec![0; 64];
     for i in 0..64 {
         for &j in &g[i] {
             icount[j] += 1;
@@ -368,7 +406,7 @@ fn no_cycle(g: Vec<Vec<usize>>) -> bool {
 //
 //
 pub fn check_seg3(b: u64) -> bool {
-    let mut g: Vec<Vec<usize>> = vec![vec![];64];
+    let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
@@ -407,7 +445,6 @@ pub fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
-
 pub fn search(
     board: &Board,
     searched: &mut HashSet<[u64; 2]>,
@@ -421,7 +458,10 @@ pub fn search(
             leafnode.insert(uni);
             return;
         } else if get_moves(board.opponent, board.player) != 0 {
-            let next = Board { player: board.opponent, opponent: board.player };
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -434,7 +474,10 @@ pub fn search(
     let mut moves = get_moves(board.player, board.opponent);
     if moves == 0 {
         if get_moves(board.opponent, board.player) != 0 {
-            let next = Board { player: board.opponent, opponent: board.player };
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -697,7 +740,6 @@ pub fn retrospective_flip(
     answer
 }
 
-
 /// C++ の retrospective_search を、グローバル無しで移植。
 /// - `discs`: DISCS に相当する閾値
 /// - `leafnode`: 事前に収集済みのユニーク局面集合（しきい値以上で合法手があるもの）
@@ -737,7 +779,6 @@ pub fn retrospective_search(
         return true;
     }
 
-
     // 8 近傍で連結でなければ打ち切り
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
@@ -748,9 +789,9 @@ pub fn retrospective_search(
         return false;
     }
     let line = board.to_string();
-//    if !is_sat_ok(0, &line).unwrap() {
-//        return false;
-//    }
+    //    if !is_sat_ok(0, &line).unwrap() {
+    //        return false;
+    //    }
 
     // パス遡り（from_pass=false かつ 相手に合法手が無い場合）
     if !from_pass {
@@ -759,8 +800,14 @@ pub fn retrospective_search(
                 player: board.opponent,
                 opponent: board.player,
             };
-            if retrospective_search(&prev, true, discs, leafnode, retrospective_searched, retroflips)
-            {
+            if retrospective_search(
+                &prev,
+                true,
+                discs,
+                leafnode,
+                retrospective_searched,
+                retroflips,
+            ) {
                 println!("pass");
                 return true;
             }
@@ -786,7 +833,12 @@ pub fn retrospective_search(
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips[num_disc]);
+        let num = retrospective_flip(
+            index,
+            board.player,
+            board.opponent,
+            &mut retroflips[num_disc],
+        );
         if num > 0 {
             // result[0] は 0（便宜上）なので、-1 した数だけ “実 flips” を見た回数として数える
             _searched += (num - 1) as i32;
@@ -818,4 +870,3 @@ pub fn retrospective_search(
 
     false
 }
-

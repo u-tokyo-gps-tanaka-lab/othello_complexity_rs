@@ -1,18 +1,18 @@
-use std::env;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
-use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::{Write};
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::io::{self, BufRead, BufReader};
+use std::io::{Error, ErrorKind};
 //use rustsat::instances::SatInstance;
-//use rustsat::instances::fio::dimacs; 
+//use rustsat::instances::fio::dimacs;
 use rustsat::solvers::Solve;
 //use rustsat_kissat::Kissat;
 //use rustsat::types::{Lit, Var, Clause};
-use rustsat::types::{Lit, Clause};
+use rustsat::types::{Clause, Lit};
 // use rustsat::instances::{BasicVarManager, CnfFormula};
-use rustsat::instances::{Cnf};
+use rustsat::instances::Cnf;
 
 use std::cmp::Ordering;
 
@@ -26,24 +26,24 @@ use std::cmp::Ordering;
  * @version 4.4
  */
 
- /**
-  * edax-reversi-AVX
-  *
-  * https://github.com/okuhara/edax-reversi-AVX
-  *
-  * @date 1998 - 2018
-  * @author Toshihiko Okuhara
-  * @version 4.4
-  */
+/**
+ * edax-reversi-AVX
+ *
+ * https://github.com/okuhara/edax-reversi-AVX
+ *
+ * @date 1998 - 2018
+ * @author Toshihiko Okuhara
+ * @version 4.4
+ */
 
 /**
-  * retrospective-dfs-reversi
-  *
-  * https://github.com/eukaryo/retrospective-dfs-reversi
-  *
-  * @date 2020
-  * @author Hiroki Takizawa
-  */
+ * retrospective-dfs-reversi
+ *
+ * https://github.com/eukaryo/retrospective-dfs-reversi
+ *
+ * @date 2020
+ * @author Hiroki Takizawa
+ */
 
 /// translated with ChatGPT 4o
 #[inline]
@@ -67,7 +67,10 @@ impl Board {
     }
 
     pub fn empty() -> Self {
-        Self { player: 0, opponent: 0 }
+        Self {
+            player: 0,
+            opponent: 0,
+        }
     }
 
     fn transpose(b: u64) -> u64 {
@@ -218,31 +221,55 @@ const MASKS: [u64; 4] = [
 ];
 
 #[inline(always)]
-const fn not_a_file() -> u64 { 0xFEFE_FEFE_FEFE_FEFE }
+const fn not_a_file() -> u64 {
+    0xFEFE_FEFE_FEFE_FEFE
+}
 #[inline(always)]
-const fn not_h_file() -> u64 { 0x7F7F_7F7F_7F7F_7F7F }
+const fn not_h_file() -> u64 {
+    0x7F7F_7F7F_7F7F_7F7F
+}
 #[inline(always)]
 //const fn not_rank_1() -> u64 { 0xFF00_FFFF_FFFF_FFFF }
-const fn not_rank_1() -> u64 { 0xFFFF_FFFF_FFFF_FF00 }
+const fn not_rank_1() -> u64 {
+    0xFFFF_FFFF_FFFF_FF00
+}
 #[inline(always)]
-const fn not_rank_8() -> u64 { 0x00FF_FFFF_FFFF_FFFF }
+const fn not_rank_8() -> u64 {
+    0x00FF_FFFF_FFFF_FFFF
+}
 
 #[inline(always)]
-fn east(x: u64)  -> u64 { (x << 1) & not_a_file() }
+fn east(x: u64) -> u64 {
+    (x << 1) & not_a_file()
+}
 #[inline(always)]
-fn west(x: u64)  -> u64 { (x >> 1) & not_h_file() }
+fn west(x: u64) -> u64 {
+    (x >> 1) & not_h_file()
+}
 #[inline(always)]
-fn north(x: u64) -> u64 { (x << 8) & not_rank_1() }
+fn north(x: u64) -> u64 {
+    (x << 8) & not_rank_1()
+}
 #[inline(always)]
-fn south(x: u64) -> u64 { (x >> 8) & not_rank_8() }
+fn south(x: u64) -> u64 {
+    (x >> 8) & not_rank_8()
+}
 #[inline(always)]
-fn ne(x: u64)    -> u64 { (x << 9) & (not_a_file() & not_rank_1()) }
+fn ne(x: u64) -> u64 {
+    (x << 9) & (not_a_file() & not_rank_1())
+}
 #[inline(always)]
-fn nw(x: u64)    -> u64 { (x << 7) & (not_h_file() & not_rank_1()) }
+fn nw(x: u64) -> u64 {
+    (x << 7) & (not_h_file() & not_rank_1())
+}
 #[inline(always)]
-fn se(x: u64)    -> u64 { (x >> 7) & (not_a_file() & not_rank_8()) }
+fn se(x: u64) -> u64 {
+    (x >> 7) & (not_a_file() & not_rank_8())
+}
 #[inline(always)]
-fn sw(x: u64)    -> u64 { (x >> 9) & (not_h_file() & not_rank_8()) }
+fn sw(x: u64) -> u64 {
+    (x >> 9) & (not_h_file() & not_rank_8())
+}
 
 /// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
 #[inline(always)]
@@ -261,7 +288,11 @@ where
     }
 
     // その先に自石があるなら挟めている→反転成立
-    if x & player != 0 { flips } else { 0 }
+    if x & player != 0 {
+        flips
+    } else {
+        0
+    }
 }
 
 /// 与えられた pos に打ったときにひっくり返る相手石の集合を返す（打った石は含まない）
@@ -274,14 +305,14 @@ pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
         return 0;
     }
 
-    ray_flips(move_bb, player, opponent, east)  |
-    ray_flips(move_bb, player, opponent, west)  |
-    ray_flips(move_bb, player, opponent, north) |
-    ray_flips(move_bb, player, opponent, south) |
-    ray_flips(move_bb, player, opponent, ne)    |
-    ray_flips(move_bb, player, opponent, nw)    |
-    ray_flips(move_bb, player, opponent, se)    |
-    ray_flips(move_bb, player, opponent, sw)
+    ray_flips(move_bb, player, opponent, east)
+        | ray_flips(move_bb, player, opponent, west)
+        | ray_flips(move_bb, player, opponent, north)
+        | ray_flips(move_bb, player, opponent, south)
+        | ray_flips(move_bb, player, opponent, ne)
+        | ray_flips(move_bb, player, opponent, nw)
+        | ray_flips(move_bb, player, opponent, se)
+        | ray_flips(move_bb, player, opponent, sw)
 }
 
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
@@ -305,7 +336,7 @@ struct VarMaker {
 }
 impl VarMaker {
     pub fn new() -> Self {
-        VarMaker {count: 0}
+        VarMaker { count: 0 }
     }
     fn mkVar(&mut self) -> i32 {
         self.count += 1;
@@ -347,7 +378,7 @@ pub fn is_connected(b: u64) -> bool {
 }
 
 fn no_cycle(g: Vec<Vec<usize>>) -> bool {
-    let mut icount = vec![0;64];
+    let mut icount = vec![0; 64];
     for i in 0..64 {
         for &j in &g[i] {
             icount[j] += 1;
@@ -378,7 +409,7 @@ fn no_cycle(g: Vec<Vec<usize>>) -> bool {
 //
 //
 pub fn check_seg3(b: u64) -> bool {
-    let mut g: Vec<Vec<usize>> = vec![vec![];64];
+    let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
@@ -417,7 +448,6 @@ pub fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
-
 pub fn search(
     board: &Board,
     searched: &mut HashSet<[u64; 2]>,
@@ -431,7 +461,10 @@ pub fn search(
             leafnode.insert(uni);
             return;
         } else if get_moves(board.opponent, board.player) != 0 {
-            let next = Board { player: board.opponent, opponent: board.player };
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -444,7 +477,10 @@ pub fn search(
     let mut moves = get_moves(board.player, board.opponent);
     if moves == 0 {
         if get_moves(board.opponent, board.player) != 0 {
-            let next = Board { player: board.opponent, opponent: board.player };
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -707,7 +743,6 @@ pub fn retrospective_flip(
     answer
 }
 
-
 /// C++ の retrospective_search を、グローバル無しで移植。
 /// - `discs`: DISCS に相当する閾値
 /// - `leafnode`: 事前に収集済みのユニーク局面集合（しきい値以上で合法手があるもの）
@@ -747,7 +782,6 @@ pub fn retrospective_search(
         return true;
     }
 
-
     // 8 近傍で連結でなければ打ち切り
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
@@ -769,8 +803,14 @@ pub fn retrospective_search(
                 player: board.opponent,
                 opponent: board.player,
             };
-            if retrospective_search(&prev, true, discs, leafnode, retrospective_searched, retroflips)
-            {
+            if retrospective_search(
+                &prev,
+                true,
+                discs,
+                leafnode,
+                retrospective_searched,
+                retroflips,
+            ) {
                 println!("pass");
                 return true;
             }
@@ -796,7 +836,12 @@ pub fn retrospective_search(
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips[num_disc]);
+        let num = retrospective_flip(
+            index,
+            board.player,
+            board.opponent,
+            &mut retroflips[num_disc],
+        );
         if num > 0 {
             // result[0] は 0（便宜上）なので、-1 した数だけ “実 flips” を見た回数として数える
             _searched += (num - 1) as i32;
@@ -829,8 +874,22 @@ pub fn retrospective_search(
     false
 }
 
-const DXYS: [(i32, i32);8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-fn solve_by_kissat(index: usize, vs: &Vec<Vec<i32>>, numVar: usize, comment: &HashMap<usize, String>)  -> bool {
+const DXYS: [(i32, i32); 8] = [
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
+fn solve_by_kissat(
+    index: usize,
+    vs: &Vec<Vec<i32>>,
+    numVar: usize,
+    comment: &HashMap<usize, String>,
+) -> bool {
     let mut solver = rustsat_kissat::Kissat::default();
     let mut cnf = Cnf::new();
     for line in vs {
@@ -856,7 +915,12 @@ fn solve_by_kissat(index: usize, vs: &Vec<Vec<i32>>, numVar: usize, comment: &Ha
     //eprintln!("result={:?}", result);
     //Ok(())
 }
-fn output_cnf(index: usize, vs: &Vec<Vec<i32>>, numVar: usize, comment: &HashMap<usize, String>)  -> Result<(), Error> {
+fn output_cnf(
+    index: usize,
+    vs: &Vec<Vec<i32>>,
+    numVar: usize,
+    comment: &HashMap<usize, String>,
+) -> Result<(), Error> {
     let filename = format!("{}.cnf", index);
     let mut file = File::create(&filename)?;
     for (i, line) in comment.iter() {
@@ -894,13 +958,16 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     eprintln!("line={}", line);
     let cs: Vec<char> = line.chars().collect();
     if cs.len() != 64 {
-        return Err(Error::new(ErrorKind::Other, "length is not 64 format error"));
+        return Err(Error::new(
+            ErrorKind::Other,
+            "length is not 64 format error",
+        ));
     }
     let mut sqi: Vec<usize> = vec![];
     let mut sqo: Vec<usize> = vec![];
     let mut sqall: Vec<usize> = vec![];
     let mut vm = VarMaker::new();
-    let mut in_sqo: Vec<bool> = vec![false;64];
+    let mut in_sqo: Vec<bool> = vec![false; 64];
     for y in 0..8 {
         for x in 0..8 {
             let sq = xy2sq(x, y);
@@ -920,13 +987,13 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     }
     let sq33 = xy2sq(3, 3);
     // First[sq][col] : sqに最初に置かれる石がcolかどうかを表す論理変数
-    let mut First: Vec<Vec<i32>> = vec![vec![0;2];64];
+    let mut First: Vec<Vec<i32>> = vec![vec![0; 2]; 64];
     // Flip[sq][col] : [(sq', col, d, len)], sqをcolにflipするflip全体
-    let mut Flip: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![];2];64];
+    let mut Flip: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
     // Set[sq][col] : [(sq', col, d, len)], flipに加えて First[sq][col] に対応する(sq, col, 0, 0) も含む
-    let mut Set: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![];2];64];
+    let mut Set: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
     // Base[sq][col] : [(sq', col, d, len)], sqがcolであることを利用してcolにflipするflip
-    let mut Base: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![];2];64];
+    let mut Base: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
     // F[(sq, col, d, len)] : flip (sq, col, d, len) から論理変数への変換
     let mut F: HashMap<(usize, usize, usize, usize), i32> = HashMap::new();
     let v_sq33 = vm.mkVar();
@@ -936,16 +1003,18 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         let v = if in_sqo[sq] {
             comment.insert(vm.count() + 1, format!("Square_{}", sq).to_string());
             vm.mkVar()
-        } else {v_sq33 * if sq / 8 == sq % 8 {1} else {-1}};
+        } else {
+            v_sq33 * if sq / 8 == sq % 8 { 1 } else { -1 }
+        };
         for col in 0..2 {
             let t = (sq, col, 0, 0);
-            let v1 = if col == 0 {v} else {-v};
+            let v1 = if col == 0 { v } else { -v };
             First[sq][col] = v1;
             F.insert(t, v1);
             Set[sq][col].push(t);
         }
     }
-    let mut Cmp: Vec<Vec<i32>> = vec![vec![0;64];64];
+    let mut Cmp: Vec<Vec<i32>> = vec![vec![0; 64]; 64];
     let mut s: Vec<Vec<i32>> = vec![];
     // eprintln!("sqo.len() = {}", sqo.len());
     for &sq in &sqo {
@@ -1031,7 +1100,7 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     // Last
     // let mut Last: HashMap<(usize, (usize, usize, usize, usize)), i32> = HashMap::new();
     for &sq in &sqall {
-        let last_c = if cs[sq] == 'X' {1} else {0};
+        let last_c = if cs[sq] == 'X' { 1 } else { 0 };
         let mut vs = vec![];
         for &t in &Set[sq][last_c] {
             let v = *F.get(&t).unwrap();
@@ -1055,24 +1124,36 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         if vs.len() > 0 {
             s.push(vs);
         }
-
     }
     //eprintln!("end of Last, s.len()={}", s.len());
     // Before
-    let mut Before: HashMap<(usize, (usize, usize, usize, usize), (usize, usize, usize, usize)), i32> = HashMap::new();
+    let mut Before: HashMap<
+        (
+            usize,
+            (usize, usize, usize, usize),
+            (usize, usize, usize, usize),
+        ),
+        i32,
+    > = HashMap::new();
     for &sq in &sqo {
         for col in 0..2 {
             for &t in &Set[sq][col] {
                 for &t1 in &Flip[sq][1 - col] {
                     if t.0 != t1.0 {
                         Before.insert((sq, t, t1), vm.mkVar());
-                        comment.insert(vm.count(), format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string());
+                        comment.insert(
+                            vm.count(),
+                            format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),
+                        );
                     }
                 }
                 for &t1 in &Base[sq][col] {
                     if t.0 != t1.0 {
                         Before.insert((sq, t, t1), vm.mkVar());
-                        comment.insert(vm.count(), format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string());
+                        comment.insert(
+                            vm.count(),
+                            format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),
+                        );
                     }
                 }
             }
@@ -1099,7 +1180,7 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                 s.push(vs);
             }
             for &t1 in &Base[sq][col] {
-                let mut vs: Vec<i32> = vec![-*F.get(&t1).unwrap()]; 
+                let mut vs: Vec<i32> = vec![-*F.get(&t1).unwrap()];
                 for &t in &Set[sq][col] {
                     if t1.0 == t.0 {
                         continue;
@@ -1108,17 +1189,24 @@ fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                 }
                 s.push(vs);
             }
-    }
+        }
     }
     //output_cnf(index, &s, vm.count(), &comment)
     let ans = solve_by_kissat(index, &s, vm.count(), &comment);
-    
+
     Ok(ans)
 }
 
 // const DISCMAX: i32 = 15;
 const DISCMAX: i32 = 5;
-fn process_line(index: usize, line: &String, searched: &HashSet<[u64; 2]>, leafnode: &HashSet<[u64; 2]>, retrospective_searched: &mut HashSet<[u64; 2]>, retroflips: &mut Vec<[u64; 10_000]>) -> Result<bool, Error> {
+fn process_line(
+    index: usize,
+    line: &String,
+    searched: &HashSet<[u64; 2]>,
+    leafnode: &HashSet<[u64; 2]>,
+    retrospective_searched: &mut HashSet<[u64; 2]>,
+    retroflips: &mut Vec<[u64; 10_000]>,
+) -> Result<bool, Error> {
     let mut player: u64 = 0;
     let mut opponent: u64 = 0;
     for (i, c) in line.chars().enumerate() {
@@ -1142,7 +1230,14 @@ fn process_line(index: usize, line: &String, searched: &HashSet<[u64; 2]>, leafn
     retrospective_searched.clear();
     retroflips.resize(bb.popcount() as usize + 1, [0u64; 10_000]);
     let mut ans = false;
-    if retrospective_search(&bb, false, DISCMAX, leafnode, retrospective_searched, retroflips) {
+    if retrospective_search(
+        &bb,
+        false,
+        DISCMAX,
+        leafnode,
+        retrospective_searched,
+        retroflips,
+    ) {
         println!("OK: {}", bb.to_string());
         println!("len(searched)={}", retrospective_searched.len());
         ans = true;
@@ -1151,7 +1246,7 @@ fn process_line(index: usize, line: &String, searched: &HashSet<[u64; 2]>, leafn
     }
     Ok(ans)
 }
-fn process_file(filename: String)  -> io::Result<()>  {
+fn process_file(filename: String) -> io::Result<()> {
     let file = File::open(&filename)?;
     let reader = BufReader::new(file);
     let mut okfile = File::create("sat_OK.txt")?;
@@ -1159,19 +1254,31 @@ fn process_file(filename: String)  -> io::Result<()>  {
     let mut searched: HashSet<[u64; 2]> = HashSet::new();
     let mut leafnode: HashSet<[u64; 2]> = HashSet::new();
     for i in 5..=DISCMAX {
-		searched.clear();
-		leafnode.clear();
-		let discs = i;
+        searched.clear();
+        leafnode.clear();
+        let discs = i;
         let board = Board::initial();
-		search(&board, &mut searched, &mut leafnode, discs);
-		println!("discs = {}: internal nodes = {}, leaf nodes = {}", i, searched.len(), leafnode.len());
-	}
+        search(&board, &mut searched, &mut leafnode, discs);
+        println!(
+            "discs = {}: internal nodes = {}, leaf nodes = {}",
+            i,
+            searched.len(),
+            leafnode.len()
+        );
+    }
     let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
     // 1行ずつ読み込んで処理する
     for (index, line_result) in reader.lines().enumerate() {
         let line = line_result?; // Result<String> なのでアンラップ
-        match process_line(index, &line, &searched, &leafnode, &mut retrospective_searched, &mut retroflips) {
+        match process_line(
+            index,
+            &line,
+            &searched,
+            &leafnode,
+            &mut retrospective_searched,
+            &mut retroflips,
+        ) {
             Ok(res) => {
                 if res {
                     println!("{}", line);
@@ -1179,8 +1286,10 @@ fn process_file(filename: String)  -> io::Result<()>  {
                 } else {
                     writeln!(ngfile, "{}", line);
                 }
-            },
-            Err(e) => {eprintln!("Error: {}", e);},
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+            }
         }
     }
     Ok(())

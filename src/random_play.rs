@@ -1,14 +1,14 @@
+use rand::thread_rng;
+use rand::Rng; // 乱数生成のため
 use std::fs;
-use std::path::Path;
 use std::fs::File;
 use std::io::{self, Write};
-use rand::Rng; // 乱数生成のため
-use rand::thread_rng;
+use std::path::Path;
 
-use othellolib::{Board, flip, get_moves};
-fn main()  -> std::io::Result<()> {
-   let path = Path::new("results");
-   let mut rng = rand::thread_rng();
+use othellolib::{flip, get_moves, Board};
+fn main() -> std::io::Result<()> {
+    let path = Path::new("results");
+    let mut rng = rand::thread_rng();
 
     if !path.exists() {
         fs::create_dir_all(&path)?;
@@ -27,7 +27,7 @@ fn main()  -> std::io::Result<()> {
                     }
                     b = Board::new(b.opponent, b.player);
                     m = m1;
-                } 
+                }
                 let cnt = m.count_ones();
                 let r = rng.gen_range(0..cnt);
                 let mut m1 = m;
@@ -50,4 +50,3 @@ fn main()  -> std::io::Result<()> {
     }
     Ok(())
 }
-

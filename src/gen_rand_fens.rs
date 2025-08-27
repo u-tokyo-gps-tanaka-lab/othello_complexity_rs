@@ -1,10 +1,10 @@
-use rand::Rng; // 乱数生成のため
 use rand::rng;
 use rand::rngs::ThreadRng;
+use rand::Rng; // 乱数生成のため
 use std::env;
 
-use othellolib::{Board, flip, get_moves};
-use std::cmp::{min, max};
+use othellolib::{flip, get_moves, Board};
+use std::cmp::{max, min};
 
 /// nCk を u128 で返す。u128 を超える場合は None。
 pub fn combination_u128(n: usize, k: usize) -> Option<u128> {
@@ -81,14 +81,14 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
             for x in 0..8 {
                 let i = y * 8 + x;
                 let sq = if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
-                        let ans = (v % 2) + 1;
-                        v /= 2;
-                        ans
-                    } else {
-                        let ans = v % 3;
-                        v /= 3;
-                        ans
-                    };  
+                    let ans = (v % 2) + 1;
+                    v /= 2;
+                    ans
+                } else {
+                    let ans = v % 3;
+                    v /= 3;
+                    ans
+                };
                 if sq == 1 {
                     player |= (1u64 << i);
                 } else if sq == 2 {
@@ -113,7 +113,8 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
                     rest_sq -= 1;
                     let mut set_count: u128 = 0;
                     let mut blank_count: u128 = 0;
-                    if rest_sq < rest_stone { // always set
+                    if rest_sq < rest_stone {
+                        // always set
                         set_count = 1;
                     } else if rest_stone == 0 {
                         blank_count = 1;
@@ -137,7 +138,7 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
     }
     Board::new(player, opponent)
 }
-fn main()  -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
     // デフォルト値
     let mut n: usize = 0;
@@ -147,7 +148,9 @@ fn main()  -> std::io::Result<()> {
     while i < args.len() {
         if args[i] == "--n" {
             if i + 1 < args.len() {
-                n = args[i + 1].parse::<usize>().expect("整数を指定してください");
+                n = args[i + 1]
+                    .parse::<usize>()
+                    .expect("整数を指定してください");
             } else {
                 eprintln!("--n の後に数値を指定してください");
                 std::process::exit(1);
