@@ -3,7 +3,7 @@ use rand::rngs::ThreadRng;
 use rand::Rng; // 乱数生成のため
 use std::env;
 
-use othellolib::{flip, get_moves, Board};
+use ::othello_complexity_rs::{flip, get_moves, Board};
 use std::cmp::{max, min};
 
 /// nCk を u128 で返す。u128 を超える場合は None。
@@ -138,6 +138,9 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
     }
     Board::new(player, opponent)
 }
+
+// 実行方法: cargo run --bin gen_rand_fens -- --n {{数値}}
+// ref. https://zenn.dev/kiyozmi/articles/cargo-command-line-args
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
     // デフォルト値

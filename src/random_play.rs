@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 
-use othellolib::{flip, get_moves, Board};
+use ::othello_complexity_rs::{flip, get_moves, Board};
 fn main() -> std::io::Result<()> {
     let path = Path::new("results");
     let mut rng = rand::thread_rng();
