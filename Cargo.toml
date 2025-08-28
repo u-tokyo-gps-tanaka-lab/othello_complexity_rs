@@ -10,11 +10,3 @@ rustsat-kissat = "0.7.2"
 rustsat = "0.7"
 rand = "0.9.2"
 
-[[bin]]
-name = "gen_rand_fens"
-path = "src/gen_rand_fens.rs"
-
-[[bin]]
-name = "random_play"
-path = "src/random_play.rs"
-

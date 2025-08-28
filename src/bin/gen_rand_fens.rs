@@ -1,10 +1,9 @@
-use rand::rng;
 use rand::rngs::ThreadRng;
 use rand::Rng; // 乱数生成のため
+use std::cmp::min;
 use std::env;
 
-use ::othello_complexity_rs::{flip, get_moves, Board};
-use std::cmp::{max, min};
+use othello_complexity_rs::lib::othello::Board;
 
 /// nCk を u128 で返す。u128 を超える場合は None。
 pub fn combination_u128(n: usize, k: usize) -> Option<u128> {

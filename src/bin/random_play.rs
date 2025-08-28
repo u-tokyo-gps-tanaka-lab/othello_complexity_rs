@@ -1,11 +1,11 @@
-use rand::thread_rng;
 use rand::Rng; // 乱数生成のため
 use std::fs;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::Path;
 
-use ::othello_complexity_rs::{flip, get_moves, Board};
+use othello_complexity_rs::lib::othello::{flip, get_moves, Board};
+
 fn main() -> std::io::Result<()> {
     let path = Path::new("results");
     let mut rng = rand::thread_rng();
