@@ -8,7 +8,7 @@ use othello_complexity_rs::lib::othello::{flip, get_moves, Board};
 
 fn main() -> std::io::Result<()> {
     let path = Path::new("results");
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     if !path.exists() {
         fs::create_dir_all(&path)?;
@@ -29,8 +29,7 @@ fn main() -> std::io::Result<()> {
                     m = m1;
                 }
                 let cnt = m.count_ones();
-                let r = rng.gen_range(0..cnt);
-                let mut m1 = m;
+                let r = rng.random_range(0..cnt);
                 let mut idx = 0;
                 for _ in 0..=r {
                     idx = m.trailing_zeros();

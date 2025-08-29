@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 /// 盤面 `b` が 8 近傍で連結しているかを判定する関数。
 /// 中央4マス(初期配置)が必ず含まれる前提です。
-pub fn is_connected(b: u64) -> bool {
+fn is_connected(b: u64) -> bool {
     let mut mark: u64 = 0x0000_0018_1800_0000u64;
     let mut old_mark: u64 = 0;
 
@@ -193,7 +193,7 @@ pub fn retrospective_flip(
     fn add_direction_sets(
         answer: &mut usize,
         result: &mut [u64; 10_000],
-        mut acc_bits_seq: impl Iterator<Item = u64>,
+        acc_bits_seq: impl Iterator<Item = u64>,
     ) {
         if *answer == 0 {
             // 初回：result[0] = 0、以後は累積ORで 1..n-1 を埋める
@@ -455,7 +455,7 @@ pub fn retrospective_search(
     if !check_seg3(occupied) {
         return false;
     }
-    let line = board.to_string();
+    // let line = board.to_string();
     //    if !is_sat_ok(0, &line).unwrap() {
     //        return false;
     //    }

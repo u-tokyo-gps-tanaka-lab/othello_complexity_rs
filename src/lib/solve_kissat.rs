@@ -20,7 +20,7 @@ impl VarMaker {
     pub fn new() -> Self {
         VarMaker { count: 0 }
     }
-    fn mkVar(&mut self) -> i32 {
+    fn mk_var(&mut self) -> i32 {
         self.count += 1;
         self.count
     }
@@ -138,23 +138,29 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         return Err(Error::new(ErrorKind::Other, "empty squares in center 2x2"));
     }
     let sq33 = xy2sq(3, 3);
+
     // First[sq][col] : sqに最初に置かれる石がcolかどうかを表す論理変数
     let mut First: Vec<Vec<i32>> = vec![vec![0; 2]; 64];
+
     // Flip[sq][col] : [(sq', col, d, len)], sqをcolにflipするflip全体
     let mut Flip: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+
     // Set[sq][col] : [(sq', col, d, len)], flipに加えて First[sq][col] に対応する(sq, col, 0, 0) も含む
     let mut Set: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+
     // Base[sq][col] : [(sq', col, d, len)], sqがcolであることを利用してcolにflipするflip
     let mut Base: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+
     // F[(sq, col, d, len)] : flip (sq, col, d, len) から論理変数への変換
     let mut F: HashMap<(usize, usize, usize, usize), i32> = HashMap::new();
-    let v_sq33 = vm.mkVar();
+
+    let v_sq33 = vm.mk_var();
     let mut comment: HashMap<usize, String> = HashMap::new();
     comment.insert(vm.count(), format!("Square33").to_string());
     for &sq in &sqall {
         let v = if in_sqo[sq] {
             comment.insert(vm.count() + 1, format!("Square_{}", sq).to_string());
-            vm.mkVar()
+            vm.mk_var()
         } else {
             v_sq33 * if sq / 8 == sq % 8 { 1 } else { -1 }
         };
@@ -172,7 +178,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     for &sq in &sqo {
         for &sq1 in &sqo {
             if sq != sq1 {
-                Cmp[sq][sq1] = vm.mkVar();
+                Cmp[sq][sq1] = vm.mk_var();
                 comment.insert(vm.count(), format!("Cmp[{}][{}]", sq, sq1).to_string());
             }
         }
@@ -210,7 +216,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                     let sq1 = xy2sq(x1, y1);
                     if rl >= 3 {
                         let t = (sq, col, d, rl);
-                        let v = vm.mkVar();
+                        let v = vm.mk_var();
                         comment.insert(vm.count(), format!("{:?}", t).to_string());
                         F.insert(t, v);
                         ps.push(v);
@@ -256,7 +262,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         let mut vs = vec![];
         for &t in &Set[sq][last_c] {
             let v = *F.get(&t).unwrap();
-            let v1 = vm.mkVar();
+            let v1 = vm.mk_var();
             comment.insert(vm.count(), format!("Last[{:?}]", t).to_string());
             vs.push(v1);
             s.push(vec![-v1, v]);
@@ -292,7 +298,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
             for &t in &Set[sq][col] {
                 for &t1 in &Flip[sq][1 - col] {
                     if t.0 != t1.0 {
-                        Before.insert((sq, t, t1), vm.mkVar());
+                        Before.insert((sq, t, t1), vm.mk_var());
                         comment.insert(
                             vm.count(),
                             format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),
@@ -301,7 +307,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                 }
                 for &t1 in &Base[sq][col] {
                     if t.0 != t1.0 {
-                        Before.insert((sq, t, t1), vm.mkVar());
+                        Before.insert((sq, t, t1), vm.mk_var());
                         comment.insert(
                             vm.count(),
                             format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),

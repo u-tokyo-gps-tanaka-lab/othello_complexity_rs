@@ -60,7 +60,7 @@ fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
         let maxv: u128 = (u128::MAX / lim) * lim;
         let mut z = 0;
         loop {
-            let x: u128 = rng.gen();
+            let x: u128 = rng.random();
             if x < maxv {
                 z = x % lim;
                 break;
@@ -70,6 +70,7 @@ fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
     };
     y
 }
+
 fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
     let mut player: u64 = 0;
     let mut opponent: u64 = 0;
@@ -89,9 +90,9 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
                     ans
                 };
                 if sq == 1 {
-                    player |= (1u64 << i);
+                    player |= 1u64 << i;
                 } else if sq == 2 {
-                    opponent |= (1u64 << i);
+                    opponent |= 1u64 << i;
                 }
             }
         }
@@ -104,9 +105,9 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
                 if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
                     let v = mk_rand(rng, 2);
                     if v == 0 {
-                        player |= (1u64 << i);
+                        player |= 1u64 << i;
                     } else {
-                        opponent |= (1u64 << i);
+                        opponent |= 1u64 << i;
                     }
                 } else {
                     rest_sq -= 1;
@@ -126,9 +127,9 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
                         rest_stone -= 1;
                         let v = mk_rand(rng, 2);
                         if v == 0 {
-                            player |= (1u64 << i);
+                            player |= 1u64 << i;
                         } else {
-                            opponent |= (1u64 << i);
+                            opponent |= 1u64 << i;
                         }
                     }
                 }
