@@ -168,6 +168,133 @@ pub fn search(
     }
 }
 
+/// Tri-state result for limited search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchResult {
+    Found,
+    NotFound,
+    Unknown, // node limit exceeded or resource constraint
+}
+
+/// Retrospective search with a node (unique-state) limit.
+/// Behaves like `retrospective_search`, but returns `Unknown` if the number of
+/// unique states visited exceeds `node_limit`.
+pub fn retrospective_search_limited(
+    board: &Board,
+    from_pass: bool,
+    discs: i32,
+    leafnode: &HashSet<[u64; 2]>,
+    retrospective_searched: &mut HashSet<[u64; 2]>,
+    retroflips: &mut Vec<[u64; 10_000]>,
+    node_limit: usize,
+) -> SearchResult {
+    let uni = board.unique();
+    let num_disc = board.popcount() as usize;
+
+    // Threshold: if at or below discs, only check membership in leafnode.
+    if (num_disc as i32) <= discs {
+        return if leafnode.contains(&uni) {
+            SearchResult::Found
+        } else {
+            SearchResult::NotFound
+        };
+    }
+
+    // Revisit check
+    if !retrospective_searched.insert(uni) {
+        return SearchResult::NotFound;
+    }
+    // Node limit check
+    if retrospective_searched.len() > node_limit {
+        return SearchResult::Unknown;
+    }
+    // Very large hard cap (previous behavior printed and returned true). Treat as Unknown.
+    if retrospective_searched.len() > 0x20000000 {
+        return SearchResult::Unknown;
+    }
+
+    // Prune by connectivity and segment-3 constraint
+    let occupied = board.player | board.opponent;
+    if !is_connected(occupied) {
+        return SearchResult::NotFound;
+    }
+    if !check_seg3(occupied) {
+        return SearchResult::NotFound;
+    }
+
+    // Pass backward (only once in a row)
+    if !from_pass {
+        if get_moves(board.opponent, board.player) == 0 {
+            let prev = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
+            match retrospective_search_limited(
+                &prev,
+                true,
+                discs,
+                leafnode,
+                retrospective_searched,
+                retroflips,
+                node_limit,
+            ) {
+                SearchResult::Found => return SearchResult::Found,
+                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::NotFound => {}
+            }
+        }
+    }
+
+    // Iterate candidate opponent stones (excluding initial 4 centers)
+    let mut b = board.opponent & !0x0000_0018_1800_0000u64;
+    if b == 0 {
+        return SearchResult::NotFound;
+    }
+
+    // Ensure workspace for current disc count
+    if retroflips.len() <= num_disc {
+        retroflips.resize(num_disc + 1, [0u64; 10_000]);
+    }
+
+    while b != 0 {
+        let index = b.trailing_zeros();
+        b &= b - 1;
+
+        // Enumerate possible flip-sets if the last move was at `index`
+        let num = retrospective_flip(
+            index,
+            board.player,
+            board.opponent,
+            &mut retroflips[num_disc],
+        );
+        for i in 1..num {
+            let flipped = retroflips[num_disc][i];
+            debug_assert!(flipped != 0);
+
+            let prev = Board {
+                player: board.opponent ^ (flipped | (1u64 << index)),
+                opponent: board.player ^ flipped,
+            };
+
+            match retrospective_search_limited(
+                &prev,
+                false,
+                discs,
+                leafnode,
+                retrospective_searched,
+                retroflips,
+                node_limit,
+            ) {
+                SearchResult::Found => return SearchResult::Found,
+                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::NotFound => {}
+            }
+        }
+    }
+
+    SearchResult::NotFound
+}
+
 /// pos は opponent が直前に置いた位置 (0..=63)。
 /// 「直前の着手が pos だった」と仮定したときに、
 /// その着手であり得る “ひっくり返り集合” を result に列挙して個数を返す。

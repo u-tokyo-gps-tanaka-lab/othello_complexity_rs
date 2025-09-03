@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search};
+use othello_complexity_rs::lib::search::{retrospective_search_limited, search, SearchResult};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
@@ -101,10 +101,10 @@ fn run() -> io::Result<()> {
     // Ensure project-root `result` directory exists and write outputs there
     let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
     fs::create_dir_all(&result_dir)?;
-    // Output files (UNKNOWN will remain empty under Plan A)
+    // Output files
     let mut ok = File::create(result_dir.join("reverse_OK.txt"))?;
     let mut ng = File::create(result_dir.join("reverse_NG.txt"))?;
-    let _unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?; // kept for compatibility
+    let mut unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?;
 
     // Threshold for leaf collection
     let discs: i32 = env::var("DISCS")
@@ -128,6 +128,12 @@ fn run() -> io::Result<()> {
     let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
 
+    // Node limit for reverse search (unique nodes). Configurable via MAX_NODES
+    let node_limit: usize = env::var("MAX_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1_000_000);
+
     for b in boards {
         let line = b.to_string();
 
@@ -146,17 +152,24 @@ fn run() -> io::Result<()> {
         retrospective_searched.clear();
         // retroflips is grown lazily inside the function as needed
 
-        if retrospective_search(
+        match retrospective_search_limited(
             &b,
             false,
             discs,
             &leafnode,
             &mut retrospective_searched,
             &mut retroflips,
+            node_limit,
         ) {
-            writeln!(ok, "{}", line)?;
-        } else {
-            writeln!(ng, "{}", line)?;
+            SearchResult::Found => {
+                writeln!(ok, "{}", line)?;
+            }
+            SearchResult::NotFound => {
+                writeln!(ng, "{}", line)?;
+            }
+            SearchResult::Unknown => {
+                writeln!(unknown, "{}", line)?;
+            }
         }
     }
 
