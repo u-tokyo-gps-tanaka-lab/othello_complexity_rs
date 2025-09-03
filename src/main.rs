@@ -6,7 +6,7 @@ use std::io::Write;
 use std::io::{self, BufRead, BufReader};
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::reverse_search::{retrospective_search, search};
+use othello_complexity_rs::lib::search::{retrospective_search, search};
 use othello_complexity_rs::lib::solve_kissat::is_sat_ok;
 
 // const DISCMAX: i32 = 15;

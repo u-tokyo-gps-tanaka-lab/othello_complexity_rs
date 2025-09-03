@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::reverse_search::{retrospective_search, search};
+use othello_complexity_rs::lib::search::{retrospective_search, search};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 

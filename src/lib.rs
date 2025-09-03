@@ -1,6 +1,6 @@
 pub mod lib {
     pub mod othello;
-    pub mod reverse_search;
+    pub mod search;
     pub mod solve_kissat;
 }
 
