@@ -3,6 +3,19 @@ use crate::lib::othello::{flip, get_moves, Board, DXYS};
 use std::cmp::min;
 use std::collections::HashSet;
 
+fn mask_to_moves(m: u64) -> String {
+    let mut ans: Vec<String> = vec!["[".to_string()];
+    for i in 0..64 {
+        if m & (1 << i) != 0 {
+            let y = i / 8;
+            let x = i % 8;
+            ans.push(format!("({}, {})", x, y));
+        }
+    }
+    ans.push("]".to_string());
+    ans.join(",")
+}
+
 // translated with ChatGPT 4o
 /**
  * retrospective-dfs-reversi
@@ -174,125 +187,6 @@ pub enum SearchResult {
     Found,
     NotFound,
     Unknown, // node limit exceeded or resource constraint
-}
-
-/// Retrospective search with a node (unique-state) limit.
-/// Behaves like `retrospective_search`, but returns `Unknown` if the number of
-/// unique states visited exceeds `node_limit`.
-pub fn retrospective_search_limited(
-    board: &Board,
-    from_pass: bool,
-    discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
-    retrospective_searched: &mut HashSet<[u64; 2]>,
-    retroflips: &mut Vec<[u64; 10_000]>,
-    node_limit: usize,
-) -> SearchResult {
-    let uni = board.unique();
-    let num_disc = board.popcount() as usize;
-
-    // Threshold: if at or below discs, only check membership in leafnode.
-    if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
-            SearchResult::Found
-        } else {
-            SearchResult::NotFound
-        };
-    }
-
-    // Revisit check
-    if !retrospective_searched.insert(uni) {
-        return SearchResult::NotFound;
-    }
-    // Node limit check
-    if retrospective_searched.len() > node_limit {
-        return SearchResult::Unknown;
-    }
-    // Very large hard cap (previous behavior printed and returned true). Treat as Unknown.
-    if retrospective_searched.len() > 0x20000000 {
-        return SearchResult::Unknown;
-    }
-
-    // Prune by connectivity and segment-3 constraint
-    let occupied = board.player | board.opponent;
-    if !is_connected(occupied) {
-        return SearchResult::NotFound;
-    }
-    if !check_seg3(occupied) {
-        return SearchResult::NotFound;
-    }
-
-    // Pass backward (only once in a row)
-    if !from_pass {
-        if get_moves(board.opponent, board.player) == 0 {
-            let prev = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
-            match retrospective_search_limited(
-                &prev,
-                true,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_limit,
-            ) {
-                SearchResult::Found => return SearchResult::Found,
-                SearchResult::Unknown => return SearchResult::Unknown,
-                SearchResult::NotFound => {}
-            }
-        }
-    }
-
-    // Iterate candidate opponent stones (excluding initial 4 centers)
-    let mut b = board.opponent & !0x0000_0018_1800_0000u64;
-    if b == 0 {
-        return SearchResult::NotFound;
-    }
-
-    // Ensure workspace for current disc count
-    if retroflips.len() <= num_disc {
-        retroflips.resize(num_disc + 1, [0u64; 10_000]);
-    }
-
-    while b != 0 {
-        let index = b.trailing_zeros();
-        b &= b - 1;
-
-        // Enumerate possible flip-sets if the last move was at `index`
-        let num = retrospective_flip(
-            index,
-            board.player,
-            board.opponent,
-            &mut retroflips[num_disc],
-        );
-        for i in 1..num {
-            let flipped = retroflips[num_disc][i];
-            debug_assert!(flipped != 0);
-
-            let prev = Board {
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-
-            match retrospective_search_limited(
-                &prev,
-                false,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_limit,
-            ) {
-                SearchResult::Found => return SearchResult::Found,
-                SearchResult::Unknown => return SearchResult::Unknown,
-                SearchResult::NotFound => {}
-            }
-        }
-    }
-
-    SearchResult::NotFound
 }
 
 /// pos は opponent が直前に置いた位置 (0..=63)。
@@ -547,40 +441,45 @@ pub fn retrospective_search(
     leafnode: &HashSet<[u64; 2]>,
     retrospective_searched: &mut HashSet<[u64; 2]>,
     retroflips: &mut Vec<[u64; 10_000]>,
-) -> bool {
+    node_limit: usize,
+) -> SearchResult {
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
 
     // しきい値以下なら leafnode に含まれているか確認
     if (num_disc as i32) <= discs {
-        if leafnode.contains(&uni) {
+        return if leafnode.contains(&uni) {
             println!("info: found unique board in leafnodes:");
             println!("unique player = {}", uni[0]);
             println!("unique opponent = {}", uni[1]);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
-            return true;
-        }
-        return false;
+            SearchResult::Found
+        } else {
+            SearchResult::NotFound
+        };
     }
 
     // 再訪防止
     if !retrospective_searched.insert(uni) {
-        return false;
+        return SearchResult::NotFound;
+    }
+    if retrospective_searched.len() > node_limit {
+        return SearchResult::Unknown;
     }
     if retrospective_searched.len() > 0x20000000 {
         println!("Memory overflow");
-        return true;
+        return SearchResult::Unknown;
     }
 
     // 8 近傍で連結でなければ打ち切り
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
-        return false;
+        return SearchResult::NotFound;
     }
 
     if !check_seg3(occupied) {
-        return false;
+        return SearchResult::NotFound;
     }
     // let line = board.to_string();
     // if !is_sat_ok(0, &line).unwrap() {
@@ -594,16 +493,18 @@ pub fn retrospective_search(
                 player: board.opponent,
                 opponent: board.player,
             };
-            if retrospective_search(
+            match retrospective_search(
                 &prev,
                 true,
                 discs,
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_limit,
             ) {
-                println!("pass");
-                return true;
+                SearchResult::Found => return SearchResult::Found,
+                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::NotFound => {}
             }
         }
     }
@@ -611,7 +512,7 @@ pub fn retrospective_search(
     // 相手石（中央4マス以外）を候補として走査
     let mut b = board.opponent & !0x0000_0018_1800_0000u64;
     if b == 0 {
-        return false;
+        return SearchResult::NotFound;
     }
 
     // retroflips[num_disc] を使うので、足りなければ拡張
@@ -648,19 +549,23 @@ pub fn retrospective_search(
                 opponent: board.player ^ flipped,
             };
 
-            if retrospective_search(
+            match retrospective_search(
                 &prev,
                 false,
                 discs,
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_limit,
             ) {
-                println!("{}", index);
-                return true;
+                SearchResult::Found => {
+                    return SearchResult::Found;
+                }
+                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::NotFound => {}
             }
         }
     }
 
-    false
+    SearchResult::NotFound
 }

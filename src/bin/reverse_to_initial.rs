@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search_limited, search, SearchResult};
+use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
@@ -152,7 +152,7 @@ fn run() -> io::Result<()> {
         retrospective_searched.clear();
         // retroflips is grown lazily inside the function as needed
 
-        match retrospective_search_limited(
+        match retrospective_search(
             &b,
             false,
             discs,
