@@ -51,7 +51,6 @@ fn process_line(
         retrospective_searched,
         retroflips,
         usize::MAX,
-        None,
     ) {
         SearchResult::Found => {
             println!("OK: {}", bb.to_string());
