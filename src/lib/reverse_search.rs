@@ -456,9 +456,9 @@ pub fn retrospective_search(
         return false;
     }
     // let line = board.to_string();
-    //    if !is_sat_ok(0, &line).unwrap() {
-    //        return false;
-    //    }
+    // if !is_sat_ok(0, &line).unwrap() {
+    //     return false;
+    // }
 
     // パス遡り（from_pass=false かつ 相手に合法手が無い場合）
     if !from_pass {

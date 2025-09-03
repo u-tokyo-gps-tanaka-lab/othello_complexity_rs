@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::env;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Error;
 use std::io::Write;
 use std::io::{self, BufRead, BufReader};
@@ -63,8 +63,11 @@ fn process_line(
 fn process_file(filename: String) -> io::Result<()> {
     let file = File::open(&filename)?;
     let reader = BufReader::new(file);
-    let mut okfile = File::create("sat_OK.txt")?;
-    let mut ngfile = File::create("sat_NG.txt")?;
+    // Ensure project-root `result` directory exists and write outputs there
+    let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
+    fs::create_dir_all(&result_dir)?;
+    let mut okfile = File::create(result_dir.join("sat_OK.txt"))?;
+    let mut ngfile = File::create(result_dir.join("sat_NG.txt"))?;
     let mut searched: HashSet<[u64; 2]> = HashSet::new();
     let mut leafnode: HashSet<[u64; 2]> = HashSet::new();
     for i in 5..=DISCMAX {
