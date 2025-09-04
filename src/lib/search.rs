@@ -502,8 +502,14 @@ pub fn retrospective_search(
                 retroflips,
                 node_limit,
             ) {
-                SearchResult::Found => return SearchResult::Found,
-                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::Found => {
+                    println!("pass");
+                    return SearchResult::Found;
+                }
+                SearchResult::Unknown => {
+                    println!("pass");
+                    return SearchResult::Unknown;
+                }
                 SearchResult::NotFound => {}
             }
         }
@@ -559,9 +565,13 @@ pub fn retrospective_search(
                 node_limit,
             ) {
                 SearchResult::Found => {
+                    println!("{}", index);
                     return SearchResult::Found;
                 }
-                SearchResult::Unknown => return SearchResult::Unknown,
+                SearchResult::Unknown => {
+                    println!("{}", index);
+                    return SearchResult::Unknown;
+                }
                 SearchResult::NotFound => {}
             }
         }
