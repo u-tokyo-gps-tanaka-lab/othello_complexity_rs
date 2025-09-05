@@ -97,6 +97,8 @@ fn run() -> io::Result<()> {
     };
 
     let boards = parse_file_to_boards(input_path)?;
+    let total_input = boards.len();
+    println!("info: read {} board(s) from '{}'.", total_input, input_path);
 
     // Ensure project-root `result` directory exists and write outputs there
     let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
@@ -105,6 +107,7 @@ fn run() -> io::Result<()> {
     let mut ok = File::create(result_dir.join("reverse_OK.txt"))?;
     let mut ng = File::create(result_dir.join("reverse_NG.txt"))?;
     let mut unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?;
+    println!("info: writing outputs under '{}'", result_dir.display());
 
     // Threshold for leaf collection
     let discs: i32 = env::var("DISCS")
@@ -133,6 +136,7 @@ fn run() -> io::Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1_000_000);
+    println!("info: MAX_NODES = {}", node_limit);
 
     for b in boards {
         let line = b.to_string();

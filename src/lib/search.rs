@@ -565,11 +565,11 @@ pub fn retrospective_search(
                 node_limit,
             ) {
                 SearchResult::Found => {
-                    println!("{}", index);
+                    // println!("{}", index);
                     return SearchResult::Found;
                 }
                 SearchResult::Unknown => {
-                    println!("{}", index);
+                    // println!("{}", index);
                     return SearchResult::Unknown;
                 }
                 SearchResult::NotFound => {}
