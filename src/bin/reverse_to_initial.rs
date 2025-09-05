@@ -99,6 +99,8 @@ fn run() -> io::Result<()> {
     };
 
     let boards = parse_file_to_boards(input_path)?;
+    let total_input = boards.len();
+    println!("info: read {} board(s) from '{}'.", total_input, input_path);
 
     // Ensure project-root `result` directory exists and write outputs there
     let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
@@ -107,6 +109,7 @@ fn run() -> io::Result<()> {
     let mut ok = File::create(result_dir.join("reverse_OK.txt"))?;
     let mut ng = File::create(result_dir.join("reverse_NG.txt"))?;
     let mut unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?;
+    println!("info: writing outputs under '{}'", result_dir.display());
 
     // Threshold for leaf collection
     let discs: i32 = env::var("DISCS")
@@ -138,6 +141,8 @@ fn run() -> io::Result<()> {
         .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
         .unwrap_or(1)
         .max(1);
+    println!("info: MAX_NODES = {}", node_limit);
+    println!("info: N (threads) = {}", n_threads);
 
     // Share read-only leaf nodes across threads
     let leafnode_arc = Arc::new(leafnode);
@@ -146,15 +151,20 @@ fn run() -> io::Result<()> {
     if n_threads <= 1 {
         let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
         let mut retroflips: Vec<[u64; 10_000]> = vec![];
+        let mut ok_c = 0usize;
+        let mut ng_c = 0usize;
+        let mut unknown_c = 0usize;
         for b in &boards {
             let line = b.to_string();
             if (b.player & b.opponent) != 0 {
                 writeln!(ng, "{}", line)?;
+                ng_c += 1;
                 continue;
             }
             let occupied = b.player | b.opponent;
             if (occupied & CENTER_MASK) != CENTER_MASK {
                 writeln!(ng, "{}", line)?;
+                ng_c += 1;
                 continue;
             }
 
@@ -168,11 +178,27 @@ fn run() -> io::Result<()> {
                 &mut retroflips,
                 node_limit,
             ) {
-                SearchResult::Found => writeln!(ok, "{}", line)?,
-                SearchResult::NotFound => writeln!(ng, "{}", line)?,
-                SearchResult::Unknown => writeln!(unknown, "{}", line)?,
+                SearchResult::Found => {
+                    writeln!(ok, "{}", line)?;
+                    ok_c += 1;
+                }
+                SearchResult::NotFound => {
+                    writeln!(ng, "{}", line)?;
+                    ng_c += 1;
+                }
+                SearchResult::Unknown => {
+                    writeln!(unknown, "{}", line)?;
+                    unknown_c += 1;
+                }
             }
         }
+        println!(
+            "info: single-thread summary: processed = {}, OK = {}, NG = {}, UNKNOWN = {}",
+            ok_c + ng_c + unknown_c,
+            ok_c,
+            ng_c,
+            unknown_c
+        );
         return Ok(());
     }
 
@@ -180,6 +206,10 @@ fn run() -> io::Result<()> {
     let total = boards.len();
     let n_workers = n_threads.min(total.max(1));
     let chunk = (total + n_workers - 1) / n_workers; // ceil-div
+    println!(
+        "info: workers = {}, chunk = {}, total = {}",
+        n_workers, chunk, total
+    );
 
     // Collect results per category to write sequentially after joins
     let mut handles = Vec::with_capacity(n_workers);
@@ -242,6 +272,15 @@ fn run() -> io::Result<()> {
                     }
                 }
 
+                let processed = ok_lines.len() + ng_lines.len() + unknown_lines.len();
+                println!(
+                    "info: worker done: boards = {}, OK = {}, NG = {}, UNKNOWN = {}",
+                    processed,
+                    ok_lines.len(),
+                    ng_lines.len(),
+                    unknown_lines.len()
+                );
+
                 (ok_lines, ng_lines, unknown_lines)
             })
             .expect("failed to spawn worker thread");
@@ -249,18 +288,31 @@ fn run() -> io::Result<()> {
     }
 
     // Merge results and write once
+    let mut ok_total = 0usize;
+    let mut ng_total = 0usize;
+    let mut unknown_total = 0usize;
     for h in handles {
         let (ok_lines, ng_lines, unknown_lines) = h.join().expect("thread panicked");
         for l in ok_lines {
             writeln!(ok, "{}", l)?;
+            ok_total += 1;
         }
         for l in ng_lines {
             writeln!(ng, "{}", l)?;
+            ng_total += 1;
         }
         for l in unknown_lines {
             writeln!(unknown, "{}", l)?;
+            unknown_total += 1;
         }
     }
+    println!(
+        "info: total summary: processed = {}, OK = {}, NG = {}, UNKNOWN = {}",
+        ok_total + ng_total + unknown_total,
+        ok_total,
+        ng_total,
+        unknown_total
+    );
 
     Ok(())
 }
