@@ -1,0 +1,51 @@
+==> Processing /home/stepney141/othello_complexity_rs/result/random_play/result37.txt -> /home/stepney141/othello_complexity_rs/result/random_play/result37
+info: read 50 board(s) from '/home/stepney141/othello_complexity_rs/result/random_play/result37.txt'.
+info: writing outputs under '/home/stepney141/othello_complexity_rs/result/random_play/result37'
+info: discs = 10: internal = 401, leaf = 1773
+info: MAX_NODES = 100000000
+info: found unique board in leafnodes:
+unique player = 202114048
+unique opponent = 4501931032576
+board player = 9060181971304448
+board opponent = 51944357888
+info: found unique board in leafnodes:
+unique player = 402915840
+unique opponent = 120326721536
+board player = 567451079147520
+board opponent = 4512413370023936
+info: found unique board in leafnodes:
+unique player = 34762915840
+unique opponent = 2314885873876860928
+board player = 240786604032
+board opponent = 135202816
+info: found unique board in leafnodes:
+unique player = 34762915840
+unique opponent = 4512481687109632
+board player = 17695533694976
+board opponent = 35322483181568
+info: found unique board in leafnodes:
+unique player = 34493968416
+unique opponent = 68989486080
+board player = 291608144860151808
+board opponent = 9033622027763712
+info: found unique board in leafnodes:
+unique player = 17650679808
+unique opponent = 567588518100992
+board player = 138379001856
+board opponent = 18049703140655104
+info: found unique board in leafnodes:
+unique player = 51675922432
+unique opponent = 17661175271424
+board player = 35218933153792
+board opponent = 4525658848886784
+info: found unique board in leafnodes:
+unique player = 34495537152
+unique opponent = 70063755264
+board player = 1152357173821440
+board opponent = 2256240944087040
+info: found unique board in leafnodes:
+unique player = 34361321472
+unique opponent = 69122393088
+board player = 5655888081715200
+board opponent = 9042486840262656
+==> Done: /home/stepney141/othello_complexity_rs/result/random_play/result37.txt

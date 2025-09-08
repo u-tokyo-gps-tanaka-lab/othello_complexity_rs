@@ -1,0 +1,38 @@
+==> Processing /home/stepney141/othello_complexity_rs/result/random_play/result40.txt -> /home/stepney141/othello_complexity_rs/result/random_play/result40
+info: read 50 board(s) from '/home/stepney141/othello_complexity_rs/result/random_play/result40.txt'.
+info: writing outputs under '/home/stepney141/othello_complexity_rs/result/random_play/result40'
+info: discs = 10: internal = 401, leaf = 1773
+info: MAX_NODES = 100000000
+info: found unique board in leafnodes:
+unique player = 4398988140544
+unique opponent = 17712445128704
+board player = 4467041763328
+board opponent = 8830654087168
+info: found unique board in leafnodes:
+unique player = 34763177984
+unique opponent = 17799955087360
+board player = 69125275648
+board opponent = 8847733293056
+info: found unique board in leafnodes:
+unique player = 4398852342784
+unique opponent = 257832255488
+board player = 37400709955584
+board opponent = 17695534743552
+info: found unique board in leafnodes:
+unique player = 18119393280
+unique opponent = 17695332761600
+board player = 137908715520
+board opponent = 8899715399680
+info: found unique board in leafnodes:
+unique player = 86168305664
+unique opponent = 17765259804672
+board player = 171933958144
+board opponent = 8882831228928
+pass found
+pass found
+info: found unique board in leafnodes:
+unique player = 34830548992
+unique opponent = 68725772296
+board player = 51942785024
+board opponent = 1130375279542272
+==> Done: /home/stepney141/othello_complexity_rs/result/random_play/result40.txt
