@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::PathBuf;
 
 use othello_complexity_rs::lib::othello::Board;
 use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult};
@@ -89,25 +90,52 @@ fn parse_file_to_boards(path: &str) -> io::Result<Vec<Board>> {
 }
 
 fn run() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let input_path = if args.len() >= 2 {
-        &args[1]
-    } else {
-        "board.txt"
-    };
+    let mut input: Option<String> = None;
+    let mut out_dir_s: Option<String> = None;
 
-    let boards = parse_file_to_boards(input_path)?;
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-o" | "--out-dir" => {
+                out_dir_s = Some(args.next().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "missing value for --out-dir")
+                })?);
+            }
+            _ => {
+                if arg.starts_with('-') {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unknown flag: {}", arg),
+                    ));
+                } else if input.is_none() {
+                    input = Some(arg);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unexpected extra argument: {}", arg),
+                    ));
+                }
+            }
+        }
+    }
+
+    let input_path = input.unwrap_or_else(|| "board.txt".to_string());
+    let boards = parse_file_to_boards(&input_path)?;
     let total_input = boards.len();
     println!("info: read {} board(s) from '{}'.", total_input, input_path);
 
-    // Ensure project-root `result` directory exists and write outputs there
-    let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
-    fs::create_dir_all(&result_dir)?;
+    // Resolve output directory
+    let out_dir = out_dir_s
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"));
+
+    // Ensure output directory exists
+    fs::create_dir_all(&out_dir)?;
     // Output files
-    let mut ok = File::create(result_dir.join("reverse_OK.txt"))?;
-    let mut ng = File::create(result_dir.join("reverse_NG.txt"))?;
-    let mut unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?;
-    println!("info: writing outputs under '{}'", result_dir.display());
+    let mut ok = File::create(out_dir.join("reverse_OK.txt"))?;
+    let mut ng = File::create(out_dir.join("reverse_NG.txt"))?;
+    let mut unknown = File::create(out_dir.join("reverse_UNKNOWN.txt"))?;
+    println!("info: writing outputs under '{}'", out_dir.display());
 
     // Threshold for leaf collection
     let discs: i32 = env::var("DISCS")

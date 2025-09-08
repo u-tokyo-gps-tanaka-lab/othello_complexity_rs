@@ -428,9 +428,9 @@ pub fn retrospective_flip(
     answer
 }
 
-/// C++ の retrospective_search を、グローバル無しで移植。
-/// - `discs`: DISCS に相当する閾値
-/// - `leafnode`: 事前に収集済みのユニーク局面集合（しきい値以上で合法手があるもの）
+/// - `from_pass`: 直前にパスで1手分遡ったか否か
+/// - `discs`: 順方向探索の深さ（石数）
+/// - `leafnode`: 順方向探索で得たuniqueなleafnodeの集合（しきい値以上で合法手があるもの）
 /// - `retrospective_searched`: 既訪問ユニーク局面
 /// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
 ///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
@@ -446,7 +446,7 @@ pub fn retrospective_search(
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
 
-    // しきい値以下なら leafnode に含まれているか確認
+    // 順方向探索の leafnode に含まれているか確認
     if (num_disc as i32) <= discs {
         return if leafnode.contains(&uni) {
             println!("info: found unique board in leafnodes:");
@@ -468,16 +468,20 @@ pub fn retrospective_search(
         return SearchResult::Unknown;
     }
     if retrospective_searched.len() > 0x20000000 {
-        println!("Memory overflow");
+        eprintln!(
+            "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
+            retrospective_searched.len(),
+            node_limit,
+            num_disc,
+            from_pass
+        );
         return SearchResult::Unknown;
     }
 
-    // 8 近傍で連結でなければ打ち切り
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
         return SearchResult::NotFound;
     }
-
     if !check_seg3(occupied) {
         return SearchResult::NotFound;
     }
@@ -486,7 +490,8 @@ pub fn retrospective_search(
     //     return false;
     // }
 
-    // パス遡り（from_pass=false かつ 相手に合法手が無い場合）
+    // パスの処理
+    // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
     if !from_pass {
         if get_moves(board.opponent, board.player) == 0 {
             let prev = Board {
@@ -503,11 +508,11 @@ pub fn retrospective_search(
                 node_limit,
             ) {
                 SearchResult::Found => {
-                    println!("pass");
+                    println!("pass found");
                     return SearchResult::Found;
                 }
                 SearchResult::Unknown => {
-                    println!("pass");
+                    println!("pass found");
                     return SearchResult::Unknown;
                 }
                 SearchResult::NotFound => {}
