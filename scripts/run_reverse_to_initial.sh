@@ -55,6 +55,7 @@ exists_ext_time() {
 run_one() {
   local bin_path="$1"
   local in_path="$2"
+  local quiet="${QUIET:-0}"
 
   if [[ ! -f "$in_path" ]]; then
     echo "[WARN] Input not found: $in_path" >&2
@@ -74,8 +75,14 @@ run_one() {
   log_file="$out_dir/exec.log"
   time_file="$out_dir/time.txt"
 
+  # Ensure previous logs are removed to guarantee overwrite
+  rm -f "$log_file" "$time_file"
   : > "$log_file"
-  echo "==> Processing $in_path -> $out_dir" | tee -a "$log_file"
+  if (( quiet == 1 )); then
+    echo "==> Processing $in_path -> $out_dir" >> "$log_file"
+  else
+    echo "==> Processing $in_path -> $out_dir" | tee -a "$log_file"
+  fi
 
   if [[ ! -x "$bin_path" ]]; then
     echo "[ERROR] Binary not executable or missing: $bin_path" >&2
@@ -84,16 +91,31 @@ run_one() {
 
   if ext_time_cmd=$(exists_ext_time); then
     # Use external `time` with a stable format
-    "$ext_time_cmd" -f $'elapsed:%E\nuser:%U\nsys:%S\nmaxrss_kb:%M' -o "$time_file" \
-      bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
-      "$bin_path" "$in_path" "$out_dir" "$log_file"
+    if (( quiet == 1 )); then
+      "$ext_time_cmd" -f $'elapsed:%E\nuser:%U\nsys:%S\nmaxrss_kb:%M' -o "$time_file" \
+        bash -c $'set -o pipefail; "$1" "$2" -o "$3" >> "$4" 2>&1' _ \
+        "$bin_path" "$in_path" "$out_dir" "$log_file"
+    else
+      "$ext_time_cmd" -f $'elapsed:%E\nuser:%U\nsys:%S\nmaxrss_kb:%M' -o "$time_file" \
+        bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
+        "$bin_path" "$in_path" "$out_dir" "$log_file"
+    fi
   else
     # Portable fallback using shell time -p (writes to stderr); capture it separately
-    { time -p bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
-      "$bin_path" "$in_path" "$out_dir" "$log_file"; } 2> "$time_file"
+    if (( quiet == 1 )); then
+      { time -p bash -c $'set -o pipefail; "$1" "$2" -o "$3" >> "$4" 2>&1' _ \
+        "$bin_path" "$in_path" "$out_dir" "$log_file"; } 2> "$time_file"
+    else
+      { time -p bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
+        "$bin_path" "$in_path" "$out_dir" "$log_file"; } 2> "$time_file"
+    fi
   fi
 
-  echo "==> Done: $in_path" | tee -a "$log_file"
+  if (( quiet == 1 )); then
+    echo "==> Done: $in_path" >> "$log_file"
+  else
+    echo "==> Done: $in_path" | tee -a "$log_file"
+  fi
 }
 
 # Detect available CPU cores for auto parallelism
@@ -220,7 +242,7 @@ main() {
   else
     # Run in parallel using xargs; delegate to this script with a hidden subcommand.
     # Use NUL delimiters to be robust to spaces.
-    printf '%s\0' "${files[@]}" | xargs -0 -n1 -P "$JOBS" bash "$0" __run_one "$BIN_PATH"
+    printf '%s\0' "${files[@]}" | xargs -0 -n1 -P "$JOBS" env QUIET=1 bash "$0" __run_one "$BIN_PATH"
   fi
 }
 
