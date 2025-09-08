@@ -35,10 +35,10 @@ fn xy2sq(x: i32, y: i32) -> usize {
 }
 
 fn solve_by_kissat(
-    index: usize,
+    _index: usize,
     vs: &Vec<Vec<i32>>,
-    num_var: usize,
-    comment: &HashMap<usize, String>,
+    _num_var: usize,
+    _comment: &HashMap<usize, String>,
 ) -> bool {
     let mut solver = rustsat_kissat::Kissat::default();
     let mut cnf = Cnf::new();
@@ -53,7 +53,9 @@ fn solve_by_kissat(
         }
         cnf.add_clause(clause);
     }
-    solver.add_cnf(cnf);
+    if let Err(_) = solver.add_cnf(cnf) {
+        return false;
+    }
     let result = match solver.solve() {
         Ok(res) => res,
         Err(_) => return false,
@@ -66,6 +68,7 @@ fn solve_by_kissat(
     //Ok(())
 }
 
+#[allow(dead_code)]
 fn output_cnf(
     index: usize,
     vs: &Vec<Vec<i32>>,
@@ -75,33 +78,33 @@ fn output_cnf(
     let filename = format!("{}.cnf", index);
     let mut file = File::create(&filename)?;
     for (i, line) in comment.iter() {
-        writeln!(file, "c Var_{}, {}", i, line.clone());
+        writeln!(file, "c Var_{}, {}", i, line)?;
     }
-    writeln!(file, "p cnf {} {}", num_var, vs.len());
+    writeln!(file, "p cnf {} {}", num_var, vs.len())?;
     for line in vs {
-        write!(file, "c ");
+        write!(file, "c ")?;
         for i in 0..line.len() {
             if i > 0 {
-                write!(file, " ");
+                write!(file, " ")?;
             }
             if line[i] > 0 {
                 let v = line[i] as usize;
-                write!(file, "{}", comment.get(&v).unwrap().to_string());
+                write!(file, "{}", comment.get(&v).unwrap())?;
             } else {
                 let v = (-line[i]) as usize;
-                write!(file, "-{}", comment.get(&v).unwrap().to_string());
+                write!(file, "-{}", comment.get(&v).unwrap())?;
             }
         }
-        writeln!(file, "");
+        writeln!(file, "")?;
         for i in 0..line.len() {
             if i > 0 {
-                write!(file, " ");
+                write!(file, " ")?;
             }
-            write!(file, "{}", line[i]);
+            write!(file, "{}", line[i])?;
         }
-        writeln!(file, " 0");
+        writeln!(file, " 0")?;
     }
-    writeln!(file, "");
+    writeln!(file, "")?;
     // Ok(())
     Err(Error::new(ErrorKind::Other, "one cnf file only"))
 }
