@@ -53,7 +53,8 @@ exists_ext_time() {
 }
 
 run_one() {
-  local in_path="$1"
+  local bin_path="$1"
+  local in_path="$2"
 
   if [[ ! -f "$in_path" ]]; then
     echo "[WARN] Input not found: $in_path" >&2
@@ -76,15 +77,20 @@ run_one() {
   : > "$log_file"
   echo "==> Processing $in_path -> $out_dir" | tee -a "$log_file"
 
+  if [[ ! -x "$bin_path" ]]; then
+    echo "[ERROR] Binary not executable or missing: $bin_path" >&2
+    return 2
+  fi
+
   if ext_time_cmd=$(exists_ext_time); then
     # Use external `time` with a stable format
     "$ext_time_cmd" -f $'elapsed:%E\nuser:%U\nsys:%S\nmaxrss_kb:%M' -o "$time_file" \
-      bash -c $'set -o pipefail; cd "$3" && cargo run --release --bin reverse_to_initial "$1" -o "$2" 2>&1 | tee "$4"' _ \
-      "$in_path" "$out_dir" "$REPO_ROOT" "$log_file"
+      bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
+      "$bin_path" "$in_path" "$out_dir" "$log_file"
   else
     # Portable fallback using shell time -p (writes to stderr); capture it separately
-    { time -p bash -c $'set -o pipefail; cd "$3" && cargo run --release --bin reverse_to_initial "$1" -o "$2" 2>&1 | tee "$4"' _ \
-      "$in_path" "$out_dir" "$REPO_ROOT" "$log_file"; } 2> "$time_file"
+    { time -p bash -c $'set -o pipefail; "$1" "$2" -o "$3" 2>&1 | tee "$4"' _ \
+      "$bin_path" "$in_path" "$out_dir" "$log_file"; } 2> "$time_file"
   fi
 
   echo "==> Done: $in_path" | tee -a "$log_file"
@@ -107,9 +113,9 @@ detect_cpus() {
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [-j N]                    # process all result/random_play/result*.txt
-  $(basename "$0") [-j N] N [N ...]          # process specified numbers (e.g., 24 25)
-  $(basename "$0") [-j N] PATH [PATH ...]    # process explicit file paths
+  $(basename "$0") [-j N]                    # build once, then process all result/random_play/result*.txt
+  $(basename "$0") [-j N] N [N ...]          # build once, then process specified numbers (e.g., 24 25)
+  $(basename "$0") [-j N] PATH [PATH ...]    # build once, then process explicit file paths
 
 Options:
   -j, --jobs N   Run up to N jobs in parallel (default: 1)
@@ -120,10 +126,10 @@ USAGE
 }
 
 main() {
-  # Special sub-command for parallel worker
+  # Special sub-command for parallel worker: args = BIN INFILE
   if [[ "${1:-}" == "__run_one" ]]; then
     shift
-    run_one "$1"
+    run_one "$1" "$2"
     return $?
   fi
 
@@ -191,14 +197,30 @@ main() {
 
   echo "Scheduling ${#files[@]} job(s) with -j $JOBS" >&2
 
+  # Build the binary once up front
+  echo "Building reverse_to_initial (release)..." >&2
+  (
+    cd "$REPO_ROOT"
+    cargo build --release --bin reverse_to_initial >&2
+  )
+  local BIN_PATH
+  BIN_PATH="$REPO_ROOT/target/release/reverse_to_initial"
+  if [[ ! -x "$BIN_PATH" && -x "$BIN_PATH.exe" ]]; then
+    BIN_PATH="$BIN_PATH.exe"
+  fi
+  if [[ ! -x "$BIN_PATH" ]]; then
+    echo "[ERROR] Built binary not found: $BIN_PATH" >&2
+    return 2
+  fi
+
   if (( JOBS == 1 )); then
     for f in "${files[@]}"; do
-      run_one "$f"
+      run_one "$BIN_PATH" "$f"
     done
   else
     # Run in parallel using xargs; delegate to this script with a hidden subcommand.
     # Use NUL delimiters to be robust to spaces.
-    printf '%s\0' "${files[@]}" | xargs -0 -n1 -P "$JOBS" bash "$0" __run_one
+    printf '%s\0' "${files[@]}" | xargs -0 -n1 -P "$JOBS" bash "$0" __run_one "$BIN_PATH"
   fi
 }
 
