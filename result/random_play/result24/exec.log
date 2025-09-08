@@ -1,0 +1,256 @@
+==> Processing /home/stepney141/othello_complexity_rs/result/random_play/result24.txt -> /home/stepney141/othello_complexity_rs/result/random_play/result24
+info: read 50 board(s) from '/home/stepney141/othello_complexity_rs/result/random_play/result24.txt'.
+info: writing outputs under '/home/stepney141/othello_complexity_rs/result/random_play/result24'
+info: discs = 10: internal = 401, leaf = 1773
+info: MAX_NODES = 100000000
+info: found unique board in leafnodes:
+unique player = 51675922432
+unique opponent = 30855314538496
+board player = 17695265521664
+board opponent = 35322817675264
+info: found unique board in leafnodes:
+unique player = 34363408384
+unique opponent = 69730304000
+board player = 4415561924608
+board opponent = 1134799213821952
+info: found unique board in leafnodes:
+unique player = 17651990528
+unique opponent = 8899709108224
+board player = 35253363671040
+board opponent = 17626747109376
+info: found unique board in leafnodes:
+unique player = 51546947584
+unique opponent = 17661308436480
+board player = 17660972893184
+board opponent = 4433345773568
+info: found unique board in leafnodes:
+unique player = 86168829952
+unique opponent = 2265028447698944
+board player = 120260132864
+board opponent = 2082471936
+info: found unique board in leafnodes:
+unique player = 17448829952
+unique opponent = 8899847520256
+board player = 9024826337394688
+board opponent = 2285326303232
+info: found unique board in leafnodes:
+unique player = 86169878528
+unique opponent = 2278222653816832
+board player = 17592588959744
+board opponent = 9312025968640
+info: found unique board in leafnodes:
+unique player = 51810140160
+unique opponent = 35254836920320
+board player = 206292910080
+board opponent = 4432776396800
+info: found unique board in leafnodes:
+unique player = 34765545472
+unique opponent = 68787113984
+board player = 6649012027392
+board opponent = 77377044480
+info: found unique board in leafnodes:
+unique player = 120796481536
+unique opponent = 137908715520
+board player = 17686944284672
+board opponent = 8830588026880
+info: found unique board in leafnodes:
+unique player = 103217889280
+unique opponent = 35322618445824
+board player = 103217889280
+board opponent = 35322618445824
+info: found unique board in leafnodes:
+unique player = 86337650688
+unique opponent = 8830520000512
+board player = 2269426762383360
+board opponent = 1134902158295040
+info: found unique board in leafnodes:
+unique player = 36373266432
+unique opponent = 9277129359360
+board player = 36373266432
+board opponent = 9277129359360
+info: found unique board in leafnodes:
+unique player = 740302848
+unique opponent = 17695534219264
+board player = 123145571794944
+board opponent = 120930172928
+info: found unique board in leafnodes:
+unique player = 35035283456
+unique opponent = 88167357087744
+board player = 37469563125760
+board opponent = 34561720320
+info: found unique board in leafnodes:
+unique player = 120800149504
+unique opponent = 470818816
+board player = 9024825935265792
+board opponent = 70575172091904
+info: found unique board in leafnodes:
+unique player = 34696331264
+unique opponent = 35391201869824
+board player = 17627351089152
+board opponent = 35253227618304
+info: found unique board in leafnodes:
+unique player = 404228096
+unique opponent = 249175212032
+board player = 4530090985652224
+board opponent = 138982457344
+info: found unique board in leafnodes:
+unique player = 103551074304
+unique opponent = 4415260000256
+board player = 35305033826304
+board opponent = 1108168933376
+info: found unique board in leafnodes:
+unique player = 135798784
+unique opponent = 17695634358272
+board player = 206699495424
+board opponent = 4521226642915328
+info: found unique board in leafnodes:
+unique player = 35165307904
+unique opponent = 68955406336
+board player = 9042435434872832
+board opponent = 9277263577088
+info: found unique board in leafnodes:
+unique player = 135274496
+unique opponent = 4518674694144
+board player = 69260541952
+board opponent = 4534420715339776
+info: found unique board in leafnodes:
+unique player = 120662786048
+unique opponent = 2625568
+board player = 17695735021568
+board opponent = 2310390589306175488
+info: found unique board in leafnodes:
+unique player = 34630795264
+unique opponent = 68921860160
+board player = 22024860729344
+board opponent = 145250090368368640
+info: found unique board in leafnodes:
+unique player = 68820992
+unique opponent = 120661737472
+board player = 1222794369040384
+board opponent = 104018739200
+info: found unique board in leafnodes:
+unique player = 402915328
+unique opponent = 9328702521344
+board player = 68990009344
+board opponent = 2260630468300800
+info: found unique board in leafnodes:
+unique player = 51675922432
+unique opponent = 17799687700480
+board player = 4398450212864
+board opponent = 2269649697767424
+info: found unique board in leafnodes:
+unique player = 103517519872
+unique opponent = 4415293751296
+board player = 104555872256
+board opponent = 35322350010368
+info: found unique board in leafnodes:
+unique player = 34831597568
+unique opponent = 35665409474560
+board player = 4432809426944
+board opponent = 4556462084849664
+info: found unique board in leafnodes:
+unique player = 103218151424
+unique opponent = 70506990534656
+board player = 79199599591424
+board opponent = 35391071584256
+info: found unique board in leafnodes:
+unique player = 2216204705792
+unique opponent = 103548977152
+board player = 2216271290368
+board opponent = 103482392576
+info: found unique board in leafnodes:
+unique player = 120800149504
+unique opponent = 74904632295424
+board player = 1134764988825600
+board opponent = 9024825936838656
+info: found unique board in leafnodes:
+unique player = 34359752704
+unique opponent = 69123964928
+board player = 7881299616333824
+board opponent = 61675864588288
+info: found unique board in leafnodes:
+unique player = 103482392576
+unique opponent = 63788854280192
+board player = 103482916864
+board opponent = 101292508708864
+info: found unique board in leafnodes:
+unique player = 201852928
+unique opponent = 240787656704
+board player = 8856222564352
+board opponent = 69223841792
+info: found unique board in leafnodes:
+unique player = 51944357888
+unique opponent = 1152356972494848
+board player = 17695399739392
+board opponent = 79303081459712
+info: found unique board in leafnodes:
+unique player = 52082769920
+unique opponent = 35253561327616
+board player = 6615054942208
+board opponent = 240652648448
+info: found unique board in leafnodes:
+unique player = 335938560
+unique opponent = 120426856448
+board player = 9112924169699328
+board opponent = 344536907776
+info: found unique board in leafnodes:
+unique player = 403440128
+unique opponent = 9311489097728
+board player = 34561327616
+board opponent = 4521261338198016
+info: found unique board in leafnodes:
+unique player = 26038239232
+unique opponent = 4512498934351872
+board player = 35970351104
+board opponent = 4521260936595456
+info: found unique board in leafnodes:
+unique player = 771751936
+unique opponent = 240787259392
+board player = 2260630266970112
+board opponent = 1125986209890304
+info: found unique board in leafnodes:
+unique player = 120529616896
+unique opponent = 4406854549504
+board player = 17661308436480
+board opponent = 581008366755643392
+info: found unique board in leafnodes:
+unique player = 26038239232
+unique opponent = 2260699187511296
+board player = 35970351104
+board opponent = 35390934224896
+info: found unique board in leafnodes:
+unique player = 34697510912
+unique opponent = 39668452163584
+board player = 9024826071056384
+board opponent = 13262993489920
+info: found unique board in leafnodes:
+unique player = 94759813120
+unique opponent = 13228700598272
+board player = 35287451830272
+board opponent = 471072768
+info: found unique board in leafnodes:
+unique player = 35299270656
+unique opponent = 68723147776
+board player = 88030052352000
+board opponent = 35356711845888
+info: found unique board in leafnodes:
+unique player = 404227072
+unique opponent = 35287518543872
+board player = 2250764189696
+board opponent = 1134764989874176
+info: found unique board in leafnodes:
+unique player = 120395399168
+unique opponent = 17730967699456
+board player = 35219201589248
+board opponent = 9140228325376
+info: found unique board in leafnodes:
+unique player = 52210696192
+unique opponent = 35253361577984
+board player = 17695265783808
+board opponent = 17685282816
+info: found unique board in leafnodes:
+unique player = 26038239232
+unique opponent = 1134799213824000
+board player = 35970351104
+board opponent = 4521260936601600
+==> Done: /home/stepney141/othello_complexity_rs/result/random_play/result24.txt
