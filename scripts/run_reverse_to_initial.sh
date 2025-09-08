@@ -9,6 +9,9 @@ set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Default parallelism (1 = sequential)
+JOBS=1
+
 find_repo_root() {
   # Prefer walking up from the script location to find Cargo.toml
   local d="$script_dir"
@@ -87,43 +90,116 @@ run_one() {
   echo "==> Done: $in_path" | tee -a "$log_file"
 }
 
+# Detect available CPU cores for auto parallelism
+detect_cpus() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+    return 0
+  fi
+  case "$(uname -s)" in
+    Darwin)
+      command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu && return 0
+      ;;
+  esac
+  getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1
+}
+
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0")              # process all result/random_play/result*.txt
-  $(basename "$0") N [N ...]    # process specified numbers (e.g., 24 25)
-  $(basename "$0") PATH [... ]   # process explicit file paths
+  $(basename "$0") [-j N]                    # process all result/random_play/result*.txt
+  $(basename "$0") [-j N] N [N ...]          # process specified numbers (e.g., 24 25)
+  $(basename "$0") [-j N] PATH [PATH ...]    # process explicit file paths
+
+Options:
+  -j, --jobs N   Run up to N jobs in parallel (default: 1)
+                 Use N=0 or N=auto to match CPU cores.
 
 Outputs per run go to random_play/result{N}/{exec.log,time.txt}.
 USAGE
 }
 
 main() {
-  if [[ $# -eq 0 ]]; then
+  # Special sub-command for parallel worker
+  if [[ "${1:-}" == "__run_one" ]]; then
+    shift
+    run_one "$1"
+    return $?
+  fi
+
+  local positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage; return 0 ;;
+      -j|--jobs)
+        shift || true
+        if [[ -z "${1:-}" ]]; then
+          echo "Missing value for -j/--jobs" >&2; return 2
+        fi
+        JOBS="$1" ;;
+      -j*)
+        JOBS="${1#-j}" ;;
+      --)
+        shift; positional+=("$@"); break ;;
+      *)
+        positional+=("$1") ;;
+    esac
+    shift || true
+  done
+
+  # Normalize JOBS
+  case "$JOBS" in
+    0|auto|AUTO|Auto)
+      JOBS="$(detect_cpus)" ;;
+  esac
+  if ! [[ "$JOBS" =~ ^[0-9]+$ ]] || (( JOBS < 1 )); then
+    echo "Invalid jobs value: $JOBS" >&2
+    return 2
+  fi
+
+  # Build input file list
+  local files=()
+  if [[ ${#positional[@]} -eq 0 ]]; then
     shopt -s nullglob
     mapfile -t files < <(cd "$REPO_ROOT" && printf '%s\n' result/random_play/result*.txt | sort -V)
     shopt -u nullglob
     if [[ ${#files[@]} -eq 0 ]]; then
       echo "No input files matched: $REPO_ROOT/result/random_play/result*.txt" >&2
-      exit 1
+      return 1
     fi
-    for f in "${files[@]}"; do
-      run_one "$REPO_ROOT/$f"
+    # Make files absolute
+    for i in "${!files[@]}"; do files[$i]="$REPO_ROOT/${files[$i]}"; done
+  else
+    for arg in "${positional[@]}"; do
+      if [[ "$arg" =~ ^[0-9]+$ ]]; then
+        files+=("$REPO_ROOT/result/random_play/result${arg}.txt")
+      elif [[ -f "$arg" ]]; then
+        files+=("$arg")
+      elif [[ -f "$REPO_ROOT/$arg" ]]; then
+        files+=("$REPO_ROOT/$arg")
+      else
+        echo "[WARN] Skipping unknown argument: $arg" >&2
+      fi
     done
-    exit 0
   fi
 
-  for arg in "$@"; do
-    if [[ "$arg" =~ ^[0-9]+$ ]]; then
-      run_one "$REPO_ROOT/result/random_play/result${arg}.txt"
-    elif [[ -f "$arg" ]]; then
-      run_one "$arg"
-    elif [[ -f "$REPO_ROOT/$arg" ]]; then
-      run_one "$REPO_ROOT/$arg"
-    else
-      echo "[WARN] Skipping unknown argument: $arg" >&2
-    fi
-  done
+  if (( ${#files[@]} == 0 )); then
+    echo "No valid inputs to process." >&2
+    return 1
+  fi
+
+  echo "Scheduling ${#files[@]} job(s) with -j $JOBS" >&2
+
+  if (( JOBS == 1 )); then
+    for f in "${files[@]}"; do
+      run_one "$f"
+    done
+  else
+    # Run in parallel using xargs; delegate to this script with a hidden subcommand.
+    # Use NUL delimiters to be robust to spaces.
+    printf '%s\0' "${files[@]}" | xargs -0 -n1 -P "$JOBS" bash "$0" __run_one
+  fi
 }
 
 main "$@"
