@@ -56,7 +56,7 @@ fn solve_by_kissat(
     solver.add_cnf(cnf);
     let result = match solver.solve() {
         Ok(res) => res,
-        Err(e) => return false,
+        Err(_) => return false,
         //rustsat::solvers::SolverResult::Sat => println!("SAT: 解あり"),
         //rustsat::solvers::SolverResult::Unsat => println!("UNSAT: 解なし"),
         //rustsat::solvers::SolverResult::Unknown => println!("UNKNOWN: 解けませんでした"),
@@ -137,22 +137,22 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     if sqi.len() != 4 {
         return Err(Error::new(ErrorKind::Other, "empty squares in center 2x2"));
     }
-    let sq33 = xy2sq(3, 3);
+    // let sq33 = xy2sq(3, 3);
 
     // First[sq][col] : sqに最初に置かれる石がcolかどうかを表す論理変数
-    let mut First: Vec<Vec<i32>> = vec![vec![0; 2]; 64];
+    let mut first: Vec<Vec<i32>> = vec![vec![0; 2]; 64];
 
     // Flip[sq][col] : [(sq', col, d, len)], sqをcolにflipするflip全体
-    let mut Flip: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+    let mut flip: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
 
     // Set[sq][col] : [(sq', col, d, len)], flipに加えて First[sq][col] に対応する(sq, col, 0, 0) も含む
-    let mut Set: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+    let mut set: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
 
     // Base[sq][col] : [(sq', col, d, len)], sqがcolであることを利用してcolにflipするflip
-    let mut Base: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
+    let mut base: Vec<Vec<Vec<(usize, usize, usize, usize)>>> = vec![vec![vec![]; 2]; 64];
 
     // F[(sq, col, d, len)] : flip (sq, col, d, len) から論理変数への変換
-    let mut F: HashMap<(usize, usize, usize, usize), i32> = HashMap::new();
+    let mut f: HashMap<(usize, usize, usize, usize), i32> = HashMap::new();
 
     let v_sq33 = vm.mk_var();
     let mut comment: HashMap<usize, String> = HashMap::new();
@@ -167,18 +167,18 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         for col in 0..2 {
             let t = (sq, col, 0, 0);
             let v1 = if col == 0 { v } else { -v };
-            First[sq][col] = v1;
-            F.insert(t, v1);
-            Set[sq][col].push(t);
+            first[sq][col] = v1;
+            f.insert(t, v1);
+            set[sq][col].push(t);
         }
     }
-    let mut Cmp: Vec<Vec<i32>> = vec![vec![0; 64]; 64];
+    let mut cmp: Vec<Vec<i32>> = vec![vec![0; 64]; 64];
     let mut s: Vec<Vec<i32>> = vec![];
     // eprintln!("sqo.len() = {}", sqo.len());
     for &sq in &sqo {
         for &sq1 in &sqo {
             if sq != sq1 {
-                Cmp[sq][sq1] = vm.mk_var();
+                cmp[sq][sq1] = vm.mk_var();
                 comment.insert(vm.count(), format!("Cmp[{}][{}]", sq, sq1).to_string());
             }
         }
@@ -188,12 +188,12 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
             if sq != sq1 {
                 if sq < sq1 {
                     // sq < sq1 かつ sq1 < sq となることはない．
-                    s.push(vec![-Cmp[sq][sq1], -Cmp[sq1][sq]]);
+                    s.push(vec![-cmp[sq][sq1], -cmp[sq1][sq]]);
                 }
                 for &sq2 in &sqo {
                     if sq2 != sq && sq2 != sq1 {
                         // 順序関係には推移律が成り立つ
-                        s.push(vec![-Cmp[sq][sq2], -Cmp[sq2][sq1], Cmp[sq][sq1]]);
+                        s.push(vec![-cmp[sq][sq2], -cmp[sq2][sq1], cmp[sq][sq1]]);
                     }
                 }
             }
@@ -218,19 +218,19 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                         let t = (sq, col, d, rl);
                         let v = vm.mk_var();
                         comment.insert(vm.count(), format!("{:?}", t).to_string());
-                        F.insert(t, v);
+                        f.insert(t, v);
                         ps.push(v);
                         samedir.push(v);
                         for &sq2 in &sqs {
-                            Flip[sq2][col].push(t);
-                            Set[sq2][col].push(t);
+                            flip[sq2][col].push(t);
+                            set[sq2][col].push(t);
                             if in_sqo[sq2] {
-                                s.push(vec![-v, Cmp[sq2][sq]]);
+                                s.push(vec![-v, cmp[sq2][sq]]);
                             }
                         }
-                        Base[sq1][col].push(t);
+                        base[sq1][col].push(t);
                         if in_sqo[sq1] {
-                            s.push(vec![-v, Cmp[sq1][sq]]);
+                            s.push(vec![-v, cmp[sq1][sq]]);
                         }
                     }
                     sqs.push(sq1);
@@ -243,10 +243,10 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                     }
                 }
             }
-            let mut line = vec![-First[sq][col]];
+            let mut line = vec![-first[sq][col]];
             for &f in &ps {
                 // First[sq][1 - col] なら，psの中のflipはFalseになる．
-                s.push(vec![-First[sq][1 - col], -f]);
+                s.push(vec![-first[sq][1 - col], -f]);
                 line.push(f);
             }
             // First[sq][col] なら，psの中のいずれかのflipがTrue
@@ -260,16 +260,16 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     for &sq in &sqall {
         let last_c = if cs[sq] == 'X' { 1 } else { 0 };
         let mut vs = vec![];
-        for &t in &Set[sq][last_c] {
-            let v = *F.get(&t).unwrap();
+        for &t in &set[sq][last_c] {
+            let v = *f.get(&t).unwrap();
             let v1 = vm.mk_var();
             comment.insert(vm.count(), format!("Last[{:?}]", t).to_string());
             vs.push(v1);
             s.push(vec![-v1, v]);
             for col in 0..2 {
-                for &t1 in &Flip[sq][col] {
+                for &t1 in &flip[sq][col] {
                     if t.0 != t1.0 && in_sqo[t.0] && in_sqo[t1.0] {
-                        s.push(vec![-v1, -F.get(&t1).unwrap(), Cmp[t1.0][t.0]]);
+                        s.push(vec![-v1, -f.get(&t1).unwrap(), cmp[t1.0][t.0]]);
                     }
                 }
             }
@@ -284,8 +284,9 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         }
     }
     //eprintln!("end of Last, s.len()={}", s.len());
+
     // Before
-    let mut Before: HashMap<
+    let mut before: HashMap<
         (
             usize,
             (usize, usize, usize, usize),
@@ -295,19 +296,19 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     > = HashMap::new();
     for &sq in &sqo {
         for col in 0..2 {
-            for &t in &Set[sq][col] {
-                for &t1 in &Flip[sq][1 - col] {
+            for &t in &set[sq][col] {
+                for &t1 in &flip[sq][1 - col] {
                     if t.0 != t1.0 {
-                        Before.insert((sq, t, t1), vm.mk_var());
+                        before.insert((sq, t, t1), vm.mk_var());
                         comment.insert(
                             vm.count(),
                             format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),
                         );
                     }
                 }
-                for &t1 in &Base[sq][col] {
+                for &t1 in &base[sq][col] {
                     if t.0 != t1.0 {
-                        Before.insert((sq, t, t1), vm.mk_var());
+                        before.insert((sq, t, t1), vm.mk_var());
                         comment.insert(
                             vm.count(),
                             format!("Before[({}, {:?}, {:?})]", sq, t, t1).to_string(),
@@ -317,33 +318,33 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
             }
         }
     }
-    for ((sq, t1, t2), v) in Before.iter() {
+    for ((sq, t1, t2), v) in before.iter() {
         if t1.3 != 0 || in_sqo[*sq] {
-            s.push(vec![-v, Cmp[t1.0][t2.0]]);
+            s.push(vec![-v, cmp[t1.0][t2.0]]);
         }
-        s.push(vec![-v, *F.get(&t1).unwrap()]);
-        s.push(vec![-v, *F.get(&t2).unwrap()]);
+        s.push(vec![-v, *f.get(&t1).unwrap()]);
+        s.push(vec![-v, *f.get(&t2).unwrap()]);
     }
     for &sq in &sqo {
         // let last_c = if cs[sq] == 'X' {1} else {0};
         for col in 0..2 {
-            for &t1 in &Flip[sq][1 - col] {
-                let mut vs: Vec<i32> = vec![-*F.get(&t1).unwrap()];
-                for &t in &Set[sq][col] {
+            for &t1 in &flip[sq][1 - col] {
+                let mut vs: Vec<i32> = vec![-*f.get(&t1).unwrap()];
+                for &t in &set[sq][col] {
                     if t1.0 == t.0 {
                         continue;
                     }
-                    vs.push(*Before.get(&(sq, t, t1)).unwrap());
+                    vs.push(*before.get(&(sq, t, t1)).unwrap());
                 }
                 s.push(vs);
             }
-            for &t1 in &Base[sq][col] {
-                let mut vs: Vec<i32> = vec![-*F.get(&t1).unwrap()];
-                for &t in &Set[sq][col] {
+            for &t1 in &base[sq][col] {
+                let mut vs: Vec<i32> = vec![-*f.get(&t1).unwrap()];
+                for &t in &set[sq][col] {
                     if t1.0 == t.0 {
                         continue;
                     }
-                    vs.push(*Before.get(&(sq, t, t1)).unwrap());
+                    vs.push(*before.get(&(sq, t, t1)).unwrap());
                 }
                 s.push(vs);
             }
