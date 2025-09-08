@@ -6,7 +6,7 @@ use std::io::Write;
 use std::io::{self, BufRead, BufReader};
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search};
+use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult};
 use othello_complexity_rs::lib::solve_kissat::is_sat_ok;
 
 // const DISCMAX: i32 = 15;
@@ -43,19 +43,26 @@ fn process_line(
     retrospective_searched.clear();
     retroflips.resize(bb.popcount() as usize + 1, [0u64; 10_000]);
     let mut ans = false;
-    if retrospective_search(
+    match retrospective_search(
         &bb,
         false,
         DISCMAX,
         leafnode,
         retrospective_searched,
         retroflips,
+        usize::MAX,
     ) {
-        println!("OK: {}", bb.to_string());
-        println!("len(searched)={}", retrospective_searched.len());
-        ans = true;
-    } else {
-        println!("NG: {}", bb.to_string());
+        SearchResult::Found => {
+            println!("OK: {}", bb.to_string());
+            println!("len(searched)={}", retrospective_searched.len());
+            ans = true;
+        }
+        SearchResult::NotFound => {
+            println!("NG: {}", bb.to_string());
+        }
+        SearchResult::Unknown => {
+            println!("UNKNOWN(limit): {}", bb.to_string());
+        }
     }
     Ok(ans)
 }

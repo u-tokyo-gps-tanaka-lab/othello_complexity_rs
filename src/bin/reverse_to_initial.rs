@@ -2,9 +2,10 @@ use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::PathBuf;
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search};
+use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
@@ -89,22 +90,52 @@ fn parse_file_to_boards(path: &str) -> io::Result<Vec<Board>> {
 }
 
 fn run() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let input_path = if args.len() >= 2 {
-        &args[1]
-    } else {
-        "board.txt"
-    };
+    let mut input: Option<String> = None;
+    let mut out_dir_s: Option<String> = None;
 
-    let boards = parse_file_to_boards(input_path)?;
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-o" | "--out-dir" => {
+                out_dir_s = Some(args.next().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "missing value for --out-dir")
+                })?);
+            }
+            _ => {
+                if arg.starts_with('-') {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unknown flag: {}", arg),
+                    ));
+                } else if input.is_none() {
+                    input = Some(arg);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unexpected extra argument: {}", arg),
+                    ));
+                }
+            }
+        }
+    }
 
-    // Ensure project-root `result` directory exists and write outputs there
-    let result_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result");
-    fs::create_dir_all(&result_dir)?;
-    // Output files (UNKNOWN will remain empty under Plan A)
-    let mut ok = File::create(result_dir.join("reverse_OK.txt"))?;
-    let mut ng = File::create(result_dir.join("reverse_NG.txt"))?;
-    let _unknown = File::create(result_dir.join("reverse_UNKNOWN.txt"))?; // kept for compatibility
+    let input_path = input.unwrap_or_else(|| "board.txt".to_string());
+    let boards = parse_file_to_boards(&input_path)?;
+    let total_input = boards.len();
+    println!("info: read {} board(s) from '{}'.", total_input, input_path);
+
+    // Resolve output directory
+    let out_dir = out_dir_s
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"));
+
+    // Ensure output directory exists
+    fs::create_dir_all(&out_dir)?;
+    // Output files
+    let mut ok = File::create(out_dir.join("reverse_OK.txt"))?;
+    let mut ng = File::create(out_dir.join("reverse_NG.txt"))?;
+    let mut unknown = File::create(out_dir.join("reverse_UNKNOWN.txt"))?;
+    println!("info: writing outputs under '{}'", out_dir.display());
 
     // Threshold for leaf collection
     let discs: i32 = env::var("DISCS")
@@ -128,6 +159,13 @@ fn run() -> io::Result<()> {
     let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
 
+    // Node limit for reverse search (unique nodes). Configurable via MAX_NODES
+    let node_limit: usize = env::var("MAX_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1_000_000);
+    println!("info: MAX_NODES = {}", node_limit);
+
     for b in boards {
         let line = b.to_string();
 
@@ -146,17 +184,24 @@ fn run() -> io::Result<()> {
         retrospective_searched.clear();
         // retroflips is grown lazily inside the function as needed
 
-        if retrospective_search(
+        match retrospective_search(
             &b,
             false,
             discs,
             &leafnode,
             &mut retrospective_searched,
             &mut retroflips,
+            node_limit,
         ) {
-            writeln!(ok, "{}", line)?;
-        } else {
-            writeln!(ng, "{}", line)?;
+            SearchResult::Found => {
+                writeln!(ok, "{}", line)?;
+            }
+            SearchResult::NotFound => {
+                writeln!(ng, "{}", line)?;
+            }
+            SearchResult::Unknown => {
+                writeln!(unknown, "{}", line)?;
+            }
         }
     }
 

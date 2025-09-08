@@ -3,6 +3,19 @@ use crate::lib::othello::{flip, get_moves, Board, DXYS};
 use std::cmp::min;
 use std::collections::HashSet;
 
+fn mask_to_moves(m: u64) -> String {
+    let mut ans: Vec<String> = vec!["[".to_string()];
+    for i in 0..64 {
+        if m & (1 << i) != 0 {
+            let y = i / 8;
+            let x = i % 8;
+            ans.push(format!("({}, {})", x, y));
+        }
+    }
+    ans.push("]".to_string());
+    ans.join(",")
+}
+
 // translated with ChatGPT 4o
 /**
  * retrospective-dfs-reversi
@@ -166,6 +179,14 @@ pub fn search(
         };
         search(&next, searched, leafnode, discs);
     }
+}
+
+/// Tri-state result for limited search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchResult {
+    Found,
+    NotFound,
+    Unknown, // node limit exceeded or resource constraint
 }
 
 /// pos は opponent が直前に置いた位置 (0..=63)。
@@ -407,9 +428,9 @@ pub fn retrospective_flip(
     answer
 }
 
-/// C++ の retrospective_search を、グローバル無しで移植。
-/// - `discs`: DISCS に相当する閾値
-/// - `leafnode`: 事前に収集済みのユニーク局面集合（しきい値以上で合法手があるもの）
+/// - `from_pass`: 直前にパスで1手分遡ったか否か
+/// - `discs`: 順方向探索の深さ（石数）
+/// - `leafnode`: 順方向探索で得たuniqueなleafnodeの集合（しきい値以上で合法手があるもの）
 /// - `retrospective_searched`: 既訪問ユニーク局面
 /// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
 ///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
@@ -420,63 +441,81 @@ pub fn retrospective_search(
     leafnode: &HashSet<[u64; 2]>,
     retrospective_searched: &mut HashSet<[u64; 2]>,
     retroflips: &mut Vec<[u64; 10_000]>,
-) -> bool {
+    node_limit: usize,
+) -> SearchResult {
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
 
-    // しきい値以下なら leafnode に含まれているか確認
+    // 順方向探索の leafnode に含まれているか確認
     if (num_disc as i32) <= discs {
-        if leafnode.contains(&uni) {
+        return if leafnode.contains(&uni) {
             println!("info: found unique board in leafnodes:");
             println!("unique player = {}", uni[0]);
             println!("unique opponent = {}", uni[1]);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
-            return true;
-        }
-        return false;
+            SearchResult::Found
+        } else {
+            SearchResult::NotFound
+        };
     }
 
     // 再訪防止
     if !retrospective_searched.insert(uni) {
-        return false;
+        return SearchResult::NotFound;
+    }
+    if retrospective_searched.len() > node_limit {
+        return SearchResult::Unknown;
     }
     if retrospective_searched.len() > 0x20000000 {
-        println!("Memory overflow");
-        return true;
+        eprintln!(
+            "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
+            retrospective_searched.len(),
+            node_limit,
+            num_disc,
+            from_pass
+        );
+        return SearchResult::Unknown;
     }
 
-    // 8 近傍で連結でなければ打ち切り
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
-        return false;
+        return SearchResult::NotFound;
     }
-
     if !check_seg3(occupied) {
-        return false;
+        return SearchResult::NotFound;
     }
     // let line = board.to_string();
     // if !is_sat_ok(0, &line).unwrap() {
     //     return false;
     // }
 
-    // パス遡り（from_pass=false かつ 相手に合法手が無い場合）
+    // パスの処理
+    // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
     if !from_pass {
         if get_moves(board.opponent, board.player) == 0 {
             let prev = Board {
                 player: board.opponent,
                 opponent: board.player,
             };
-            if retrospective_search(
+            match retrospective_search(
                 &prev,
                 true,
                 discs,
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_limit,
             ) {
-                println!("pass");
-                return true;
+                SearchResult::Found => {
+                    println!("pass found");
+                    return SearchResult::Found;
+                }
+                SearchResult::Unknown => {
+                    println!("pass found");
+                    return SearchResult::Unknown;
+                }
+                SearchResult::NotFound => {}
             }
         }
     }
@@ -484,7 +523,7 @@ pub fn retrospective_search(
     // 相手石（中央4マス以外）を候補として走査
     let mut b = board.opponent & !0x0000_0018_1800_0000u64;
     if b == 0 {
-        return false;
+        return SearchResult::NotFound;
     }
 
     // retroflips[num_disc] を使うので、足りなければ拡張
@@ -521,19 +560,27 @@ pub fn retrospective_search(
                 opponent: board.player ^ flipped,
             };
 
-            if retrospective_search(
+            match retrospective_search(
                 &prev,
                 false,
                 discs,
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_limit,
             ) {
-                println!("{}", index);
-                return true;
+                SearchResult::Found => {
+                    // println!("{}", index);
+                    return SearchResult::Found;
+                }
+                SearchResult::Unknown => {
+                    // println!("{}", index);
+                    return SearchResult::Unknown;
+                }
+                SearchResult::NotFound => {}
             }
         }
     }
 
-    false
+    SearchResult::NotFound
 }
