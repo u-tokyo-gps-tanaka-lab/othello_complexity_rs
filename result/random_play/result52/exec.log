@@ -1,0 +1,8 @@
+==> Processing /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result52.txt -> /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result52
+info: read 50 board(s) from '/mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result52.txt'.
+info: writing outputs under '/mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result52'
+info: discs = 10: internal = 401, leaf = 1773
+info: MAX_NODES = 100000000
+pass found
+pass found
+==> Done: /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result52.txt

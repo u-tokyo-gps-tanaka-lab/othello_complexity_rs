@@ -1,0 +1,16 @@
+==> Processing /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result47.txt -> /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result47
+info: read 50 board(s) from '/mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result47.txt'.
+info: writing outputs under '/mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result47'
+info: discs = 10: internal = 401, leaf = 1773
+info: MAX_NODES = 100000000
+info: found unique board in leafnodes:
+unique player = 135135232
+unique opponent = 120596725760
+board player = 15427522527232
+board opponent = 35270741196800
+info: found unique board in leafnodes:
+unique player = 34493970432
+unique opponent = 68989486080
+board player = 7881368335810560
+board opponent = 9033622027763712
+==> Done: /mnt/home/sotaro-ici/othello_complexity_rs/result/random_play/result47.txt

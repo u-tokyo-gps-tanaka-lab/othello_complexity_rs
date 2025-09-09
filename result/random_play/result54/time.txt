@@ -1,0 +1,4 @@
+elapsed:3:58:13
+user:13753.66
+sys:539.03
+maxrss_kb:3352632
