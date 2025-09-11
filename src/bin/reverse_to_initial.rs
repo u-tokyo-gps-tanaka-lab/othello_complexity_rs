@@ -1,93 +1,14 @@
 use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
+use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult, Btable};
+use othello_complexity_rs::lib::search::{retrospective_search, search, Btable, SearchResult};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
-
-fn parse_line_to_board(line: &str) -> Option<Board> {
-    let mut player: u64 = 0;
-    let mut opponent: u64 = 0;
-    let mut idx = 0u32;
-    for c in line.chars() {
-        match c {
-            'X' => {
-                if idx >= 64 {
-                    return None;
-                }
-                player |= 1_u64 << idx;
-                idx += 1;
-            }
-            'O' => {
-                if idx >= 64 {
-                    return None;
-                }
-                opponent |= 1_u64 << idx;
-                idx += 1;
-            }
-            '-' => {
-                if idx >= 64 {
-                    return None;
-                }
-                idx += 1;
-            }
-            _ => (),
-        }
-    }
-    if idx == 64 {
-        Some(Board::new(player, opponent))
-    } else {
-        None
-    }
-}
-
-fn parse_file_to_boards(path: &str) -> io::Result<Vec<Board>> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-
-    let mut boards: Vec<Board> = Vec::new();
-
-    // 1) per-line 64-char records
-    for line in reader.lines() {
-        let l = line?;
-        let filtered: String = l
-            .chars()
-            .filter(|&c| c == 'X' || c == 'O' || c == '-')
-            .collect();
-        if filtered.len() == 64 {
-            if let Some(b) = parse_line_to_board(&filtered) {
-                boards.push(b);
-            }
-        }
-    }
-
-    if !boards.is_empty() {
-        return Ok(boards);
-    }
-
-    // 2) fallback: whole file aggregated as a single 8x8
-    let file = File::open(path)?;
-    let mut all = String::new();
-    BufReader::new(file).read_to_string(&mut all)?;
-    let filtered: String = all
-        .chars()
-        .filter(|&c| c == 'X' || c == 'O' || c == '-')
-        .collect();
-    if filtered.len() == 64 {
-        if let Some(b) = parse_line_to_board(&filtered) {
-            return Ok(vec![b]);
-        }
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "failed to parse any 64-cell X/O/- board(s)",
-    ))
-}
 
 fn run() -> io::Result<()> {
     let mut input: Option<String> = None;

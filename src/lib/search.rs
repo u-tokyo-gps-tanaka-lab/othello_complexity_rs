@@ -6,12 +6,16 @@ use std::collections::HashSet;
 pub struct Btable {
     cache_size: usize,
     table: Vec<[u64; 2]>,
-    cache: HashSet<[u64;2]>,
+    cache: HashSet<[u64; 2]>,
 }
 
 impl Btable {
     pub fn new(table_size: usize, cache_size: usize) -> Self {
-        Btable {cache_size: cache_size, table: Vec::with_capacity(table_size), cache: HashSet::new() }
+        Btable {
+            cache_size: cache_size,
+            table: Vec::with_capacity(table_size),
+            cache: HashSet::new(),
+        }
     }
     pub fn clear(&mut self) {
         self.table.clear();
@@ -30,12 +34,12 @@ impl Btable {
                 self.cache.clear();
                 return true;
             }
-            let mut c2v: Vec<[u64;2]> = self.cache.iter().map(|x| *x).collect();
+            let mut c2v: Vec<[u64; 2]> = self.cache.iter().map(|x| *x).collect();
             self.cache.clear();
             c2v.sort();
             let mut i = self.table.len();
             let mut j = c2v.len();
-            self.table.resize(i + j, [0u64;2]);
+            self.table.resize(i + j, [0u64; 2]);
             for k in (0..(i + j)).rev() {
                 if j == 0 || (i > 0 && self.table[i - 1] >= c2v[j - 1]) {
                     self.table[k] = self.table[i - 1];
@@ -45,7 +49,6 @@ impl Btable {
                     j -= 1;
                 }
             }
-            
         }
         return true;
     }
