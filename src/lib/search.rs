@@ -3,6 +3,54 @@ use crate::lib::othello::{flip, get_moves, Board, DXYS};
 use std::cmp::min;
 use std::collections::HashSet;
 
+pub struct Btable {
+    cache_size: usize,
+    table: Vec<[u64; 2]>,
+    cache: HashSet<[u64;2]>,
+}
+
+impl Btable {
+    pub fn new(table_size: usize, cache_size: usize) -> Self {
+        Btable {cache_size: cache_size, table: Vec::with_capacity(table_size), cache: HashSet::new() }
+    }
+    pub fn clear(&mut self) {
+        self.table.clear();
+        self.cache.clear();
+    }
+    fn insert(&mut self, uni: [u64; 2]) -> bool {
+        if self.cache.contains(&uni) {
+            return false;
+        }
+        if let Ok(_) = self.table.binary_search(&uni) {
+            return false;
+        }
+        self.cache.insert(uni);
+        if self.cache.len() >= self.cache_size {
+            if self.table.len() + self.cache.len() > self.table.capacity() {
+                self.cache.clear();
+                return true;
+            }
+            let mut c2v: Vec<[u64;2]> = self.cache.iter().map(|x| *x).collect();
+            self.cache.clear();
+            c2v.sort();
+            let mut i = self.table.len();
+            let mut j = c2v.len();
+            self.table.resize(i + j, [0u64;2]);
+            for k in (0..(i + j)).rev() {
+                if j == 0 || (i > 0 && self.table[i - 1] >= c2v[j - 1]) {
+                    self.table[k] = self.table[i - 1];
+                    i -= 1;
+                } else {
+                    self.table[k] = c2v[j - 1];
+                    j -= 1;
+                }
+            }
+            
+        }
+        return true;
+    }
+}
+
 fn mask_to_moves(m: u64) -> String {
     let mut ans: Vec<String> = vec!["[".to_string()];
     for i in 0..64 {
@@ -439,8 +487,9 @@ pub fn retrospective_search(
     from_pass: bool,
     discs: i32,
     leafnode: &HashSet<[u64; 2]>,
-    retrospective_searched: &mut HashSet<[u64; 2]>,
+    retrospective_searched: &mut Btable,
     retroflips: &mut Vec<[u64; 10_000]>,
+    node_count: &mut usize,
     node_limit: usize,
 ) -> SearchResult {
     let uni = board.unique();
@@ -464,19 +513,23 @@ pub fn retrospective_search(
     if !retrospective_searched.insert(uni) {
         return SearchResult::NotFound;
     }
-    if retrospective_searched.len() > node_limit {
+    *node_count += 1;
+    if *node_count > node_limit {
         return SearchResult::Unknown;
     }
-    if retrospective_searched.len() > 0x20000000 {
-        eprintln!(
-            "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
-            retrospective_searched.len(),
-            node_limit,
-            num_disc,
-            from_pass
-        );
-        return SearchResult::Unknown;
-    }
+    //if retrospective_searched.len() > node_limit {
+    //    return SearchResult::Unknown;
+    //}
+    //if retrospective_searched.len() > 0x20000000 {
+    //    eprintln!(
+    //        "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
+    //        retrospective_searched.len(),
+    //        node_limit,
+    //        num_disc,
+    //        from_pass
+    //    );
+    //    return SearchResult::Unknown;
+    //}
 
     let occupied = board.player | board.opponent;
     if !is_connected(occupied) {
@@ -505,6 +558,7 @@ pub fn retrospective_search(
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_count,
                 node_limit,
             ) {
                 SearchResult::Found => {
@@ -567,6 +621,7 @@ pub fn retrospective_search(
                 leafnode,
                 retrospective_searched,
                 retroflips,
+                node_count,
                 node_limit,
             ) {
                 SearchResult::Found => {

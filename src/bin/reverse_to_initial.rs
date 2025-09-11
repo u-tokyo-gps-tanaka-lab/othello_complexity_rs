@@ -5,7 +5,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult};
+use othello_complexity_rs::lib::search::{retrospective_search, search, SearchResult, Btable};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
@@ -156,7 +156,8 @@ fn run() -> io::Result<()> {
     );
 
     // Buffers reused for each retrospective search
-    let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
+    //let mut retrospective_searched: HashSet<[u64; 2]> = HashSet::new();
+    let mut retrospective_searched: Btable = Btable::new(0x100000000, 0x10000);
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
 
     // Node limit for reverse search (unique nodes). Configurable via MAX_NODES
@@ -165,6 +166,7 @@ fn run() -> io::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1_000_000);
     println!("info: MAX_NODES = {}", node_limit);
+    let mut node_count: usize = 0;
 
     for b in boards {
         let line = b.to_string();
@@ -182,6 +184,7 @@ fn run() -> io::Result<()> {
 
         // fresh visited set per board
         retrospective_searched.clear();
+        node_count = 0;
         // retroflips is grown lazily inside the function as needed
 
         match retrospective_search(
@@ -191,6 +194,7 @@ fn run() -> io::Result<()> {
             &leafnode,
             &mut retrospective_searched,
             &mut retroflips,
+            &mut node_count,
             node_limit,
         ) {
             SearchResult::Found => {
