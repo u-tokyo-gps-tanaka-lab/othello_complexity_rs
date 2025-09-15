@@ -89,6 +89,12 @@ fn run() -> io::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1_000_000);
     println!("info: MAX_NODES = {}", node_limit);
+    // Node limit for reverse search (unique nodes). Configurable via TABLE_SIZE
+    let table_limit: usize = env::var("TABLE_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1_00_000);
+    println!("info: TABLE_SIZE = {}", table_limit);
     let pool_threads = 60;
     init_rayon(Some(60));
     //let visited = DashSet::new();
@@ -119,6 +125,7 @@ fn run() -> io::Result<()> {
             discs,
             &leafnode,
             node_limit,
+            table_limit,
         );
         match stat {
             SearchResult::Found => {

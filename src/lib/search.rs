@@ -671,7 +671,9 @@ struct ParShared<'a> {
     visited:  &'a DashSet<[u64; 2]>,                   // 既訪問ユニーク局面
     discs: i32,
     node_limit: usize,
+    table_limit: usize,
     node_count: &'a AtomicUsize,                       // 走査ノード数
+    table_count: &'a AtomicUsize,                       // 走査ノード数
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
 }
@@ -696,9 +698,11 @@ pub fn retrospective_search_parallel(
     discs: i32,
     leafnode: &std::collections::HashSet<[u64; 2]>,
     node_limit: usize,
+    table_limit: usize,
 ) -> SearchResult {
     let visited = DashSet::new();
     let node_count = AtomicUsize::new(0);
+    let table_count = AtomicUsize::new(0);
     let stop = AtomicUsize::new(0);
 
     let shared = ParShared {
@@ -706,7 +710,9 @@ pub fn retrospective_search_parallel(
         visited: &visited,
         discs,
         node_limit,
+        table_limit,
         node_count: &node_count,
+        table_count: &table_count,
         stop: &stop,
     };
 
@@ -742,8 +748,15 @@ fn par_retro_core(
     }
 
     // 再訪防止
-    if !sh.visited.insert(uni) {
-        return SearchResult::NotFound;
+    let n = sh.table_count.fetch_add(1, Ordering::Relaxed) + 1;
+    if n < sh.table_limit {
+        if !sh.visited.insert(uni) {
+            return SearchResult::NotFound;
+        }
+    } else {
+        if sh.visited.contains(&uni) {
+            return SearchResult::NotFound;
+        }
     }
 
     // ノード数制限
