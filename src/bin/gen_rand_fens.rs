@@ -144,11 +144,13 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
     Board::new(player, opponent)
 }
 
-// 実行方法: cargo run --bin gen_rand_fens -- -n {{数値}}
-// ref. https://zenn.dev/kiyozmi/articles/cargo-command-line-args
+/// 実行方法: cargo run --bin gen_rand_fens -- -n {{数値}} [-c {{生成個数}}]
+/// - -n {{数値}}: 中心4マス以外に石を置くマス数 (0ならばマス数を限定しない全状態から抽出)
+/// - -c {{生成個数}}: 生成個数 (デフォルト50)
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    let mut n: usize = 0; // デフォルト値
+    let mut stone_count: usize = 0; // マス数のデフォルト値
+    let mut gen_count: usize = 50; // 生成個数のデフォルト値
     let mut rng = rand::rng();
 
     // 引数を順番に走査
@@ -156,25 +158,42 @@ fn main() -> std::io::Result<()> {
     while i < args.len() {
         if args[i] == "-n" {
             if i + 1 < args.len() {
-                n = args[i + 1]
+                stone_count = args[i + 1]
                     .parse::<usize>()
                     .expect("整数を指定してください");
             } else {
                 eprintln!("-n の後に数値を指定してください");
                 std::process::exit(1);
             }
+        } else if args[i] == "-c" {
+            if i + 1 < args.len() {
+                gen_count = args[i + 1]
+                    .parse::<usize>()
+                    .expect("整数を指定してください");
+                if gen_count < 1 {
+                    eprintln!("-c の値は 1 以上を指定してください");
+                    std::process::exit(1);
+                }
+            } else {
+                eprintln!("-c の後に数値を指定してください");
+                std::process::exit(1);
+            }
         }
         i += 1;
     }
 
-    let out_dir = Path::new("result").join("random_board");
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("result")
+        .join("random_board");
     if !out_dir.exists() {
         fs::create_dir_all(&out_dir)?;
     }
-    let file_path = out_dir.join(format!("result{}.txt", n));
+
+    // 出力ファイル名: result_n{stone_count}_c{gen_count}.txt
+    let file_path = out_dir.join(format!("result_n{}_c{}.txt", stone_count, gen_count));
     let mut file = File::create(&file_path)?;
-    for _ in 0..50 {
-        let b = mk_rand_board(&mut rng, n);
+    for _ in 0..gen_count {
+        let b = mk_rand_board(&mut rng, stone_count);
         writeln!(file, "{}", b.to_string())?;
     }
     Ok(())
