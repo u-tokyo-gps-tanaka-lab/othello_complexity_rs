@@ -673,7 +673,10 @@ struct ParShared<'a> {
     node_limit: usize,
     table_limit: usize,
     node_count: &'a AtomicUsize,                       // 走査ノード数
+    node_per_stone: &'a [AtomicUsize; 65],
+    done_per_stone: &'a [AtomicUsize; 65],
     table_count: &'a AtomicUsize,                       // 走査ノード数
+
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
 }
@@ -703,6 +706,8 @@ pub fn retrospective_search_parallel(
     let visited = DashSet::new();
     let node_count = AtomicUsize::new(0);
     let table_count = AtomicUsize::new(0);
+    let node_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
+    let done_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
     let stop = AtomicUsize::new(0);
 
     let shared = ParShared {
@@ -713,11 +718,17 @@ pub fn retrospective_search_parallel(
         table_limit,
         node_count: &node_count,
         table_count: &table_count,
+        node_per_stone: &node_per_stone,
+        done_per_stone: &done_per_stone,
         stop: &stop,
     };
 
     // ルート呼び出し
-    par_retro_core(board, from_pass, &shared, 0)
+    let res = par_retro_core(board, from_pass, &shared, 0);
+    for i in 0..=64 {
+        eprintln!("{}: {} / {}", i, done_per_stone[i].load(Ordering::Relaxed), node_per_stone[i].load(Ordering::Relaxed));
+    }
+    res
 }
 
 //--------------------------------------
@@ -737,6 +748,9 @@ fn par_retro_core(
 
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
+
+    // カウンターの変更
+    sh.done_per_stone[num_disc].fetch_add(1, Ordering::Relaxed);
 
     // しきい以下なら leafnode 照合のみ
     if (num_disc as i32) <= sh.discs {
@@ -814,6 +828,9 @@ fn par_retro_core(
         return SearchResult::NotFound;
     }
 
+    //
+    let csize = children.len();
+    sh.node_per_stone[num_disc - 1].fetch_add(csize, Ordering::Relaxed);
     // ---- 動的に並列 or 直列を選ぶ ----
     if should_split(depth, children.len()) {
         use std::sync::atomic::AtomicUsize;

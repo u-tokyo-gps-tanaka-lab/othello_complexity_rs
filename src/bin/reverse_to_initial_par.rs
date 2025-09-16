@@ -3,8 +3,6 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use dashmap::DashSet;
-use std::sync::atomic::AtomicUsize;
 
 use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::othello::Board;
@@ -95,10 +93,8 @@ fn run() -> io::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1_00_000);
     println!("info: TABLE_SIZE = {}", table_limit);
-    let pool_threads = 60;
     init_rayon(Some(60));
     //let visited = DashSet::new();
-    let mut node_count = AtomicUsize::new(0);
 
     for b in boards {
         let line = b.to_string();
@@ -116,9 +112,7 @@ fn run() -> io::Result<()> {
 
         // fresh visited set per board
         //retrospective_searched.clear();
-        node_count = AtomicUsize::new(0);
         // retroflips is grown lazily inside the function as needed
-        let split_depth = 3;
         let stat = retrospective_search_parallel(
             &b,
             /*from_pass=*/ false,
