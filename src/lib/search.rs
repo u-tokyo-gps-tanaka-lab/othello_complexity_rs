@@ -650,8 +650,8 @@ pub fn retrospective_search(
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
-const PAR_MAX_DEPTH: usize = 6;       // この深さまでは spawn を許可
-const PAR_MIN_CHILDREN: usize = 4;    // 子の数がこの数以上なら分割を検討
+const PAR_MAX_DEPTH: usize = 6; // この深さまでは spawn を許可
+const PAR_MIN_CHILDREN: usize = 4; // 子の数がこの数以上なら分割を検討
 
 #[inline]
 fn should_split(depth: usize, children: usize) -> bool {
@@ -668,12 +668,12 @@ thread_local! {
 // 並列探索用の共有状態
 struct ParShared<'a> {
     leafnode: &'a std::collections::HashSet<[u64; 2]>, // 読み取り専用
-    visited:  &'a DashSet<[u64; 2]>,                   // 既訪問ユニーク局面
+    visited: &'a DashSet<[u64; 2]>,                    // 既訪問ユニーク局面
     discs: i32,
     node_limit: usize,
     table_limit: usize,
-    node_count: &'a AtomicUsize,                       // 走査ノード数
-    table_count: &'a AtomicUsize,                       // 走査ノード数
+    node_count: &'a AtomicUsize,  // 走査ノード数
+    table_count: &'a AtomicUsize, // 走査ノード数
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
 }
@@ -685,7 +685,9 @@ pub fn init_rayon(num_threads: Option<usize>) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let mut b = ThreadPoolBuilder::new();
-        if let Some(n) = num_threads { b = b.num_threads(n); }
+        if let Some(n) = num_threads {
+            b = b.num_threads(n);
+        }
         b.build_global().expect("failed to init global rayon pool");
     });
 }
@@ -722,12 +724,7 @@ pub fn retrospective_search_parallel(
 
 //--------------------------------------
 // 動的並列コア
-fn par_retro_core(
-    board: &Board,
-    from_pass: bool,
-    sh: &ParShared,
-    depth: usize,
-) -> SearchResult {
+fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) -> SearchResult {
     // 全体の早期停止を確認
     match sh.stop.load(Ordering::Relaxed) {
         1 => return SearchResult::Found,
@@ -740,9 +737,15 @@ fn par_retro_core(
 
     // しきい以下なら leafnode 照合のみ
     if (num_disc as i32) <= sh.discs {
-        let r = if sh.leafnode.contains(&uni) { SearchResult::Found } else { SearchResult::NotFound };
+        let r = if sh.leafnode.contains(&uni) {
+            SearchResult::Found
+        } else {
+            SearchResult::NotFound
+        };
         if r == SearchResult::Found {
-            let _ = sh.stop.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
+            let _ = sh
+                .stop
+                .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
         }
         return r;
     }
@@ -763,7 +766,9 @@ fn par_retro_core(
     let n = sh.node_count.fetch_add(1, Ordering::Relaxed) + 1;
     if n > sh.node_limit {
         // Unknown（上限超過）を全体に通知
-        let _ = sh.stop.compare_exchange(0, 2, Ordering::Relaxed, Ordering::Relaxed);
+        let _ = sh
+            .stop
+            .compare_exchange(0, 2, Ordering::Relaxed, Ordering::Relaxed);
         return SearchResult::Unknown;
     }
 
@@ -777,7 +782,13 @@ fn par_retro_core(
     // 1) パス枝（from_pass==false かつ 相手に合法手無し）
     let mut children: Vec<(Board, bool)> = Vec::new(); // (prev_board, from_pass_prev)
     if !from_pass && get_moves(board.opponent, board.player) == 0 {
-        children.push((Board { player: board.opponent, opponent: board.player }, true));
+        children.push((
+            Board {
+                player: board.opponent,
+                opponent: board.player,
+            },
+            true,
+        ));
     }
 
     // 2) 直前着手位置ごとの “可能 flip 集合” 展開
@@ -829,7 +840,9 @@ fn par_retro_core(
                 match r0 {
                     SearchResult::Found => {
                         local_best.store(SearchResult::Found as usize, Ordering::Relaxed);
-                        let _ = sh.stop.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
+                        let _ =
+                            sh.stop
+                                .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
                     }
                     SearchResult::Unknown => {
                         if local_best.load(Ordering::Relaxed) == (SearchResult::NotFound as usize) {
@@ -853,7 +866,12 @@ fn par_retro_core(
                     match r {
                         SearchResult::Found => {
                             lb_ref.store(SearchResult::Found as usize, Ordering::Relaxed);
-                            let _ = sh_ref.stop.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
+                            let _ = sh_ref.stop.compare_exchange(
+                                0,
+                                1,
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                            );
                         }
                         SearchResult::Unknown => {
                             if lb_ref.load(Ordering::Relaxed) == (SearchResult::NotFound as usize) {
@@ -867,16 +885,16 @@ fn par_retro_core(
         });
 
         match local_best.load(Ordering::Relaxed) {
-            x if x == (SearchResult::Found as usize)   => SearchResult::Found,
+            x if x == (SearchResult::Found as usize) => SearchResult::Found,
             x if x == (SearchResult::Unknown as usize) => SearchResult::Unknown,
-            _                                          => SearchResult::NotFound,
+            _ => SearchResult::NotFound,
         }
     } else {
         // 直列分岐はそのまま
         for (bd, fp) in children {
             let r = par_retro_core(&bd, fp, sh, depth + 1);
             match r {
-                SearchResult::Found   => return SearchResult::Found,
+                SearchResult::Found => return SearchResult::Found,
                 SearchResult::Unknown => return SearchResult::Unknown,
                 SearchResult::NotFound => {}
             }
