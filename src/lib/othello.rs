@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 
 /**
  * edax-reversi
@@ -41,26 +42,132 @@ pub const DXYS: [(i32, i32); 8] = [
 ];
 pub const DIRS: [i32; 4] = [1, 8, 9, 7];
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct Board {
-    pub player: u64,
-    pub opponent: u64,
+#[derive(Debug, Clone, Copy)]
+pub enum Direction {
+    East,
+    SouthEast,
+    South,
+    SouthWest,
+    West,
+    NorthWest,
+    North,
+    NorthEast,
 }
 
-impl Board {
-    pub fn new(player: u64, opponent: u64) -> Self {
-        Self { player, opponent }
+impl Direction {
+    pub const ALL: [Direction; 8] = [
+        Direction::East,
+        Direction::SouthEast,
+        Direction::South,
+        Direction::SouthWest,
+        Direction::West,
+        Direction::NorthWest,
+        Direction::North,
+        Direction::NorthEast,
+    ];
+}
+
+pub trait Geometry {
+    const WIDTH: usize;
+    const HEIGHT: usize;
+    const CELL_COUNT: usize = Self::WIDTH * Self::HEIGHT;
+    const SYMMETRY_COUNT: usize = 8;
+
+    fn initial() -> (u64, u64);
+    fn center_mask() -> u64;
+    fn bit_by_index(pos: usize) -> u64;
+    fn shift(dir: Direction, bb: u64) -> u64;
+    fn transpose(bb: u64) -> u64;
+    fn vertical_mirror(bb: u64) -> u64;
+    fn horizontal_mirror(bb: u64) -> u64;
+
+    fn bit_at(x: usize, y: usize) -> u64 {
+        Self::bit_by_index(y * Self::WIDTH + x)
     }
 
-    pub fn empty() -> Self {
-        Self {
-            player: 0,
-            opponent: 0,
+    fn validate(board: [u64; 2]) {
+        if board[0] & board[1] != 0 {
+            panic!("Two discs on the same square?");
+        }
+        if (board[0] | board[1]) & Self::center_mask() != Self::center_mask() {
+            panic!("Empty center?");
         }
     }
 
-    fn transpose(b: u64) -> u64 {
-        let mut b = b;
+    fn apply_symmetry(sym: usize, board: &mut [u64; 2]) {
+        if sym & 1 != 0 {
+            board[0] = Self::horizontal_mirror(board[0]);
+            board[1] = Self::horizontal_mirror(board[1]);
+        }
+        if sym & 2 != 0 {
+            board[0] = Self::vertical_mirror(board[0]);
+            board[1] = Self::vertical_mirror(board[1]);
+        }
+        if sym & 4 != 0 {
+            board[0] = Self::transpose(board[0]);
+            board[1] = Self::transpose(board[1]);
+        }
+
+        Self::validate(*board);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Standard8x8;
+
+impl Standard8x8 {
+    #[inline(always)]
+    const fn not_a_file() -> u64 {
+        0xFEFE_FEFE_FEFE_FEFE
+    }
+
+    #[inline(always)]
+    const fn not_h_file() -> u64 {
+        0x7F7F_7F7F_7F7F_7F7F
+    }
+
+    #[inline(always)]
+    const fn not_rank_1() -> u64 {
+        0xFFFF_FFFF_FFFF_FF00
+    }
+
+    #[inline(always)]
+    const fn not_rank_8() -> u64 {
+        0x00FF_FFFF_FFFF_FFFF
+    }
+}
+
+impl Geometry for Standard8x8 {
+    const WIDTH: usize = 8;
+    const HEIGHT: usize = 8;
+
+    fn initial() -> (u64, u64) {
+        (0x0000000810000000, 0x0000001008000000)
+    }
+
+    fn center_mask() -> u64 {
+        0x0000001818000000
+    }
+
+    fn bit_by_index(pos: usize) -> u64 {
+        debug_assert!(pos < 64);
+        1u64 << pos
+    }
+
+    fn shift(dir: Direction, bb: u64) -> u64 {
+        match dir {
+            Direction::East => (bb << 1) & Self::not_a_file(),
+            Direction::SouthEast => (bb >> 7) & (Self::not_a_file() & Self::not_rank_8()),
+            Direction::South => (bb >> 8) & Self::not_rank_8(),
+            Direction::SouthWest => (bb >> 9) & (Self::not_h_file() & Self::not_rank_8()),
+            Direction::West => (bb >> 1) & Self::not_h_file(),
+            Direction::NorthWest => (bb << 7) & (Self::not_h_file() & Self::not_rank_1()),
+            Direction::North => (bb << 8) & Self::not_rank_1(),
+            Direction::NorthEast => (bb << 9) & (Self::not_a_file() & Self::not_rank_1()),
+        }
+    }
+
+    fn transpose(mut b: u64) -> u64 {
         let mut t;
 
         t = (b ^ (b >> 7)) & 0x00aa00aa00aa00aa;
@@ -71,47 +178,47 @@ impl Board {
         b ^ (t ^ (t << 28))
     }
 
-    fn vertical_mirror(b: u64) -> u64 {
-        let mut b = b;
+    fn vertical_mirror(mut b: u64) -> u64 {
         b = ((b >> 8) & 0x00FF00FF00FF00FF) | ((b << 8) & 0xFF00FF00FF00FF00);
         b = ((b >> 16) & 0x0000FFFF0000FFFF) | ((b << 16) & 0xFFFF0000FFFF0000);
         ((b >> 32) & 0x00000000FFFFFFFF) | ((b << 32) & 0xFFFFFFFF00000000)
     }
 
-    fn horizontal_mirror(b: u64) -> u64 {
-        let mut b = b;
+    fn horizontal_mirror(mut b: u64) -> u64 {
         b = ((b >> 1) & 0x5555555555555555) | ((b << 1) & 0xAAAAAAAAAAAAAAAA);
         b = ((b >> 2) & 0x3333333333333333) | ((b << 2) & 0xCCCCCCCCCCCCCCCC);
         ((b >> 4) & 0x0F0F0F0F0F0F0F0F) | ((b << 4) & 0xF0F0F0F0F0F0F0F0)
     }
+}
 
-    fn board_check(board: [u64; 2]) {
-        if board[0] & board[1] != 0 {
-            panic!("Two discs on the same square?");
-        }
-        if (board[0] | board[1]) & 0x0000001818000000 != 0x0000001818000000 {
-            panic!("Empty center?");
+#[derive(Debug, Clone, Copy)]
+pub struct Board<G: Geometry = Standard8x8> {
+    pub player: u64,
+    pub opponent: u64,
+    _geometry: PhantomData<G>,
+}
+
+impl<G: Geometry> Board<G> {
+    pub fn new(player: u64, opponent: u64) -> Self {
+        Self {
+            player,
+            opponent,
+            _geometry: PhantomData,
         }
     }
 
-    fn board_symmetry(&self, s: i32, sym: &mut [u64; 2]) {
+    pub fn empty() -> Self {
+        Self {
+            player: 0,
+            opponent: 0,
+            _geometry: PhantomData,
+        }
+    }
+
+    fn board_symmetry(&self, s: usize, sym: &mut [u64; 2]) {
         let mut board = [self.player, self.opponent];
-
-        if s & 1 != 0 {
-            board[0] = Self::horizontal_mirror(board[0]);
-            board[1] = Self::horizontal_mirror(board[1]);
-        }
-        if s & 2 != 0 {
-            board[0] = Self::vertical_mirror(board[0]);
-            board[1] = Self::vertical_mirror(board[1]);
-        }
-        if s & 4 != 0 {
-            board[0] = Self::transpose(board[0]);
-            board[1] = Self::transpose(board[1]);
-        }
-
+        G::apply_symmetry(s, &mut board);
         *sym = board;
-        Self::board_check(*sym);
     }
 
     pub fn popcount(&self) -> u32 {
@@ -122,25 +229,27 @@ impl Board {
         let mut tmp = [0u64, 0u64];
         let mut answer = [self.player, self.opponent];
 
-        for i in 1..8 {
+        for i in 1..G::SYMMETRY_COUNT {
             self.board_symmetry(i, &mut tmp);
             if tmp < answer {
                 answer = tmp;
             }
         }
 
-        Self::board_check(answer);
+        G::validate(answer);
         answer
     }
 
     pub fn initial() -> Self {
-        Self::new(0x0000000810000000, 0x0000001008000000)
+        let (player, opponent) = G::initial();
+        Self::new(player, opponent)
     }
+
     pub fn to_string(&self) -> String {
-        let mut ans: Vec<char> = vec![];
-        for y in 0..8 {
-            for x in 0..8 {
-                let m = 1 << (y * 8 + x);
+        let mut ans: Vec<char> = Vec::with_capacity(G::CELL_COUNT);
+        for y in 0..G::HEIGHT {
+            for x in 0..G::WIDTH {
+                let m = G::bit_at(x, y);
                 if self.player & m != 0 {
                     ans.push('X');
                 } else if self.opponent & m != 0 {
@@ -152,11 +261,12 @@ impl Board {
         }
         ans.into_iter().collect()
     }
+
     pub fn show(&self) -> String {
-        let mut ans: Vec<char> = vec![];
-        for y in 0..8 {
-            for x in 0..8 {
-                let m = 1 << (y * 8 + x);
+        let mut ans: Vec<char> = Vec::with_capacity(G::CELL_COUNT + G::HEIGHT);
+        for y in 0..G::HEIGHT {
+            for x in 0..G::WIDTH {
+                let m = G::bit_at(x, y);
                 if self.player & m != 0 {
                     ans.push('X');
                 } else if self.opponent & m != 0 {
@@ -171,14 +281,22 @@ impl Board {
     }
 }
 
+impl<G: Geometry> PartialEq for Board<G> {
+    fn eq(&self, other: &Self) -> bool {
+        self.player == other.player && self.opponent == other.opponent
+    }
+}
+
+impl<G: Geometry> Eq for Board<G> {}
+
 // OrdとPartialOrdを実装（C++のoperator <などに相当）
-impl PartialOrd for Board {
+impl<G: Geometry> PartialOrd for Board<G> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Board {
+impl<G: Geometry> Ord for Board<G> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.player.cmp(&other.player) {
             Ordering::Equal => self.opponent.cmp(&other.opponent),
@@ -189,18 +307,15 @@ impl Ord for Board {
 
 /// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
 #[inline(always)]
-fn ray_flips<F>(move_bb: u64, player: u64, opponent: u64, step: F) -> u64
-where
-    F: Fn(u64) -> u64,
-{
+fn ray_flips<G: Geometry>(move_bb: u64, player: u64, opponent: u64, dir: Direction) -> u64 {
     // 直後の1マスへ進める
-    let mut x = step(move_bb);
+    let mut x = G::shift(dir, move_bb);
     let mut flips = 0u64;
 
     // 連続する相手石を収集
     while x != 0 && (x & opponent) != 0 {
         flips |= x;
-        x = step(x);
+        x = G::shift(dir, x);
     }
 
     // その先に自石があるなら挟めている→反転成立
@@ -211,86 +326,35 @@ where
     }
 }
 
-#[inline(always)]
-const fn not_a_file() -> u64 {
-    0xFEFE_FEFE_FEFE_FEFE
-}
-#[inline(always)]
-const fn not_h_file() -> u64 {
-    0x7F7F_7F7F_7F7F_7F7F
-}
-#[inline(always)]
-//const fn not_rank_1() -> u64 { 0xFF00_FFFF_FFFF_FFFF }
-const fn not_rank_1() -> u64 {
-    0xFFFF_FFFF_FFFF_FF00
-}
-#[inline(always)]
-const fn not_rank_8() -> u64 {
-    0x00FF_FFFF_FFFF_FFFF
-}
-
-#[inline(always)]
-fn east(x: u64) -> u64 {
-    (x << 1) & not_a_file()
-}
-#[inline(always)]
-fn west(x: u64) -> u64 {
-    (x >> 1) & not_h_file()
-}
-#[inline(always)]
-fn north(x: u64) -> u64 {
-    (x << 8) & not_rank_1()
-}
-#[inline(always)]
-fn south(x: u64) -> u64 {
-    (x >> 8) & not_rank_8()
-}
-#[inline(always)]
-fn ne(x: u64) -> u64 {
-    (x << 9) & (not_a_file() & not_rank_1())
-}
-#[inline(always)]
-fn nw(x: u64) -> u64 {
-    (x << 7) & (not_h_file() & not_rank_1())
-}
-#[inline(always)]
-fn se(x: u64) -> u64 {
-    (x >> 7) & (not_a_file() & not_rank_8())
-}
-#[inline(always)]
-fn sw(x: u64) -> u64 {
-    (x >> 9) & (not_h_file() & not_rank_8())
-}
-
-/// 与えられた pos に打ったときにひっくり返る相手石の集合を返す（打った石は含まない）
-pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
-    debug_assert!(pos < 64);
-    let move_bb = 1u64 << pos;
+pub fn flip_generic<G: Geometry>(pos: usize, player: u64, opponent: u64) -> u64 {
+    debug_assert!(pos < G::CELL_COUNT);
+    let move_bb = G::bit_by_index(pos);
 
     // 盤上に既に石があるマスなら反転なし（安全のため）
     if (move_bb & (player | opponent)) != 0 {
         return 0;
     }
 
-    ray_flips(move_bb, player, opponent, east)
-        | ray_flips(move_bb, player, opponent, west)
-        | ray_flips(move_bb, player, opponent, north)
-        | ray_flips(move_bb, player, opponent, south)
-        | ray_flips(move_bb, player, opponent, ne)
-        | ray_flips(move_bb, player, opponent, nw)
-        | ray_flips(move_bb, player, opponent, se)
-        | ray_flips(move_bb, player, opponent, sw)
+    Direction::ALL.iter().fold(0u64, |acc, dir| {
+        acc | ray_flips::<G>(move_bb, player, opponent, *dir)
+    })
 }
 
-pub fn get_moves(player: u64, opponent: u64) -> u64 {
+pub fn get_moves_generic<G: Geometry>(player: u64, opponent: u64) -> u64 {
     let mut moves = 0u64;
-    for pos in 0..64 {
-        let bit = 1u64 << pos;
-        if bit & (player | opponent) == 0 {
-            if flip(pos, player, opponent) != 0 {
-                moves |= bit;
-            }
+    for pos in 0..G::CELL_COUNT {
+        let bit = G::bit_by_index(pos);
+        if bit & (player | opponent) == 0 && flip_generic::<G>(pos, player, opponent) != 0 {
+            moves |= bit;
         }
     }
     moves
+}
+
+pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
+    flip_generic::<Standard8x8>(pos, player, opponent)
+}
+
+pub fn get_moves(player: u64, opponent: u64) -> u64 {
+    get_moves_generic::<Standard8x8>(player, opponent)
 }

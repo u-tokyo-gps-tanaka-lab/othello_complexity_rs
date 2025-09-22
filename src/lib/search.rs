@@ -195,10 +195,7 @@ pub fn search(
             leafnode.insert(uni);
             return;
         } else if get_moves(board.opponent, board.player) != 0 {
-            let next = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
+            let next = Board::new(board.opponent, board.player);
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -211,10 +208,7 @@ pub fn search(
     let mut moves = get_moves(board.player, board.opponent);
     if moves == 0 {
         if get_moves(board.opponent, board.player) != 0 {
-            let next = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
+            let next = Board::new(board.opponent, board.player);
             search(&next, searched, leafnode, discs);
         }
         return;
@@ -229,10 +223,10 @@ pub fn search(
         if flipped == 0 {
             continue;
         }
-        let next = Board {
-            player: board.opponent ^ flipped,
-            opponent: board.player ^ (flipped | (1u64 << idx)),
-        };
+        let next = Board::new(
+            board.opponent ^ flipped,
+            board.player ^ (flipped | (1u64 << idx)),
+        );
         search(&next, searched, leafnode, discs);
     }
 }
@@ -555,10 +549,7 @@ pub fn retrospective_search(
     // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
     if !from_pass {
         if get_moves(board.opponent, board.player) == 0 {
-            let prev = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
+            let prev = Board::new(board.opponent, board.player);
             match retrospective_search(
                 &prev,
                 true,
@@ -616,11 +607,11 @@ pub fn retrospective_search(
             let flipped = retroflips[num_disc][i];
             debug_assert!(flipped != 0);
 
-            let prev = Board {
+            let prev = Board::new(
                 // 直前に相手が index に置き、flipped が返ったと仮定した局面の 1 手前
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
+                board.opponent ^ (flipped | (1u64 << index)),
+                board.player ^ flipped,
+            );
 
             match retrospective_search(
                 &prev,
@@ -672,10 +663,10 @@ struct ParShared<'a> {
     discs: i32,
     node_limit: usize,
     table_limit: usize,
-    node_count: &'a AtomicUsize,                       // 走査ノード数
+    node_count: &'a AtomicUsize, // 走査ノード数
     node_per_stone: &'a [AtomicUsize; 65],
     done_per_stone: &'a [AtomicUsize; 65],
-    table_count: &'a AtomicUsize,                       // 走査ノード数
+    table_count: &'a AtomicUsize, // 走査ノード数
 
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
@@ -708,8 +699,8 @@ pub fn retrospective_search_parallel(
     let visited = DashSet::new();
     let node_count = AtomicUsize::new(0);
     let table_count = AtomicUsize::new(0);
-    let node_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
-    let done_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
+    let node_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
+    let done_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
     let stop = AtomicUsize::new(0);
 
     let shared = ParShared {
@@ -728,7 +719,12 @@ pub fn retrospective_search_parallel(
     // ルート呼び出し
     let res = par_retro_core(board, from_pass, &shared, 0);
     for i in 0..=64 {
-        eprintln!("{}: {} / {}", i, done_per_stone[i].load(Ordering::Relaxed), node_per_stone[i].load(Ordering::Relaxed));
+        eprintln!(
+            "{}: {} / {}",
+            i,
+            done_per_stone[i].load(Ordering::Relaxed),
+            node_per_stone[i].load(Ordering::Relaxed)
+        );
     }
     res
 }
@@ -796,13 +792,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     // 1) パス枝（from_pass==false かつ 相手に合法手無し）
     let mut children: Vec<(Board, bool)> = Vec::new(); // (prev_board, from_pass_prev)
     if !from_pass && get_moves(board.opponent, board.player) == 0 {
-        children.push((
-            Board {
-                player: board.opponent,
-                opponent: board.player,
-            },
-            true,
-        ));
+        children.push((Board::new(board.opponent, board.player), true));
     }
 
     // 2) 直前着手位置ごとの “可能 flip 集合” 展開
@@ -826,10 +816,10 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
             for i in 1..num {
                 let flipped = retro[num_disc][i];
                 debug_assert!(flipped != 0);
-                let prev = Board {
-                    player: board.opponent ^ (flipped | (1u64 << index)),
-                    opponent: board.player ^ flipped,
-                };
+                let prev = Board::new(
+                    board.opponent ^ (flipped | (1u64 << index)),
+                    board.player ^ flipped,
+                );
                 children.push((prev, false));
             }
         }

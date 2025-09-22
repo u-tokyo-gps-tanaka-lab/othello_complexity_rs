@@ -32,10 +32,7 @@ fn do_random_play(nmoves: i32) -> Board {
         if flipped == 0 {
             continue;
         }
-        b = Board {
-            player: b.opponent ^ flipped,
-            opponent: b.player ^ (flipped | (1u64 << idx)),
-        };
+        b = Board::new(b.opponent ^ flipped, b.player ^ (flipped | (1u64 << idx)));
     }
     b
 }
