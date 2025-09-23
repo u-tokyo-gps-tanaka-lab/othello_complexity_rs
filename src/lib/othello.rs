@@ -41,6 +41,8 @@ pub const DXYS: [(i32, i32); 8] = [
 ];
 pub const DIRS: [i32; 4] = [1, 8, 9, 7];
 
+pub const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Board {
     pub player: u64,
