@@ -3,6 +3,7 @@ pub mod lib {
     pub mod othello;
     pub mod search;
     pub mod par_search;
+    pub mod bfs_search;
     pub mod solve_kissat;
 }
 

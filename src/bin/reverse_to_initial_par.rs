@@ -5,12 +5,10 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use othello_complexity_rs::lib::io::parse_file_to_boards;
-use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::lib::othello::{Board, CENTER_MASK};
 use othello_complexity_rs::lib::search::{search, SearchResult};
 use othello_complexity_rs::lib::par_search::{init_rayon, retrospective_search_parallel};
 
-
-const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
 fn run() -> io::Result<()> {
     let mut input: Option<String> = None;
