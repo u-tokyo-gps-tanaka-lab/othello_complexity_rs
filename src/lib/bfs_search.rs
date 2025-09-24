@@ -46,6 +46,10 @@ pub struct Cfg {
     /// tmp_dir
     #[arg(short = 't', long, default_value = "tmp")]
     pub tmp_dir: PathBuf,
+
+    /// resume
+    #[arg(short = 'r', long)]
+    pub resume: bool,
 }
 
 fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips: &mut [u64; 10_000]) {
@@ -263,7 +267,7 @@ pub fn process_bfs_par(
     }
 
     let all_count   = len / 16;
-    let block_size = std::cmp::max(1024, all_count / num_threads / 10 );
+    let block_size = std::cmp::min(5000000, std::cmp::max(1024, all_count / num_threads / 10 ));
     let block_count = (all_count + block_size - 1) / block_size;
 
     // --- 並列実行（動的スケジューリング） ---
@@ -335,45 +339,19 @@ fn available_threads() -> usize {
         .map(NonZeroUsize::get)
         .unwrap_or(1) // 取得失敗時のフォールバック
 }
-//--------------------------------------
-// 公開エントリ：ブロック版 retrospective
-pub fn retrospective_search_bfs_par(
+
+pub fn retrospective_search_bfs_par_resume(
     cfg: &Cfg,
-    board: &Board,
+    num_disc: i32,
     discs: i32,
     leafnode: &std::collections::HashSet<[u64; 2]>,
-) -> Result<SearchResult> {
-    let uni = board.unique();
-    let num_disc = board.popcount() as usize;
+) -> Result<SearchResult>  {
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
-    // let block_size = cfg.block_size;
     let mut jobs = cfg.jobs;
     if jobs == 0 {
         jobs = available_threads();
     }
     println!("parallelism = {}", jobs);
-
-    if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
-            println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
-            println!("board player = {}", board.player);
-            println!("board opponent = {}", board.opponent);
-            Ok(SearchResult::Found)
-        } else {
-            Ok(SearchResult::NotFound)
-        };
-    }
-    let mut boards: Vec<[u64;2]> = vec![[board.player, board.opponent]];
-    if get_moves(board.opponent, board.player) == 0 {
-        boards.push([board.opponent, board.player]);
-    }
-    let rfilename = format!("r_{}.bin",num_disc);
-    let rfile = File::create(&tmp_dir.join(rfilename))?;
-    let mut w = BufWriter::new(rfile);
-    w.write_all(bytemuck::cast_slice(&boards))?;
-    w.flush()?;
     for s in (discs..(num_disc as i32)).rev() {
         let v = process_bfs_par(s, tmp_dir, jobs)?;
         if !v {
@@ -406,6 +384,44 @@ pub fn retrospective_search_bfs_par(
         }
     }
     Ok(SearchResult::NotFound)
+}
+
+//--------------------------------------
+// 公開エントリ：ブロック版 retrospective
+pub fn retrospective_search_bfs_par(
+    cfg: &Cfg,
+    board: &Board,
+    discs: i32,
+    leafnode: &std::collections::HashSet<[u64; 2]>,
+) -> Result<SearchResult> {
+    let uni = board.unique();
+    let num_disc = board.popcount() as usize;
+    let tmp_dir: &PathBuf = &cfg.tmp_dir;
+    // let block_size = cfg.block_size;
+
+
+    if (num_disc as i32) <= discs {
+        return if leafnode.contains(&uni) {
+            println!("info: found unique board in leafnodes:");
+            println!("unique player = {}", uni[0]);
+            println!("unique opponent = {}", uni[1]);
+            println!("board player = {}", board.player);
+            println!("board opponent = {}", board.opponent);
+            Ok(SearchResult::Found)
+        } else {
+            Ok(SearchResult::NotFound)
+        };
+    }
+    let mut boards: Vec<[u64;2]> = vec![[board.player, board.opponent]];
+    if get_moves(board.opponent, board.player) == 0 {
+        boards.push([board.opponent, board.player]);
+    }
+    let rfilename = format!("r_{}.bin",num_disc);
+    let rfile = File::create(&tmp_dir.join(rfilename))?;
+    let mut w = BufWriter::new(rfile);
+    w.write_all(bytemuck::cast_slice(&boards))?;
+    w.flush()?;
+    retrospective_search_bfs_par_resume(cfg, num_disc as i32, discs, leafnode)
 }
 
 //--------------------------------------
