@@ -14,7 +14,7 @@ use bytemuck;
 
 
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
-use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, is_connected};
+use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected};
 
 
 #[derive(Debug, Clone, Parser)]
@@ -85,6 +85,9 @@ fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips:
             if !check_seg3(occupied) {
                 continue;
             }
+            //if !check_seg3_more(prev.player, prev.opponent) {
+            //    continue;
+            //}
             let uni = prev.unique();
             prev_boards.insert(uni);
             if get_moves(prev.opponent, prev.player) == 0 {
@@ -131,7 +134,7 @@ fn process_bfs_block(num_disc: i32, tmp_dir: &PathBuf, block_size: usize, block_
     }
     let mut bvec: Vec<[u64;2]> = prev_boards.into_iter().collect();
     bvec.sort();
-    //eprintln!("num_disc={}, count={}", num_disc, bvec.len());
+    eprintln!("num_disc={}, count={}", num_disc, bvec.len());
     let ofilename = format!("b_{}_{}.bin", num_disc, block_number);
     let ofile = File::create(&tmp_dir.join(ofilename))?;
     let mut w = BufWriter::new(ofile);
@@ -507,6 +510,7 @@ fn process_bfs(num_disc: i32, tmp_dir: &PathBuf) -> Result<bool> {
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
+    println!("nrecs={}", nrecs);
     let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
     let mut retroflips: [u64; 10_000] = [0u64;10_000];
     for _ in 0..nrecs {

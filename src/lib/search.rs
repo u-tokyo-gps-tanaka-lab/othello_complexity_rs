@@ -178,6 +178,91 @@ pub fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
+fn onebit(x: u8) -> bool {
+    x & (x - 1) == 0
+}
+/// 盤面が初期配置に到達不能かどうかの粗めのチェック．
+pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
+    let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
+    let occupied = player | opponent;
+    let mut canput : [u8;64] = [0;64];
+    let mut canflip : [u8;64] = [0;64];
+    for y in 0..8 {
+        for x in 0..8 {
+            let i = y * 8 + x;
+            if occupied & (1 << i) == 0 {
+                continue;
+            }
+            let mut ls: [u8;8] = [0;8];
+            for (d, (dx, dy)) in DXYS.iter().enumerate() {
+                let mut l = 1;
+                let mut x1 = x + dx;
+                let mut y1 = y + dy;
+                let mut i1 = y1 * 8 + x1;
+                while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && occupied & (1 << i1) != 0 {
+                    l += 1;
+                    x1 += dx;
+                    y1 += dy;
+                    i1 = y1 * 8 + x1;
+                }
+                ls[d] = l;
+            }
+            for d in 0..8 {
+                if ls[d] >= 3 {
+                    if !(3 <= x && x <= 4 && 3 <= y && y <= 4) {
+                        canput[i as usize] |= 1u8 << d;
+                    }
+                }
+                if d < 4 && ls[d] >= 2 && ls[d + 4] >= 2 {
+                    canflip[i as usize] |= 1u8 << d;
+                }
+            }
+        }
+    }
+    let ps = [player, opponent];
+    for i in 0..2 {
+        let (p0, p1) = (ps[i], ps[1 - i]);
+        for y in 0..8 {
+            for x in 0..8 {
+                if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
+                    continue;
+                }
+                let i = y * 8 + x;
+                if p0 & (1 << i) == 0 {
+                    continue;
+                }
+                if canput[i as usize] == 0 {
+                    eprintln!("canput = 0, i={}, x={}, y={}", i, x, y);
+                    eprintln!("{}", Board::new(player, opponent).show());
+                    panic!("inconsistent");
+                    continue;
+                }
+                // putの方向が1方向で後でflipされた可能性がない．
+                if !onebit(canput[i as usize]) || canflip[i as usize] != 0 {
+                    continue;
+                }
+                let d = canput[i as usize].trailing_zeros();
+                let d1 = d & 3;
+                let (dx, dy) = DXYS[d as usize];
+                let di = dy * 8 + dx;
+                // 隣と，その隣のマスがd1方向以外にflipされる可能性がない．
+                for i1 in [i + di, i + di * 2] {
+                    if p0 & (1 << i1) == 0 {
+                        let f = canflip[i1 as usize];
+                        let allowmask = if i1 == i + di {1 << d1} else {0};
+                        if f & !allowmask == 0 {
+                            //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
+                            //eprintln!("{}", Board::new(player, opponent).show());
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
 pub fn search(
     board: &Board,
     searched: &mut HashSet<[u64; 2]>,
@@ -540,6 +625,9 @@ pub fn retrospective_search(
         return SearchResult::NotFound;
     }
     if !check_seg3(occupied) {
+        return SearchResult::NotFound;
+    }
+    if !check_seg3_more(board.player, board.opponent) {
         return SearchResult::NotFound;
     }
     // let line = board.to_string();

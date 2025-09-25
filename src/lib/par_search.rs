@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
-use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, is_connected};
+use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected};
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
@@ -146,7 +146,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // 形状フィルタ
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) || !check_seg3(occupied) {
+    if !is_connected(occupied) || !check_seg3(occupied) || !check_seg3_more(board.player, board.opponent) {
         return SearchResult::NotFound;
     }
 
