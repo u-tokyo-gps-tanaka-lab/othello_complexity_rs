@@ -85,9 +85,9 @@ fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips:
             if !check_seg3(occupied) {
                 continue;
             }
-            //if !check_seg3_more(prev.player, prev.opponent) {
-            //    continue;
-            //}
+            if !check_seg3_more(prev.player, prev.opponent) {
+                continue;
+            }
             let uni = prev.unique();
             prev_boards.insert(uni);
             if get_moves(prev.opponent, prev.player) == 0 {
@@ -134,7 +134,7 @@ fn process_bfs_block(num_disc: i32, tmp_dir: &PathBuf, block_size: usize, block_
     }
     let mut bvec: Vec<[u64;2]> = prev_boards.into_iter().collect();
     bvec.sort();
-    eprintln!("num_disc={}, count={}", num_disc, bvec.len());
+    //eprintln!("num_disc={}, count={}", num_disc, bvec.len());
     let ofilename = format!("b_{}_{}.bin", num_disc, block_number);
     let ofile = File::create(&tmp_dir.join(ofilename))?;
     let mut w = BufWriter::new(ofile);

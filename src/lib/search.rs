@@ -249,11 +249,19 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                 for i1 in [i + di, i + di * 2] {
                     if p0 & (1 << i1) == 0 {
                         let f = canflip[i1 as usize];
-                        let allowmask = if i1 == i + di {1 << d1} else {0};
-                        if f & !allowmask == 0 {
-                            //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
-                            //eprintln!("{}", Board::new(player, opponent).show());
+                        if f == 0 {
                             return false;
+                        }
+                        if f & !(1 << d1) == 0 {
+                            if i1 == i + di {
+                                return false;
+                            }
+                            let i2 = i + di;
+                            if p0 & (1 << i2) != 0 && canflip[i2 as usize] & ! (1 << d1) == 0 {
+                                //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
+                                //eprintln!("{}", Board::new(player, opponent).show());
+                                return false;
+                            }
                         }
                     }
                 }
