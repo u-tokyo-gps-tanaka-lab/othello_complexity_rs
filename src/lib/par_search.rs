@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
-use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected};
+use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected, h_function};
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
@@ -196,9 +196,20 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     if children.is_empty() {
         return SearchResult::NotFound;
     }
-
-    //
     let csize = children.len();
+    // children をh_functrionに従ってソートする．
+    let mut children_score: Vec<(f64, usize)> = vec![];
+    for i in 0..csize {
+        children_score.push((h_function(&children[i].0), i));
+    }
+    children_score.sort_by(|a, b| {a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))});
+    let mut new_children: Vec<(Board, bool)> = vec![];
+    for i in 0..csize {
+        let j = children_score[i].1;
+        new_children.push((children[j]));
+    }
+    children = new_children;
+
     sh.node_per_stone[num_disc - 1].fetch_add(csize, Ordering::Relaxed);
     // ---- 動的に並列 or 直列を選ぶ ----
     if should_split(depth, children.len()) {

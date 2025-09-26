@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::othello::Board;
-use othello_complexity_rs::lib::search::{retrospective_search, search, Btable, SearchResult};
+use othello_complexity_rs::lib::search::{retrospective_search_move_ordering, search, Btable, SearchResult};
 
 const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
 
@@ -108,7 +108,7 @@ fn run() -> io::Result<()> {
         node_count = 0;
         // retroflips is grown lazily inside the function as needed
 
-        match retrospective_search(
+        match retrospective_search_move_ordering(
             &b,
             false,
             discs,
