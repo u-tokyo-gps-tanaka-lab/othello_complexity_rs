@@ -8,7 +8,7 @@ use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
-const PAR_MAX_DEPTH: usize = 6; // この深さまでは spawn を許可
+const PAR_MAX_DEPTH: usize = 12; // この深さまでは spawn を許可
 const PAR_MIN_CHILDREN: usize = 4; // 子の数がこの数以上なら分割を検討
 
 #[inline]
