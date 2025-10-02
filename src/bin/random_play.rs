@@ -101,8 +101,12 @@ fn do_random_play<G: Geometry>(nmoves: i32) -> Board<G> {
     b
 }
 
-fn generate_samples<G: Geometry>(out_dir: &Path, suffix: &str) -> std::io::Result<()> {
-    for nmoves in 20..=60 {
+fn generate_samples<G: Geometry>(
+    out_dir: &Path,
+    suffix: &str,
+    nmoves_range: std::ops::RangeInclusive<i32>,
+) -> std::io::Result<()> {
+    for nmoves in nmoves_range {
         let file_path = out_dir.join(format!("result{}{}.txt", nmoves, suffix));
         let mut file = File::create(&file_path)?;
         for _ in 0..50 {
@@ -121,7 +125,13 @@ fn main() -> std::io::Result<()> {
     }
 
     match board_size {
-        BoardSize::Size8 => generate_samples::<Standard8x8>(&out_dir, board_size.suffix()),
-        BoardSize::Size6 => generate_samples::<Standard6x6>(&out_dir, board_size.suffix()),
+        BoardSize::Size8 => {
+            generate_samples::<Standard8x8>(&out_dir, board_size.suffix(), 20..=60)?
+        }
+        BoardSize::Size6 => {
+            generate_samples::<Standard6x6>(&out_dir, board_size.suffix(), 20..=32)?
+        }
     }
+
+    Ok(())
 }
