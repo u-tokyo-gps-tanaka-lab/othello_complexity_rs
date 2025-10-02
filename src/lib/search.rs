@@ -1,4 +1,5 @@
-use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::lib::othello::{flip_generic, get_moves_generic, Board, Direction, Geometry, DXYS};
+use std::marker::PhantomData;
 
 use std::cmp::min;
 use std::collections::HashSet;
@@ -59,6 +60,17 @@ impl Btable {
     }
 }
 
+#[inline]
+fn bit_index_to_pos<G: Geometry>(bit_index: u32) -> Option<usize> {
+    let bit = 1u64 << bit_index;
+    G::bit_to_index(bit)
+}
+
+#[inline]
+fn filter_region<G: Geometry>(bb: u64) -> u64 {
+    bb & G::region_mask()
+}
+
 fn mask_to_moves(m: u64) -> String {
     let mut ans: Vec<String> = vec!["[".to_string()];
     for i in 0..64 {
@@ -84,106 +96,101 @@ fn mask_to_moves(m: u64) -> String {
 
 /// 盤面 `b` が 8 近傍で連結しているかを判定する関数。
 /// 中央4マス(初期配置)が必ず含まれる前提です。
-fn is_connected(b: u64) -> bool {
-    let mut mark: u64 = 0x0000_0018_1800_0000u64;
+fn is_connected<G: Geometry>(b: u64) -> bool {
+    let full = filter_region::<G>(b);
+    let mut mark = G::center_mask();
     let mut old_mark: u64 = 0;
 
-    // 中央 4 マスが存在しているか確認
-    assert!((b & mark) == mark);
+    assert!((full & mark) == mark);
 
-    // マークが更新されなくなるまでループ
+    mark &= full;
+
     while mark != old_mark {
         old_mark = mark;
         let mut new_mark = mark;
-
-        new_mark |= b & ((mark & 0xFEFE_FEFE_FEFE_FEFEu64) >> 1);
-        new_mark |= b & ((mark & 0x7F7F_7F7F_7F7F_7F7Fu64) << 1);
-        new_mark |= b & ((mark & 0xFFFF_FFFF_FFFF_FF00u64) >> 8);
-        new_mark |= b & ((mark & 0x00FF_FFFF_FFFF_FFFFu64) << 8);
-        new_mark |= b & ((mark & 0x7F7F_7F7F_7F7F_7F00u64) >> 7);
-        new_mark |= b & ((mark & 0x00FE_FEFE_FEFE_FEFEu64) << 7);
-        new_mark |= b & ((mark & 0xFEFE_FEFE_FEFE_FE00u64) >> 9);
-        new_mark |= b & ((mark & 0x007F_7F7F_7F7F_7F7Fu64) << 9);
-
+        for dir in Direction::ALL.iter() {
+            new_mark |= full & G::shift(*dir, mark);
+        }
         mark = new_mark;
     }
 
-    // 全ての石がマークされていれば連結とみなす
-    mark == b
+    mark == full
 }
 
-fn no_cycle(g: Vec<Vec<usize>>) -> bool {
-    let mut icount = vec![0; 64];
-    for i in 0..64 {
+fn no_cycle<G: Geometry>(g: Vec<Vec<usize>>) -> bool {
+    let size = G::CELL_COUNT;
+    let mut icount = vec![0; size];
+    for i in 0..size {
         for &j in &g[i] {
             icount[j] += 1;
         }
     }
     let mut q = vec![];
-    for i in 0..64 {
-        if g[i].len() > 0 && icount[i] == 0 {
+    for i in 0..size {
+        if !g[i].is_empty() && icount[i] == 0 {
             q.push(i);
         }
     }
-    while q.len() > 0 {
-        let i = q.pop().unwrap();
-        for &j in &g[i as usize] {
+    while let Some(i) = q.pop() {
+        for &j in &g[i] {
             icount[j] -= 1;
             if icount[j] == 0 {
                 q.push(j);
             }
         }
     }
-    for i in 0..64 {
-        if icount[i] > 0 {
-            return false;
-        }
-    }
-    true
+    icount.into_iter().all(|c| c == 0)
 }
 
-pub fn check_seg3(b: u64) -> bool {
-    let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
-    for y in 0..8 {
-        for x in 0..8 {
-            let i = y * 8 + x;
-            if b & (1 << i) == 0 {
+pub fn check_seg3<G: Geometry>(b: u64) -> bool {
+    let mut g: Vec<Vec<usize>> = vec![vec![]; G::CELL_COUNT];
+    let center = G::center_mask();
+    for y in 0..G::HEIGHT {
+        for x in 0..G::WIDTH {
+            let idx = y * G::WIDTH + x;
+            let bit = G::bit_at(x, y);
+            if b & bit == 0 {
                 continue;
             }
-            if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
+            if center & bit != 0 {
                 continue;
             }
             let mut oks: Vec<Vec<usize>> = vec![];
             for (dx, dy) in DXYS.iter() {
-                let mut l = 1;
-                let mut x1 = x + dx;
-                let mut y1 = y + dy;
-                let mut i1 = y1 * 8 + x1;
-                while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && b & (1 << i1) != 0 {
-                    l += 1;
+                let mut length = 1;
+                let mut x1 = x as i32 + dx;
+                let mut y1 = y as i32 + dy;
+                let mut path: Vec<(usize, usize)> = Vec::new();
+                while x1 >= 0
+                    && x1 < G::WIDTH as i32
+                    && y1 >= 0
+                    && y1 < G::HEIGHT as i32
+                    && (b & G::bit_at(x1 as usize, y1 as usize)) != 0
+                {
+                    length += 1;
+                    path.push((x1 as usize, y1 as usize));
                     x1 += dx;
                     y1 += dy;
-                    i1 = y1 * 8 + x1;
                 }
-                if l >= 3 {
-                    let di = dy * 8 + dx;
-                    oks.push(vec![(i + di) as usize, (i + di * 2) as usize]);
+                if length >= 3 && path.len() >= 2 {
+                    let idx1 = path[0].1 * G::WIDTH + path[0].0;
+                    let idx2 = path[1].1 * G::WIDTH + path[1].0;
+                    oks.push(vec![idx1, idx2]);
                 }
             }
-            if oks.len() == 0 {
+            if oks.is_empty() {
                 return false;
             }
             if oks.len() == 1 {
-                g[i as usize].push(oks[0][0]);
-                g[i as usize].push(oks[0][1]);
+                g[idx].extend_from_slice(&oks[0]);
             }
         }
     }
-    return no_cycle(g);
+    no_cycle::<G>(g)
 }
 
-pub fn search(
-    board: &Board,
+pub fn search<G: Geometry>(
+    board: &Board<G>,
     searched: &mut HashSet<[u64; 2]>,
     leafnode: &mut HashSet<[u64; 2]>,
     discs: i32,
@@ -191,12 +198,12 @@ pub fn search(
     let uni = board.unique();
 
     if board.popcount() >= discs as u32 {
-        if get_moves(board.player, board.opponent) != 0 {
+        if get_moves_generic::<G>(board.player, board.opponent) != 0 {
             leafnode.insert(uni);
             return;
-        } else if get_moves(board.opponent, board.player) != 0 {
-            let next = Board::new(board.opponent, board.player);
-            search(&next, searched, leafnode, discs);
+        } else if get_moves_generic::<G>(board.opponent, board.player) != 0 {
+            let next = Board::<G>::new(board.opponent, board.player);
+            search::<G>(&next, searched, leafnode, discs);
         }
         return;
     }
@@ -205,11 +212,11 @@ pub fn search(
         return;
     }
 
-    let mut moves = get_moves(board.player, board.opponent);
+    let mut moves = get_moves_generic::<G>(board.player, board.opponent);
     if moves == 0 {
-        if get_moves(board.opponent, board.player) != 0 {
-            let next = Board::new(board.opponent, board.player);
-            search(&next, searched, leafnode, discs);
+        if get_moves_generic::<G>(board.opponent, board.player) != 0 {
+            let next = Board::<G>::new(board.opponent, board.player);
+            search::<G>(&next, searched, leafnode, discs);
         }
         return;
     }
@@ -219,15 +226,19 @@ pub fn search(
         let idx = moves.trailing_zeros();
         moves &= moves - 1;
 
-        let flipped = flip(idx as usize, board.player, board.opponent);
+        let Some(pos) = bit_index_to_pos::<G>(idx) else {
+            continue;
+        };
+        let flipped = flip_generic::<G>(pos, board.player, board.opponent);
         if flipped == 0 {
             continue;
         }
-        let next = Board::new(
+        let move_bit = G::bit_by_index(pos);
+        let next = Board::<G>::new(
             board.opponent ^ flipped,
-            board.player ^ (flipped | (1u64 << idx)),
+            board.player ^ (flipped | move_bit),
         );
-        search(&next, searched, leafnode, discs);
+        search::<G>(&next, searched, leafnode, discs);
     }
 }
 
@@ -243,16 +254,17 @@ pub enum SearchResult {
 /// 「直前の着手が pos だった」と仮定したときに、
 /// その着手であり得る “ひっくり返り集合” を result に列挙して個数を返す。
 /// 返り値が非ゼロのとき `result[0] == 0`（便宜上）。反復時は 1 から使うこと。
-pub fn retrospective_flip(
+pub fn retrospective_flip<G: Geometry>(
     pos: u32,
     _player: u64,
     opponent: u64,
     result: &mut [u64; 10_000],
 ) -> usize {
     assert!(pos < 64);
-    assert!(((1u64 << pos) & opponent) != 0);
-    // 中央 4 マスではない（問題文どおり）
-    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0);
+    let bit = 1u64 << pos;
+    assert!((bit & opponent) != 0);
+    let center = G::center_mask();
+    assert!((bit & center) == 0);
 
     let xpos = (pos % 8) as i32;
     let ypos = (pos / 8) as i32;
@@ -484,8 +496,8 @@ pub fn retrospective_flip(
 /// - `retrospective_searched`: 既訪問ユニーク局面
 /// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
 ///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
-pub fn retrospective_search(
-    board: &Board,
+pub fn retrospective_search<G: Geometry>(
+    board: &Board<G>,
     from_pass: bool,
     discs: i32,
     leafnode: &HashSet<[u64; 2]>,
@@ -534,10 +546,10 @@ pub fn retrospective_search(
     //}
 
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) {
+    if !is_connected::<G>(occupied) {
         return SearchResult::NotFound;
     }
-    if !check_seg3(occupied) {
+    if !check_seg3::<G>(occupied) {
         return SearchResult::NotFound;
     }
     // let line = board.to_string();
@@ -548,9 +560,9 @@ pub fn retrospective_search(
     // パスの処理
     // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
     if !from_pass {
-        if get_moves(board.opponent, board.player) == 0 {
-            let prev = Board::new(board.opponent, board.player);
-            match retrospective_search(
+        if get_moves_generic::<G>(board.opponent, board.player) == 0 {
+            let prev = Board::<G>::new(board.opponent, board.player);
+            match retrospective_search::<G>(
                 &prev,
                 true,
                 discs,
@@ -574,7 +586,7 @@ pub fn retrospective_search(
     }
 
     // 相手石（中央4マス以外）を候補として走査
-    let mut b = board.opponent & !0x0000_0018_1800_0000u64;
+    let mut b = board.opponent & (G::region_mask() ^ G::center_mask());
     if b == 0 {
         return SearchResult::NotFound;
     }
@@ -592,7 +604,7 @@ pub fn retrospective_search(
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(
+        let num = retrospective_flip::<G>(
             index,
             board.player,
             board.opponent,
@@ -607,13 +619,13 @@ pub fn retrospective_search(
             let flipped = retroflips[num_disc][i];
             debug_assert!(flipped != 0);
 
-            let prev = Board::new(
+            let prev = Board::<G>::new(
                 // 直前に相手が index に置き、flipped が返ったと仮定した局面の 1 手前
                 board.opponent ^ (flipped | (1u64 << index)),
                 board.player ^ flipped,
             );
 
-            match retrospective_search(
+            match retrospective_search::<G>(
                 &prev,
                 false,
                 discs,
@@ -657,19 +669,20 @@ thread_local! {
 
 //--------------------------------------
 // 並列探索用の共有状態
-struct ParShared<'a> {
+struct ParShared<'a, G: Geometry + Send + Sync> {
     leafnode: &'a std::collections::HashSet<[u64; 2]>, // 読み取り専用
     visited: &'a DashSet<[u64; 2]>,                    // 既訪問ユニーク局面
     discs: i32,
     node_limit: usize,
     table_limit: usize,
     node_count: &'a AtomicUsize, // 走査ノード数
-    node_per_stone: &'a [AtomicUsize; 65],
-    done_per_stone: &'a [AtomicUsize; 65],
+    node_per_stone: &'a [AtomicUsize],
+    done_per_stone: &'a [AtomicUsize],
     table_count: &'a AtomicUsize, // 走査ノード数
 
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
+    _geometry: PhantomData<G>,
 }
 
 //--------------------------------------
@@ -688,8 +701,8 @@ pub fn init_rayon(num_threads: Option<usize>) {
 
 //--------------------------------------
 // 公開エントリ：並列版 retrospective（シグネチャを分けました）
-pub fn retrospective_search_parallel(
-    board: &Board,
+pub fn retrospective_search_parallel<G: Geometry + Send + Sync>(
+    board: &Board<G>,
     from_pass: bool,
     discs: i32,
     leafnode: &std::collections::HashSet<[u64; 2]>,
@@ -699,11 +712,13 @@ pub fn retrospective_search_parallel(
     let visited = DashSet::new();
     let node_count = AtomicUsize::new(0);
     let table_count = AtomicUsize::new(0);
-    let node_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
-    let done_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
+    let node_per_stone: Vec<AtomicUsize> =
+        (0..=G::CELL_COUNT).map(|_| AtomicUsize::new(0)).collect();
+    let done_per_stone: Vec<AtomicUsize> =
+        (0..=G::CELL_COUNT).map(|_| AtomicUsize::new(0)).collect();
     let stop = AtomicUsize::new(0);
 
-    let shared = ParShared {
+    let shared = ParShared::<G> {
         leafnode,
         visited: &visited,
         discs,
@@ -714,11 +729,12 @@ pub fn retrospective_search_parallel(
         node_per_stone: &node_per_stone,
         done_per_stone: &done_per_stone,
         stop: &stop,
+        _geometry: PhantomData,
     };
 
     // ルート呼び出し
-    let res = par_retro_core(board, from_pass, &shared, 0);
-    for i in 0..=64 {
+    let res = par_retro_core::<G>(board, from_pass, &shared, 0);
+    for i in 0..=G::CELL_COUNT {
         eprintln!(
             "{}: {} / {}",
             i,
@@ -731,7 +747,12 @@ pub fn retrospective_search_parallel(
 
 //--------------------------------------
 // 動的並列コア
-fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) -> SearchResult {
+fn par_retro_core<G: Geometry + Send + Sync>(
+    board: &Board<G>,
+    from_pass: bool,
+    sh: &ParShared<G>,
+    depth: usize,
+) -> SearchResult {
     // 全体の早期停止を確認
     match sh.stop.load(Ordering::Relaxed) {
         1 => return SearchResult::Found,
@@ -784,19 +805,19 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // 形状フィルタ
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) || !check_seg3(occupied) {
+    if !is_connected::<G>(occupied) || !check_seg3::<G>(occupied) {
         return SearchResult::NotFound;
     }
 
     // ---- 子ノード列挙（パス + 直前着手候補からの retroflips）----
     // 1) パス枝（from_pass==false かつ 相手に合法手無し）
-    let mut children: Vec<(Board, bool)> = Vec::new(); // (prev_board, from_pass_prev)
-    if !from_pass && get_moves(board.opponent, board.player) == 0 {
-        children.push((Board::new(board.opponent, board.player), true));
+    let mut children: Vec<(Board<G>, bool)> = Vec::new(); // (prev_board, from_pass_prev)
+    if !from_pass && get_moves_generic::<G>(board.opponent, board.player) == 0 {
+        children.push((Board::<G>::new(board.opponent, board.player), true));
     }
 
     // 2) 直前着手位置ごとの “可能 flip 集合” 展開
-    let b = board.opponent & !0x0000_0018_1800_0000u64;
+    let b = board.opponent & (G::region_mask() ^ G::center_mask());
     if b == 0 && children.is_empty() {
         return SearchResult::NotFound;
     }
@@ -812,11 +833,12 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
             let index = bb.trailing_zeros();
             bb &= bb - 1;
 
-            let num = retrospective_flip(index, board.player, board.opponent, &mut retro[num_disc]);
+            let num =
+                retrospective_flip::<G>(index, board.player, board.opponent, &mut retro[num_disc]);
             for i in 1..num {
                 let flipped = retro[num_disc][i];
                 debug_assert!(flipped != 0);
-                let prev = Board::new(
+                let prev = Board::<G>::new(
                     board.opponent ^ (flipped | (1u64 << index)),
                     board.player ^ flipped,
                 );
@@ -843,7 +865,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
             // 先頭はこのスレッドで実行
             if let Some((bd0, fp0)) = it.next() {
-                let r0 = par_retro_core(&bd0, fp0, sh, depth + 1);
+                let r0 = par_retro_core::<G>(&bd0, fp0, sh, depth + 1);
                 match r0 {
                     SearchResult::Found => {
                         local_best.store(SearchResult::Found as usize, Ordering::Relaxed);
@@ -868,7 +890,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
             for (bd, fp) in it {
                 s.spawn_fifo(move |_| {
                     // bd と fp は move 済み（所有）
-                    let r = par_retro_core(&bd, fp, sh_ref, depth + 1);
+                    let r = par_retro_core::<G>(&bd, fp, sh_ref, depth + 1);
 
                     match r {
                         SearchResult::Found => {
@@ -899,7 +921,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     } else {
         // 直列分岐はそのまま
         for (bd, fp) in children {
-            let r = par_retro_core(&bd, fp, sh, depth + 1);
+            let r = par_retro_core::<G>(&bd, fp, sh, depth + 1);
             match r {
                 SearchResult::Found => return SearchResult::Found,
                 SearchResult::Unknown => return SearchResult::Unknown,
