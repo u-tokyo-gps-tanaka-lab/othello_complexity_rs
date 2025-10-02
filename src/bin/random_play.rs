@@ -1,55 +1,127 @@
-use rand::Rng; // 乱数生成のため
+use rand::Rng;
+use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::process;
 
-use othello_complexity_rs::lib::othello::{flip, get_moves, Board};
+use othello_complexity_rs::lib::othello::{
+    flip_generic, get_moves_generic, Board, Geometry, Standard6x6, Standard8x8,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoardSize {
+    Size8,
+    Size6,
+}
+
+impl BoardSize {
+    fn parse_from_args() -> Self {
+        let mut size = BoardSize::Size8;
+        let mut args = env::args().skip(1);
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-s" | "--size" => {
+                    let Some(value) = args.next() else {
+                        eprintln!("--size には 6 または 8 を指定してください");
+                        process::exit(1);
+                    };
+                    size = match value.as_str() {
+                        "6" | "6x6" => BoardSize::Size6,
+                        "8" | "8x8" => BoardSize::Size8,
+                        other => {
+                            eprintln!("未知のサイズ指定: {} (6 または 8)", other);
+                            process::exit(1);
+                        }
+                    };
+                }
+                "-h" | "--help" => {
+                    println!("Usage: random_play [--size <6|8>]");
+                    process::exit(0);
+                }
+                other => {
+                    eprintln!("未知の引数: {}", other);
+                    process::exit(1);
+                }
+            }
+        }
+        size
+    }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            BoardSize::Size8 => "",
+            BoardSize::Size6 => "_6x6",
+        }
+    }
+}
 
 /// 初期局面から nmoves 手ランダムに指した局面を返す
-fn do_random_play(nmoves: i32) -> Board {
+fn do_random_play<G: Geometry>(nmoves: i32) -> Board<G> {
     let mut rng = rand::rng();
-    let mut b = Board::initial();
+    let mut b = Board::<G>::initial();
 
     for _ in 0..nmoves {
-        let mut m = get_moves(b.player, b.opponent);
-        if m == 0 {
-            let m1 = get_moves(b.opponent, b.player);
-            if m1 == 0 {
+        let mut moves = get_moves_generic::<G>(b.player, b.opponent);
+        if moves == 0 {
+            let responses = get_moves_generic::<G>(b.opponent, b.player);
+            if responses == 0 {
                 continue;
             }
             b = Board::new(b.opponent, b.player);
-            m = m1;
+            moves = responses;
         }
-        let cnt = m.count_ones();
-        let r = rng.random_range(0..cnt);
-        let mut idx = 0;
-        for _ in 0..=r {
-            idx = m.trailing_zeros();
-            m &= m - 1;
+
+        let mut move_bits: Vec<u32> = Vec::new();
+        let mut tmp = moves;
+        while tmp != 0 {
+            let idx = tmp.trailing_zeros();
+            move_bits.push(idx);
+            tmp &= tmp - 1;
         }
-        let flipped = flip(idx as usize, b.player, b.opponent);
+        if move_bits.is_empty() {
+            continue;
+        }
+
+        let choice = move_bits[rng.random_range(0..move_bits.len() as u32) as usize];
+        let bit_mask = 1u64 << choice;
+        let Some(pos) = G::bit_to_index(bit_mask) else {
+            continue;
+        };
+
+        let flipped = flip_generic::<G>(pos, b.player, b.opponent);
         if flipped == 0 {
             continue;
         }
-        b = Board::new(b.opponent ^ flipped, b.player ^ (flipped | (1u64 << idx)));
+
+        let move_bit = G::bit_by_index(pos);
+        b = Board::new(b.opponent ^ flipped, b.player ^ (flipped | move_bit));
     }
     b
 }
 
+fn generate_samples<G: Geometry>(out_dir: &Path, suffix: &str) -> std::io::Result<()> {
+    for nmoves in 20..=60 {
+        let file_path = out_dir.join(format!("result{}{}.txt", nmoves, suffix));
+        let mut file = File::create(&file_path)?;
+        for _ in 0..50 {
+            let board = do_random_play::<G>(nmoves);
+            writeln!(file, "{}", board.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn main() -> std::io::Result<()> {
+    let board_size = BoardSize::parse_from_args();
     let out_dir = Path::new("result").join("random_play");
     if !out_dir.exists() {
         fs::create_dir_all(&out_dir)?;
     }
 
-    for nmoves in 20..=60 {
-        let file_path = out_dir.join(format!("result{}.txt", nmoves));
-        let mut file = File::create(&file_path)?;
-        for _ in 0..50 {
-            let b = do_random_play(nmoves);
-            writeln!(file, "{}", b.to_string())?;
-        }
+    match board_size {
+        BoardSize::Size8 => generate_samples::<Standard8x8>(&out_dir, board_size.suffix()),
+        BoardSize::Size6 => generate_samples::<Standard6x6>(&out_dir, board_size.suffix()),
     }
-    Ok(())
 }

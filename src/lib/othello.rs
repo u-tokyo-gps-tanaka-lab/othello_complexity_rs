@@ -75,6 +75,7 @@ pub trait Geometry {
 
     fn initial() -> (u64, u64);
     fn center_mask() -> u64;
+    fn region_mask() -> u64;
     fn bit_by_index(pos: usize) -> u64;
     fn shift(dir: Direction, bb: u64) -> u64;
     fn transpose(bb: u64) -> u64;
@@ -109,6 +110,18 @@ pub trait Geometry {
         }
 
         Self::validate(*board);
+    }
+
+    fn bit_to_index(bit: u64) -> Option<usize> {
+        if bit.count_ones() != 1 || (bit & Self::region_mask()) == 0 {
+            return None;
+        }
+        for pos in 0..Self::CELL_COUNT {
+            if Self::bit_by_index(pos) == bit {
+                return Some(pos);
+            }
+        }
+        None
     }
 }
 
@@ -147,6 +160,10 @@ impl Geometry for Standard8x8 {
 
     fn center_mask() -> u64 {
         0x0000001818000000
+    }
+
+    fn region_mask() -> u64 {
+        0xFFFF_FFFF_FFFF_FFFF
     }
 
     fn bit_by_index(pos: usize) -> u64 {
@@ -357,4 +374,85 @@ pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
 
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
     get_moves_generic::<Standard8x8>(player, opponent)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Standard6x6;
+
+impl Standard6x6 {
+    const REGION_MASK: u64 = 0x007E_7E7E_7E7E_7E00;
+
+    #[inline(always)]
+    const fn actual_index(x: usize, y: usize) -> usize {
+        (y + 1) * 8 + (x + 1)
+    }
+
+    #[inline(always)]
+    fn clamp(bb: u64) -> u64 {
+        bb & Self::REGION_MASK
+    }
+}
+
+impl Geometry for Standard6x6 {
+    const WIDTH: usize = 6;
+    const HEIGHT: usize = 6;
+
+    fn initial() -> (u64, u64) {
+        let player = Self::bit_at(2, 3) | Self::bit_at(3, 2);
+        let opponent = Self::bit_at(2, 2) | Self::bit_at(3, 3);
+        (player, opponent)
+    }
+
+    fn center_mask() -> u64 {
+        Self::bit_at(2, 2) | Self::bit_at(3, 3) | Self::bit_at(2, 3) | Self::bit_at(3, 2)
+    }
+
+    fn region_mask() -> u64 {
+        Self::REGION_MASK
+    }
+
+    fn bit_by_index(pos: usize) -> u64 {
+        debug_assert!(pos < Self::CELL_COUNT);
+        let x = pos % Self::WIDTH;
+        let y = pos / Self::WIDTH;
+        1u64 << Self::actual_index(x, y)
+    }
+
+    fn shift(dir: Direction, bb: u64) -> u64 {
+        let bb = Self::clamp(bb);
+        let region = Self::REGION_MASK;
+        let shifted = match dir {
+            Direction::East => bb << 1,
+            Direction::SouthEast => bb >> 7,
+            Direction::South => bb >> 8,
+            Direction::SouthWest => bb >> 9,
+            Direction::West => bb >> 1,
+            Direction::NorthWest => bb << 7,
+            Direction::North => bb << 8,
+            Direction::NorthEast => bb << 9,
+        };
+        shifted & region
+    }
+
+    fn transpose(b: u64) -> u64 {
+        Standard8x8::transpose(b) & Self::REGION_MASK
+    }
+
+    fn vertical_mirror(b: u64) -> u64 {
+        Standard8x8::vertical_mirror(b) & Self::REGION_MASK
+    }
+
+    fn horizontal_mirror(b: u64) -> u64 {
+        Standard8x8::horizontal_mirror(b) & Self::REGION_MASK
+    }
+}
+
+pub type Board6 = Board<Standard6x6>;
+
+pub fn flip6(pos: usize, player: u64, opponent: u64) -> u64 {
+    flip_generic::<Standard6x6>(pos, player, opponent)
+}
+
+pub fn get_moves6(player: u64, opponent: u64) -> u64 {
+    get_moves_generic::<Standard6x6>(player, opponent)
 }

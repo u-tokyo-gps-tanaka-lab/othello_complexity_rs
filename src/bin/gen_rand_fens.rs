@@ -6,8 +6,9 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::process;
 
-use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::lib::othello::{Board, Geometry, Standard6x6, Standard8x8};
 
 /// nCk を u128 で返す。u128 を超える場合は None。
 pub fn combination_u128(n: usize, k: usize) -> Option<u128> {
@@ -58,6 +59,81 @@ fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
     a
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoardSize {
+    Size8,
+    Size6,
+}
+
+impl BoardSize {
+    fn parse_from_args() -> (Self, usize, usize) {
+        let mut size = BoardSize::Size8;
+        let mut stone_count: usize = 0;
+        let mut gen_count: usize = 50;
+
+        let mut args = env::args().skip(1);
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-n" => {
+                    let Some(value) = args.next() else {
+                        eprintln!("-n の後に数値を指定してください");
+                        process::exit(1);
+                    };
+                    stone_count = value.parse::<usize>().unwrap_or_else(|_| {
+                        eprintln!("-n には整数を指定してください");
+                        process::exit(1);
+                    });
+                }
+                "-c" => {
+                    let Some(value) = args.next() else {
+                        eprintln!("-c の後に数値を指定してください");
+                        process::exit(1);
+                    };
+                    gen_count = value.parse::<usize>().unwrap_or_else(|_| {
+                        eprintln!("-c には整数を指定してください");
+                        process::exit(1);
+                    });
+                    if gen_count == 0 {
+                        eprintln!("-c の値は 1 以上を指定してください");
+                        process::exit(1);
+                    }
+                }
+                "-s" | "--size" => {
+                    let Some(value) = args.next() else {
+                        eprintln!("--size には 6 または 8 を指定してください");
+                        process::exit(1);
+                    };
+                    size = match value.as_str() {
+                        "6" | "6x6" => BoardSize::Size6,
+                        "8" | "8x8" => BoardSize::Size8,
+                        other => {
+                            eprintln!("未知のサイズ指定: {} (6 または 8)", other);
+                            process::exit(1);
+                        }
+                    };
+                }
+                "-h" | "--help" => {
+                    println!("Usage: gen_rand_fens [-n stones] [-c count] [--size <6|8>]");
+                    process::exit(0);
+                }
+                other => {
+                    eprintln!("未知の引数: {}", other);
+                    process::exit(1);
+                }
+            }
+        }
+
+        (size, stone_count, gen_count)
+    }
+
+    fn filename_prefix(self) -> &'static str {
+        match self {
+            BoardSize::Size8 => "result",
+            BoardSize::Size6 => "result_6x6",
+        }
+    }
+}
+
 /// 区間 0..lim から乱数を生成
 fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
     let maxv: u128 = (u128::MAX / lim) * lim; // u128::MAX以下で最大のlimの倍数
@@ -74,17 +150,19 @@ fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
 /// n+4マス埋まりのランダムなビットボードを生成（到達可能とは限らない）
 /// - rng: 疑似乱数生成器
 /// - n: 中心4マス以外に石を置くマス数 (n==0ならばマス数を限定しない全状態から抽出)
-fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
+fn mk_rand_board<G: Geometry>(rng: &mut ThreadRng, n: usize) -> Board<G> {
     let mut player: u64 = 0;
     let mut opponent: u64 = 0;
+    let center_mask = G::center_mask();
+    let non_center_total = G::CELL_COUNT - 4;
 
     if n == 0 {
-        let lim: u128 = 3_u128.pow(60) * 2_u128.pow(4);
+        let lim: u128 = 3_u128.pow(non_center_total as u32) * 2_u128.pow(4);
         let mut v = mk_rand(rng, lim);
-        for y in 0..8 {
-            for x in 0..8 {
-                let i = y * 8 + x;
-                let sq = if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
+        for y in 0..G::HEIGHT {
+            for x in 0..G::WIDTH {
+                let bit = G::bit_at(x, y);
+                let sq = if center_mask & bit != 0 {
                     let ans = (v % 2) + 1;
                     v /= 2;
                     ans
@@ -94,47 +172,46 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
                     ans
                 };
                 if sq == 1 {
-                    player |= 1u64 << i;
+                    player |= bit;
                 } else if sq == 2 {
-                    opponent |= 1u64 << i;
+                    opponent |= bit;
                 }
             }
         }
     } else {
         let mut rest_stone = n; //置くべき石が残りいくつあるか
-        let mut rest_sq = 60; //まだ石を置いていないマスの数
+        let mut rest_sq = non_center_total; //まだ石を置いていないマスの数
 
-        for y in 0..8 {
-            for x in 0..8 {
-                let i = y * 8 + x;
-                if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
+        for y in 0..G::HEIGHT {
+            for x in 0..G::WIDTH {
+                let bit = G::bit_at(x, y);
+                if center_mask & bit != 0 {
                     let v = mk_rand(rng, 2);
                     if v == 0 {
-                        player |= 1u64 << i;
+                        player |= bit;
                     } else {
-                        opponent |= 1u64 << i;
+                        opponent |= bit;
                     }
                 } else {
                     rest_sq -= 1;
-                    let mut set_count: u128 = 0;
-                    let mut blank_count: u128 = 0;
-                    if rest_sq < rest_stone {
-                        // always set
-                        set_count = 1;
+                    let (set_count, blank_count): (u128, u128) = if rest_sq < rest_stone {
+                        (1, 0)
                     } else if rest_stone == 0 {
-                        blank_count = 1;
+                        (0, 1)
                     } else {
-                        set_count = combination_u128(rest_sq, rest_stone - 1).unwrap();
-                        blank_count = combination_u128(rest_sq, rest_stone).unwrap();
-                    }
+                        (
+                            combination_u128(rest_sq, rest_stone - 1).unwrap(),
+                            combination_u128(rest_sq, rest_stone).unwrap(),
+                        )
+                    };
                     let v = mk_rand(rng, set_count + blank_count);
                     if v < set_count {
                         rest_stone -= 1;
                         let v = mk_rand(rng, 2);
                         if v == 0 {
-                            player |= 1u64 << i;
+                            player |= bit;
                         } else {
-                            opponent |= 1u64 << i;
+                            opponent |= bit;
                         }
                     }
                 }
@@ -144,43 +221,36 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
     Board::new(player, opponent)
 }
 
+fn generate_fens<G: Geometry>(
+    rng: &mut ThreadRng,
+    stone_count: usize,
+    gen_count: usize,
+    out_path: &Path,
+) -> std::io::Result<()> {
+    let max_stones = G::CELL_COUNT - 4;
+    if stone_count > max_stones {
+        eprintln!(
+            "中心4マス以外に置ける石数は最大 {} 個です (指定={})",
+            max_stones, stone_count
+        );
+        process::exit(1);
+    }
+
+    let mut file = File::create(out_path)?;
+    for _ in 0..gen_count {
+        let board = mk_rand_board::<G>(rng, stone_count);
+        writeln!(file, "{}", board.to_string())?;
+    }
+    Ok(())
+}
+
 /// 実行方法: cargo run --bin gen_rand_fens -- -n {{数値}} [-c {{生成個数}}]
 /// - -n {{数値}}: 中心4マス以外に石を置くマス数 (0ならばマス数を限定しない全状態から抽出)
 /// - -c {{生成個数}}: 生成個数 (デフォルト50)
+/// - --size <6|8>: 盤サイズ (デフォルト 8x8)
 fn main() -> std::io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let mut stone_count: usize = 0; // マス数のデフォルト値
-    let mut gen_count: usize = 50; // 生成個数のデフォルト値
+    let (board_size, stone_count, gen_count) = BoardSize::parse_from_args();
     let mut rng = rand::rng();
-
-    // 引数を順番に走査
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "-n" {
-            if i + 1 < args.len() {
-                stone_count = args[i + 1]
-                    .parse::<usize>()
-                    .expect("整数を指定してください");
-            } else {
-                eprintln!("-n の後に数値を指定してください");
-                std::process::exit(1);
-            }
-        } else if args[i] == "-c" {
-            if i + 1 < args.len() {
-                gen_count = args[i + 1]
-                    .parse::<usize>()
-                    .expect("整数を指定してください");
-                if gen_count < 1 {
-                    eprintln!("-c の値は 1 以上を指定してください");
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("-c の後に数値を指定してください");
-                std::process::exit(1);
-            }
-        }
-        i += 1;
-    }
 
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("result")
@@ -189,12 +259,19 @@ fn main() -> std::io::Result<()> {
         fs::create_dir_all(&out_dir)?;
     }
 
-    // 出力ファイル名: result_n{stone_count}_c{gen_count}.txt
-    let file_path = out_dir.join(format!("result_n{}_c{}.txt", stone_count, gen_count));
-    let mut file = File::create(&file_path)?;
-    for _ in 0..gen_count {
-        let b = mk_rand_board(&mut rng, stone_count);
-        writeln!(file, "{}", b.to_string())?;
+    let file_path = out_dir.join(format!(
+        "{}_n{}_c{}.txt",
+        board_size.filename_prefix(),
+        stone_count,
+        gen_count
+    ));
+
+    match board_size {
+        BoardSize::Size8 => {
+            generate_fens::<Standard8x8>(&mut rng, stone_count, gen_count, &file_path)
+        }
+        BoardSize::Size6 => {
+            generate_fens::<Standard6x6>(&mut rng, stone_count, gen_count, &file_path)
+        }
     }
-    Ok(())
 }
