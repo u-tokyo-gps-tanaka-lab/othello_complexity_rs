@@ -1,4 +1,4 @@
-use crate::lib::othello::DXYS;
+use crate::lib::othello::{Geometry, Standard6x6, Standard8x8, DXYS};
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -32,6 +32,16 @@ impl VarMaker {
 #[inline]
 fn xy2sq(x: i32, y: i32) -> usize {
     (y * 8 + x) as usize
+}
+
+#[inline]
+fn sq_bit(sq: usize) -> u64 {
+    1u64 << sq
+}
+
+#[inline]
+fn in_region<G: Geometry>(sq: usize) -> bool {
+    sq_bit(sq) & G::region_mask() != 0
 }
 
 fn solve_by_kissat(
@@ -109,15 +119,27 @@ fn output_cnf(
     Err(Error::new(ErrorKind::Other, "one cnf file only"))
 }
 
-pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
+fn is_sat_ok_with_geometry<G: Geometry>(index: usize, line: &str) -> Result<bool, Error> {
     eprintln!("line={}", line);
-    let cs: Vec<char> = line.chars().collect();
-    if cs.len() != 64 {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "length is not 64 format error",
-        ));
-    }
+    let chars: Vec<char> = line.chars().collect();
+    let cs: Vec<char> = match chars.len() {
+        64 => chars,
+        len if len == G::CELL_COUNT => {
+            let mut buffer = vec!['-'; 64];
+            for pos in 0..G::CELL_COUNT {
+                let bit = G::bit_by_index(pos);
+                let idx = bit.trailing_zeros() as usize;
+                buffer[idx] = chars[pos];
+            }
+            buffer
+        }
+        _ => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("length is not {} or 64 format error", G::CELL_COUNT),
+            ))
+        }
+    };
     let mut sqi: Vec<usize> = vec![];
     let mut sqo: Vec<usize> = vec![];
     let mut sqall: Vec<usize> = vec![];
@@ -126,6 +148,9 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     for y in 0..8 {
         for x in 0..8 {
             let sq = xy2sq(x, y);
+            if !in_region::<G>(sq) {
+                continue;
+            }
             if cs[sq] != '-' {
                 sqall.push(sq);
                 if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
@@ -357,4 +382,12 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     let ans = solve_by_kissat(index, &s, vm.count(), &comment);
 
     Ok(ans)
+}
+
+pub fn is_sat_ok(index: usize, line: &str) -> Result<bool, Error> {
+    is_sat_ok_with_geometry::<Standard8x8>(index, line)
+}
+
+pub fn is_sat_ok6(index: usize, line: &str) -> Result<bool, Error> {
+    is_sat_ok_with_geometry::<Standard6x6>(index, line)
 }
