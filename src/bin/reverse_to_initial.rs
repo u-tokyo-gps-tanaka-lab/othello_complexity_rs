@@ -128,7 +128,10 @@ fn run() -> io::Result<()> {
                 writeln!(unknown, "{}", line)?;
             }
         }
-        eprintln!("retrospective_searched.len() = {}", retrospective_searched.len());
+        eprintln!(
+            "retrospective_searched.len() = {}",
+            retrospective_searched.len()
+        );
     }
 
     Ok(())

@@ -1,21 +1,21 @@
 use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write, Result, BufReader, Read, Error, ErrorKind, Seek, SeekFrom};
+use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::collections::{HashSet, BinaryHeap};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
 };
 use std::thread;
 
-use clap::Parser;
 use bytemuck;
-
+use clap::Parser;
 
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
-use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected};
-
+use crate::lib::search::{
+    check_seg3, check_seg3_more, is_connected, retrospective_flip, SearchResult,
+};
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "reverse_to_initial_bfs", version)]
@@ -52,7 +52,11 @@ pub struct Cfg {
     pub resume: bool,
 }
 
-fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips: &mut [u64; 10_000]) {
+fn process_board(
+    board: [u64; 2],
+    prev_boards: &mut HashSet<[u64; 2]>,
+    retroflips: &mut [u64; 10_000],
+) {
     let board: Board = Board::new(board[0], board[1]);
     let mut b = board.opponent & !0x0000_0018_1800_0000u64;
     if b == 0 {
@@ -63,12 +67,7 @@ fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips:
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(
-            index,
-            board.player,
-            board.opponent,
-            retroflips,
-        );
+        let num = retrospective_flip(index, board.player, board.opponent, retroflips);
         for i in 1..num {
             let flipped = retroflips[i];
             debug_assert!(flipped != 0);
@@ -94,12 +93,17 @@ fn process_board(board: [u64;2], prev_boards: &mut HashSet<[u64;2]>, retroflips:
                 let uni = Board::new(prev.opponent, prev.player).unique();
                 prev_boards.insert(uni);
             }
-        }            
+        }
     }
 }
 
-fn process_bfs_block(num_disc: i32, tmp_dir: &PathBuf, block_size: usize, block_number: usize) -> Result<bool> {
-    let rfilename = format!("r_{}.bin",num_disc + 1);
+fn process_bfs_block(
+    num_disc: i32,
+    tmp_dir: &PathBuf,
+    block_size: usize,
+    block_number: usize,
+) -> Result<bool> {
+    let rfilename = format!("r_{}.bin", num_disc + 1);
     let mut file = File::open(&tmp_dir.join(rfilename))?;
     let meta = file.metadata()?;
     let len = meta.len() as usize;
@@ -114,15 +118,18 @@ fn process_bfs_block(num_disc: i32, tmp_dir: &PathBuf, block_size: usize, block_
     if offset >= len {
         return Err(io::Error::new(
             ErrorKind::InvalidData,
-            format!("block_size {} x block_number {} is greater than file size {}", block_size, block_number, len),
+            format!(
+                "block_size {} x block_number {} is greater than file size {}",
+                block_size, block_number, len
+            ),
         ));
     }
     file.seek(SeekFrom::Start(offset as u64))?;
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = std::cmp::min(block_size, (len - offset) / 16);
-    let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64;10_000];
+    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -130,9 +137,9 @@ fn process_bfs_block(num_disc: i32, tmp_dir: &PathBuf, block_size: usize, block_
         process_board([a, b], &mut prev_boards, &mut retroflips);
     }
     if prev_boards.len() == 0 {
-        return Ok(false)
+        return Ok(false);
     }
-    let mut bvec: Vec<[u64;2]> = prev_boards.into_iter().collect();
+    let mut bvec: Vec<[u64; 2]> = prev_boards.into_iter().collect();
     bvec.sort();
     //eprintln!("num_disc={}, count={}", num_disc, bvec.len());
     let ofilename = format!("b_{}_{}.bin", num_disc, block_number);
@@ -220,7 +227,7 @@ fn merge_files(num_disc: i32, tmp_dir: &PathBuf, block_count: usize) -> Result<u
     for i in 0..block_count {
         inputs.push(tmp_dir.join(format!("b_{}_{}.bin", num_disc, i)));
     }
-    let outfile = tmp_dir.join(format!("r_{}.bin",num_disc));
+    let outfile = tmp_dir.join(format!("r_{}.bin", num_disc));
     let count = merge_sorted_bins(&inputs, &outfile)?;
     for i in 0..inputs.len() {
         fs::remove_file(&inputs[i])?;
@@ -230,7 +237,7 @@ fn merge_files(num_disc: i32, tmp_dir: &PathBuf, block_count: usize) -> Result<u
 }
 
 fn process_bfs_seq(num_disc: i32, tmp_dir: &PathBuf, block_size: usize) -> Result<bool> {
-    let rfilename = format!("r_{}.bin",num_disc + 1);
+    let rfilename = format!("r_{}.bin", num_disc + 1);
     let file = File::open(&tmp_dir.join(rfilename))?;
     let meta = file.metadata()?;
     let len = meta.len() as usize;
@@ -253,11 +260,7 @@ fn process_bfs_seq(num_disc: i32, tmp_dir: &PathBuf, block_size: usize) -> Resul
     Ok(true)
 }
 
-pub fn process_bfs_par(
-    num_disc: i32,
-    tmp_dir: &PathBuf,
-    num_threads: usize,
-) -> io::Result<bool> {
+pub fn process_bfs_par(num_disc: i32, tmp_dir: &PathBuf, num_threads: usize) -> io::Result<bool> {
     let rfilename = format!("r_{}.bin", num_disc + 1);
     let file = File::open(&tmp_dir.join(rfilename))?;
     let len = file.metadata()?.len() as usize;
@@ -269,20 +272,20 @@ pub fn process_bfs_par(
         ));
     }
 
-    let all_count   = len / 16;
-    let block_size = std::cmp::min(5000000, std::cmp::max(1024, all_count / num_threads / 10 ));
+    let all_count = len / 16;
+    let block_size = std::cmp::min(5000000, std::cmp::max(1024, all_count / num_threads / 10));
     let block_count = (all_count + block_size - 1) / block_size;
 
     // --- 並列実行（動的スケジューリング） ---
-    let next   = Arc::new(AtomicUsize::new(0));          // 次に配る block index
-    let cancel = Arc::new(AtomicBool::new(false));       // エラー検知で新規受付を止める
-    let tdir   = Arc::new(tmp_dir.clone());
+    let next = Arc::new(AtomicUsize::new(0)); // 次に配る block index
+    let cancel = Arc::new(AtomicBool::new(false)); // エラー検知で新規受付を止める
+    let tdir = Arc::new(tmp_dir.clone());
 
     let mut handles = Vec::with_capacity(num_threads);
     for _ in 0..num_threads {
-        let next   = Arc::clone(&next);
+        let next = Arc::clone(&next);
         let cancel = Arc::clone(&cancel);
-        let tdir   = Arc::clone(&tdir);
+        let tdir = Arc::clone(&tdir);
 
         let handle = thread::spawn(move || -> io::Result<()> {
             loop {
@@ -316,10 +319,7 @@ pub fn process_bfs_par(
             }
             Err(_) => {
                 if first_err.is_none() {
-                    first_err = Some(io::Error::new(
-                        ErrorKind::Other,
-                        "worker thread panicked",
-                    ));
+                    first_err = Some(io::Error::new(ErrorKind::Other, "worker thread panicked"));
                 }
             }
         }
@@ -348,7 +348,7 @@ pub fn retrospective_search_bfs_par_resume(
     num_disc: i32,
     discs: i32,
     leafnode: &std::collections::HashSet<[u64; 2]>,
-) -> Result<SearchResult>  {
+) -> Result<SearchResult> {
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
     let mut jobs = cfg.jobs;
     if jobs == 0 {
@@ -375,8 +375,8 @@ pub fn retrospective_search_bfs_par_resume(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64;10_000];
+    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -402,7 +402,6 @@ pub fn retrospective_search_bfs_par(
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
     // let block_size = cfg.block_size;
 
-
     if (num_disc as i32) <= discs {
         return if leafnode.contains(&uni) {
             println!("info: found unique board in leafnodes:");
@@ -415,11 +414,11 @@ pub fn retrospective_search_bfs_par(
             Ok(SearchResult::NotFound)
         };
     }
-    let mut boards: Vec<[u64;2]> = vec![[board.player, board.opponent]];
+    let mut boards: Vec<[u64; 2]> = vec![[board.player, board.opponent]];
     if get_moves(board.opponent, board.player) == 0 {
         boards.push([board.opponent, board.player]);
     }
-    let rfilename = format!("r_{}.bin",num_disc);
+    let rfilename = format!("r_{}.bin", num_disc);
     let rfile = File::create(&tmp_dir.join(rfilename))?;
     let mut w = BufWriter::new(rfile);
     w.write_all(bytemuck::cast_slice(&boards))?;
@@ -452,11 +451,11 @@ pub fn retrospective_search_bfs_seq(
             Ok(SearchResult::NotFound)
         };
     }
-    let mut boards: Vec<[u64;2]> = vec![[board.player, board.opponent]];
+    let mut boards: Vec<[u64; 2]> = vec![[board.player, board.opponent]];
     if get_moves(board.opponent, board.player) == 0 {
         boards.push([board.opponent, board.player]);
     }
-    let rfilename = format!("r_{}.bin",num_disc);
+    let rfilename = format!("r_{}.bin", num_disc);
     let rfile = File::create(&tmp_dir.join(rfilename))?;
     let mut w = BufWriter::new(rfile);
     w.write_all(bytemuck::cast_slice(&boards))?;
@@ -481,8 +480,8 @@ pub fn retrospective_search_bfs_seq(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64;10_000];
+    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -496,7 +495,7 @@ pub fn retrospective_search_bfs_seq(
 }
 
 fn process_bfs(num_disc: i32, tmp_dir: &PathBuf) -> Result<bool> {
-    let rfilename = format!("r_{}.bin",num_disc + 1);
+    let rfilename = format!("r_{}.bin", num_disc + 1);
     let file = File::open(&tmp_dir.join(rfilename))?;
     let meta = file.metadata()?;
     let len = meta.len();
@@ -511,8 +510,8 @@ fn process_bfs(num_disc: i32, tmp_dir: &PathBuf) -> Result<bool> {
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
     println!("nrecs={}", nrecs);
-    let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64;10_000];
+    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -520,12 +519,12 @@ fn process_bfs(num_disc: i32, tmp_dir: &PathBuf) -> Result<bool> {
         process_board([a, b], &mut prev_boards, &mut retroflips);
     }
     if prev_boards.len() == 0 {
-        return Ok(false)
+        return Ok(false);
     }
-    let mut bvec: Vec<[u64;2]> = prev_boards.into_iter().collect();
+    let mut bvec: Vec<[u64; 2]> = prev_boards.into_iter().collect();
     bvec.sort();
     // eprintln!("num_disc={}, count={}", num_disc, bvec.len());
-    let ofilename = format!("r_{}.bin",num_disc);
+    let ofilename = format!("r_{}.bin", num_disc);
     let ofile = File::create(&tmp_dir.join(ofilename))?;
     let mut w = BufWriter::new(ofile);
     w.write_all(bytemuck::cast_slice(&bvec))?;
@@ -557,11 +556,11 @@ pub fn retrospective_search_bfs(
             Ok(SearchResult::NotFound)
         };
     }
-    let mut boards: Vec<[u64;2]> = vec![[board.player, board.opponent]];
+    let mut boards: Vec<[u64; 2]> = vec![[board.player, board.opponent]];
     if get_moves(board.opponent, board.player) == 0 {
         boards.push([board.opponent, board.player]);
     }
-    let rfilename = format!("r_{}.bin",num_disc);
+    let rfilename = format!("r_{}.bin", num_disc);
     let rfile = File::create(&tmp_dir.join(rfilename))?;
     let mut w = BufWriter::new(rfile);
     w.write_all(bytemuck::cast_slice(&boards))?;
@@ -586,8 +585,8 @@ pub fn retrospective_search_bfs(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64;2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64;10_000];
+    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());

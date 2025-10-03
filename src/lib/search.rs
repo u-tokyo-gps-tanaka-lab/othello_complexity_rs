@@ -3,7 +3,6 @@ use crate::lib::othello::{flip, get_moves, Board, DXYS};
 use std::cmp::min;
 use std::collections::HashSet;
 
-
 pub struct Btable {
     cache_size: usize,
     table: Vec<[u64; 2]>,
@@ -189,15 +188,15 @@ fn onebit(x: u8) -> bool {
 pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
     let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     let occupied = player | opponent;
-    let mut canput : [u8;64] = [0;64];
-    let mut canflip : [u8;64] = [0;64];
+    let mut canput: [u8; 64] = [0; 64];
+    let mut canflip: [u8; 64] = [0; 64];
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
             if occupied & (1 << i) == 0 {
                 continue;
             }
-            let mut ls: [u8;8] = [0;8];
+            let mut ls: [u8; 8] = [0; 8];
             for (d, (dx, dy)) in DXYS.iter().enumerate() {
                 let mut l = 1;
                 let mut x1 = x + dx;
@@ -261,7 +260,7 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                                 return false;
                             }
                             let i2 = i + di;
-                            if p0 & (1 << i2) != 0 && canflip[i2 as usize] & ! (1 << d1) == 0 {
+                            if p0 & (1 << i2) != 0 && canflip[i2 as usize] & !(1 << d1) == 0 {
                                 //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
                                 //eprintln!("{}", Board::new(player, opponent).show());
                                 return false;
@@ -750,9 +749,9 @@ pub fn retrospective_search(
 /// sm_edge_min : 内部同士で同じ色のエッジの組の数で，色ごとの最小の数
 fn features(b: &Board) -> (u16, u16, u16, u16) {
     let (mut in_sq, mut in_edge) = (0, 0);
-    let mut sm_edges: [u16;2] = [0;2];
+    let mut sm_edges: [u16; 2] = [0; 2];
     let occupied = b.player | b.opponent;
-    let ps: [u64;2] = [b.player, b.opponent];
+    let ps: [u64; 2] = [b.player, b.opponent];
     for p in 0..2 {
         let mut p0 = ps[p];
         while p0 != 0 {
@@ -768,7 +767,7 @@ fn features(b: &Board) -> (u16, u16, u16, u16) {
                     if p0 & (1 << i1) != 0 {
                         sm_edges[p] += 1;
                     }
-                 }
+                }
             }
         }
     }
@@ -935,7 +934,7 @@ pub fn retrospective_search_move_ordering(
             // next_w_score.push((0.0, prev));
         }
     }
-    next_w_score.sort_by(|a, b| {a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))});
+    next_w_score.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
     for i in 0..next_w_score.len() {
         let (_, prev) = next_w_score[i];
         match retrospective_search_move_ordering(

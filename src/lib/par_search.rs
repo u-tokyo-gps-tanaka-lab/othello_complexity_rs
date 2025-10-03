@@ -4,7 +4,9 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
-use crate::lib::search::{SearchResult, retrospective_flip, check_seg3, check_seg3_more, is_connected, h_function};
+use crate::lib::search::{
+    check_seg3, check_seg3_more, h_function, is_connected, retrospective_flip, SearchResult,
+};
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
@@ -30,10 +32,10 @@ struct ParShared<'a> {
     discs: i32,
     node_limit: usize,
     table_limit: usize,
-    node_count: &'a AtomicUsize,                       // 走査ノード数
+    node_count: &'a AtomicUsize, // 走査ノード数
     node_per_stone: &'a [AtomicUsize; 65],
     done_per_stone: &'a [AtomicUsize; 65],
-    table_count: &'a AtomicUsize,                       // 走査ノード数
+    table_count: &'a AtomicUsize, // 走査ノード数
 
     // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
     stop: &'a AtomicUsize,
@@ -66,8 +68,8 @@ pub fn retrospective_search_parallel(
     let visited = DashSet::new();
     let node_count = AtomicUsize::new(0);
     let table_count = AtomicUsize::new(0);
-    let node_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
-    let done_per_stone: [AtomicUsize; 65]= std::array::from_fn(|_| AtomicUsize::new(0));
+    let node_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
+    let done_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
     let stop = AtomicUsize::new(0);
 
     let shared = ParShared {
@@ -86,7 +88,12 @@ pub fn retrospective_search_parallel(
     // ルート呼び出し
     let res = par_retro_core(board, from_pass, &shared, 0);
     for i in 0..=64 {
-        eprintln!("{}: {} / {}", i, done_per_stone[i].load(Ordering::Relaxed), node_per_stone[i].load(Ordering::Relaxed));
+        eprintln!(
+            "{}: {} / {}",
+            i,
+            done_per_stone[i].load(Ordering::Relaxed),
+            node_per_stone[i].load(Ordering::Relaxed)
+        );
     }
     res
 }
@@ -146,7 +153,10 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // 形状フィルタ
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) || !check_seg3(occupied) || !check_seg3_more(board.player, board.opponent) {
+    if !is_connected(occupied)
+        || !check_seg3(occupied)
+        || !check_seg3_more(board.player, board.opponent)
+    {
         return SearchResult::NotFound;
     }
 
@@ -202,7 +212,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     for i in 0..csize {
         children_score.push((h_function(&children[i].0), i));
     }
-    children_score.sort_by(|a, b| {a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))});
+    children_score.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
     let mut new_children: Vec<(Board, bool)> = vec![];
     for i in 0..csize {
         let j = children_score[i].1;
