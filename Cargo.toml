@@ -13,6 +13,7 @@ rayon = "1.10"
 dashmap = "6"
 clap = { version = "4", features = ["derive"] }
 bytemuck= "1.23.2"
+statrs = "0.18.0"
 
 [profile.dev]
 panic = "unwind"
