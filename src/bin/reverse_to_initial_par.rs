@@ -1,63 +1,70 @@
 use std::io;
+use std::path::PathBuf;
 
-use othello_complexity_rs::lib::par_search::{init_rayon, retrospective_search_parallel};
+use clap::Parser;
+
 use othello_complexity_rs::lib::reverse_common::{
-    ensure_outputs, parse_basic_cli, read_boards, read_env_with_default, validate_board, LeafCache,
+    default_input_path, default_out_dir, read_env_with_default, run_parallel,
 };
 
-fn run() -> io::Result<()> {
-    let cli = parse_basic_cli()?;
-    let boards = read_boards(&cli.input)?;
-    let total_input = boards.len();
-    println!(
-        "info: read {} board(s) from '{}'.",
-        total_input,
-        cli.input.display()
-    );
+#[derive(Parser, Debug)]
+#[command(
+    name = "reverse_to_initial_par",
+    about = "Parallel reverse search using rayon"
+)]
+struct Cli {
+    /// Input file containing board positions
+    #[arg(value_name = "INPUT")]
+    input: Option<PathBuf>,
 
-    let mut outputs = ensure_outputs(&cli.out_dir)?;
-    println!("info: writing outputs under '{}'", cli.out_dir.display());
+    /// Output directory for result files
+    #[arg(short, long, value_name = "DIR")]
+    out_dir: Option<PathBuf>,
 
-    let discs: i32 = read_env_with_default("DISCS", 10);
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
+    /// Number of discs at which to stop the forward search
+    #[arg(long, value_name = "N")]
+    discs: Option<i32>,
 
-    let node_limit: usize = read_env_with_default("MAX_NODES", 1_000_000usize);
-    println!("info: MAX_NODES = {}", node_limit);
-    let table_limit: usize = read_env_with_default("TABLE_SIZE", 1_00_000usize);
-    println!("info: TABLE_SIZE = {}", table_limit);
+    /// Maximum number of reverse-search nodes
+    #[arg(long = "max-nodes", value_name = "N")]
+    max_nodes: Option<usize>,
 
-    init_rayon(Some(60));
+    /// Table size hint for the transposition table
+    #[arg(long = "table-size", value_name = "N")]
+    table_size: Option<usize>,
 
-    for board in boards {
-        let line = board.to_string();
+    /// Number of rayon worker threads (0 = default)
+    #[arg(long, value_name = "N")]
+    threads: Option<usize>,
+}
 
-        if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
-            continue;
-        }
+fn run(cli: Cli) -> io::Result<()> {
+    let input = cli.input.unwrap_or_else(default_input_path);
+    let out_dir = cli.out_dir.unwrap_or_else(default_out_dir);
+    let discs = cli
+        .discs
+        .unwrap_or_else(|| read_env_with_default("DISCS", 10));
+    let max_nodes = cli
+        .max_nodes
+        .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
+    let table_size = cli
+        .table_size
+        .unwrap_or_else(|| read_env_with_default("TABLE_SIZE", 100_000usize));
+    let thread_setting = cli
+        .threads
+        .unwrap_or_else(|| read_env_with_default("RAYON_THREADS", 60usize));
+    let threads = if thread_setting == 0 {
+        None
+    } else {
+        Some(thread_setting)
+    };
 
-        let result = retrospective_search_parallel(
-            &board,
-            false,
-            discs,
-            leaf_cache.leaf(),
-            node_limit,
-            table_limit,
-        );
-        outputs.write_result(result, &line)?;
-    }
-
-    outputs.flush()
+    run_parallel(&input, &out_dir, discs, max_nodes, table_size, threads)
 }
 
 fn main() {
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    if let Err(e) = run(cli) {
         eprintln!("error: {}", e);
         std::process::exit(1);
     }

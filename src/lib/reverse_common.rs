@@ -5,52 +5,23 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use crate::lib::bfs_search::{
+    retrospective_search_bfs, retrospective_search_bfs_par, retrospective_search_bfs_par_resume,
+    Cfg as BfsCfg,
+};
 use crate::lib::io::parse_file_to_boards;
 use crate::lib::othello::{Board, CENTER_MASK};
-use crate::lib::search::{search, SearchResult};
+use crate::lib::par_search::{init_rayon, retrospective_search_parallel};
+use crate::lib::search::{
+    retrospective_search, retrospective_search_move_ordering, search, Btable, SearchResult,
+};
 
-pub struct BasicArgs {
-    pub input: PathBuf,
-    pub out_dir: PathBuf,
+pub fn default_input_path() -> PathBuf {
+    PathBuf::from("board.txt")
 }
 
-pub fn parse_basic_cli() -> io::Result<BasicArgs> {
-    let mut input: Option<PathBuf> = None;
-    let mut out_dir: Option<PathBuf> = None;
-    let mut args = env::args().skip(1);
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "-o" | "--out-dir" => {
-                let value = args.next().ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "missing value for --out-dir")
-                })?;
-                out_dir = Some(PathBuf::from(value));
-            }
-            _ => {
-                if arg.starts_with('-') {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("unknown flag: {}", arg),
-                    ));
-                }
-                if input.is_none() {
-                    input = Some(PathBuf::from(arg));
-                } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("unexpected extra argument: {}", arg),
-                    ));
-                }
-            }
-        }
-    }
-
-    let input = input.unwrap_or_else(|| PathBuf::from("board.txt"));
-    let out_dir =
-        out_dir.unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"));
-
-    Ok(BasicArgs { input, out_dir })
+pub fn default_out_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result")
 }
 
 pub fn read_boards(path: &Path) -> io::Result<Vec<Board>> {
@@ -151,4 +122,268 @@ impl ReverseOutputs {
         self.unknown.flush()?;
         Ok(())
     }
+}
+
+pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> io::Result<()> {
+    let boards = read_boards(input)?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    let leaf_cache = LeafCache::new(discs);
+    println!(
+        "info: discs = {}: internal = {}, leaf = {}",
+        discs,
+        leaf_cache.searched_count(),
+        leaf_cache.leaf_count()
+    );
+
+    let mut retrospective_searched: Btable = Btable::new(0x100000000, 0x10000);
+    let mut retroflips: Vec<[u64; 10_000]> = vec![];
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        retrospective_searched.clear();
+        let mut node_count: usize = 0;
+
+        let result = retrospective_search(
+            &board,
+            false,
+            discs,
+            leaf_cache.leaf(),
+            &mut retrospective_searched,
+            &mut retroflips,
+            &mut node_count,
+            node_limit,
+        );
+        outputs.write_result(result, &line)?;
+    }
+
+    outputs.flush()
+}
+
+pub fn run_move_ordering(
+    input: &Path,
+    out_dir: &Path,
+    discs: i32,
+    node_limit: usize,
+) -> io::Result<()> {
+    let boards = read_boards(input)?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    let leaf_cache = LeafCache::new(discs);
+    println!(
+        "info: discs = {}: internal = {}, leaf = {}",
+        discs,
+        leaf_cache.searched_count(),
+        leaf_cache.leaf_count()
+    );
+
+    let mut retrospective_searched: Btable = Btable::new(0x100000000, 0x10000);
+    let mut retroflips: Vec<[u64; 10_000]> = vec![];
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        retrospective_searched.clear();
+        let mut node_count: usize = 0;
+
+        let result = retrospective_search_move_ordering(
+            &board,
+            false,
+            discs,
+            leaf_cache.leaf(),
+            &mut retrospective_searched,
+            &mut retroflips,
+            &mut node_count,
+            node_limit,
+        );
+        outputs.write_result(result, &line)?;
+    }
+
+    outputs.flush()
+}
+
+pub fn run_parallel(
+    input: &Path,
+    out_dir: &Path,
+    discs: i32,
+    node_limit: usize,
+    table_limit: usize,
+    rayon_threads: Option<usize>,
+) -> io::Result<()> {
+    let boards = read_boards(input)?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    let leaf_cache = LeafCache::new(discs);
+    println!(
+        "info: discs = {}: internal = {}, leaf = {}",
+        discs,
+        leaf_cache.searched_count(),
+        leaf_cache.leaf_count()
+    );
+
+    init_rayon(rayon_threads);
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let result = retrospective_search_parallel(
+            &board,
+            false,
+            discs,
+            leaf_cache.leaf(),
+            node_limit,
+            table_limit,
+        );
+        outputs.write_result(result, &line)?;
+    }
+
+    outputs.flush()
+}
+
+pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
+    println!("cfg={:?}", cfg);
+    let boards = read_boards(&cfg.input)?;
+    let discs = cfg.discs as i32;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        cfg.input.display()
+    );
+
+    fs::create_dir_all(&cfg.out_dir)?;
+    fs::create_dir_all(&cfg.tmp_dir)?;
+
+    let mut outputs = ensure_outputs(&cfg.out_dir)?;
+    println!("info: writing outputs under '{}'", cfg.out_dir.display());
+
+    let leaf_cache = LeafCache::new(discs);
+    println!(
+        "info: discs = {}: internal = {}, leaf = {}",
+        cfg.discs,
+        leaf_cache.searched_count(),
+        leaf_cache.leaf_count()
+    );
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let stat = retrospective_search_bfs(cfg, &board, discs, leaf_cache.leaf())?;
+        outputs.write_result(stat, &line)?;
+    }
+
+    outputs.flush()
+}
+
+pub fn run_bfs_par(cfg: &BfsCfg) -> io::Result<()> {
+    println!("cfg={:?}", cfg);
+
+    fs::create_dir_all(&cfg.out_dir)?;
+    fs::create_dir_all(&cfg.tmp_dir)?;
+    let mut outputs = ensure_outputs(&cfg.out_dir)?;
+    println!("info: writing outputs under '{}'", cfg.out_dir.display());
+
+    let discs = cfg.discs as i32;
+    let leaf_cache = LeafCache::new(discs);
+    println!(
+        "info: discs = {}: internal = {}, leaf = {}",
+        cfg.discs,
+        leaf_cache.searched_count(),
+        leaf_cache.leaf_count()
+    );
+
+    if cfg.resume {
+        let input_path = &cfg.input;
+        let parts: Vec<String> = input_path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let last = parts
+            .last()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "input path is empty"))?;
+        println!("last={}", last);
+        let sp_under: Vec<&str> = last.split_terminator('_').collect();
+        if sp_under.len() < 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("failed to parse resume filename: {}", last),
+            ));
+        }
+        let sp_dot: Vec<&str> = sp_under[1].split_terminator('.').collect();
+        let num_disc: i32 = sp_dot[0].parse().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("failed to parse disc count from {}: {e}", last),
+            )
+        })?;
+        retrospective_search_bfs_par_resume(cfg, num_disc, discs, leaf_cache.leaf())?;
+        return outputs.flush();
+    }
+
+    let boards = read_boards(&cfg.input)?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        cfg.input.display()
+    );
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let stat = retrospective_search_bfs_par(cfg, &board, discs, leaf_cache.leaf())?;
+        outputs.write_result(stat, &line)?;
+    }
+
+    outputs.flush()
 }

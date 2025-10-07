@@ -1,70 +1,51 @@
 use std::io;
+use std::path::PathBuf;
+
+use clap::Parser;
 
 use othello_complexity_rs::lib::reverse_common::{
-    ensure_outputs, parse_basic_cli, read_boards, read_env_with_default, validate_board, LeafCache,
+    default_input_path, default_out_dir, read_env_with_default, run_move_ordering,
 };
-use othello_complexity_rs::lib::search::{retrospective_search_move_ordering, Btable};
 
-fn run() -> io::Result<()> {
-    let cli = parse_basic_cli()?;
-    let boards = read_boards(&cli.input)?;
-    let total_input = boards.len();
-    println!(
-        "info: read {} board(s) from '{}'.",
-        total_input,
-        cli.input.display()
-    );
+#[derive(Parser, Debug)]
+#[command(
+    name = "reverse_to_initial_mo",
+    about = "Sequential reverse search with move ordering heuristics"
+)]
+struct Cli {
+    /// Input file containing board positions
+    #[arg(value_name = "INPUT")]
+    input: Option<PathBuf>,
 
-    let mut outputs = ensure_outputs(&cli.out_dir)?;
-    println!("info: writing outputs under '{}'", cli.out_dir.display());
+    /// Output directory for result files
+    #[arg(short, long, value_name = "DIR")]
+    out_dir: Option<PathBuf>,
 
-    let discs: i32 = read_env_with_default("DISCS", 10);
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
+    /// Number of discs at which to stop the forward search
+    #[arg(long, value_name = "N")]
+    discs: Option<i32>,
 
-    let mut retrospective_searched: Btable = Btable::new(0x100000000, 0x10000);
-    let mut retroflips: Vec<[u64; 10_000]> = vec![];
+    /// Maximum number of reverse-search nodes
+    #[arg(long = "max-nodes", value_name = "N")]
+    max_nodes: Option<usize>,
+}
 
-    let node_limit: usize = read_env_with_default("MAX_NODES", 1_000_000usize);
-    println!("info: MAX_NODES = {}", node_limit);
-    for board in boards {
-        let line = board.to_string();
+fn run(cli: Cli) -> io::Result<()> {
+    let input = cli.input.unwrap_or_else(default_input_path);
+    let out_dir = cli.out_dir.unwrap_or_else(default_out_dir);
+    let discs = cli
+        .discs
+        .unwrap_or_else(|| read_env_with_default("DISCS", 10));
+    let max_nodes = cli
+        .max_nodes
+        .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
 
-        if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
-            continue;
-        }
-
-        retrospective_searched.clear();
-        let mut node_count: usize = 0;
-
-        let result = retrospective_search_move_ordering(
-            &board,
-            false,
-            discs,
-            leaf_cache.leaf(),
-            &mut retrospective_searched,
-            &mut retroflips,
-            &mut node_count,
-            node_limit,
-        );
-        outputs.write_result(result, &line)?;
-        eprintln!(
-            "retrospective_searched.len() = {}",
-            retrospective_searched.len()
-        );
-    }
-
-    outputs.flush()
+    run_move_ordering(&input, &out_dir, discs, max_nodes)
 }
 
 fn main() {
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    if let Err(e) = run(cli) {
         eprintln!("error: {}", e);
         std::process::exit(1);
     }
