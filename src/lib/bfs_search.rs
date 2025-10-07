@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -12,7 +12,7 @@ use std::thread;
 use bytemuck;
 use clap::Parser;
 
-use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::lib::othello::{get_moves, Board};
 use crate::lib::search::{
     check_seg3, check_seg3_more, is_connected, retrospective_flip, SearchResult,
 };
@@ -375,8 +375,8 @@ pub fn retrospective_search_bfs_par_resume(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
+    //let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    //let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -480,8 +480,8 @@ pub fn retrospective_search_bfs_seq(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
+    //let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    //let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
@@ -585,8 +585,8 @@ pub fn retrospective_search_bfs(
     let mut r = BufReader::new(file);
     let mut buf = [0u8; 16];
     let nrecs = len / 16;
-    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
+    //let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    //let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
         r.read_exact(&mut buf)?;
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());

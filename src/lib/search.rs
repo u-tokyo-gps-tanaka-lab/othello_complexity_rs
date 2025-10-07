@@ -58,6 +58,7 @@ impl Btable {
     }
 }
 
+#[allow(dead_code)]
 fn mask_to_moves(m: u64) -> String {
     let mut ans: Vec<String> = vec!["[".to_string()];
     for i in 0..64 {
@@ -186,7 +187,7 @@ fn onebit(x: u8) -> bool {
 }
 /// 盤面が初期配置に到達不能かどうかの粗めのチェック．
 pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
-    let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
+    //let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     let occupied = player | opponent;
     let mut canput: [u8; 64] = [0; 64];
     let mut canflip: [u8; 64] = [0; 64];
@@ -224,7 +225,7 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
     }
     let ps = [player, opponent];
     for i in 0..2 {
-        let (p0, p1) = (ps[i], ps[1 - i]);
+        let p0 = ps[i];
         for y in 0..8 {
             for x in 0..8 {
                 if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
@@ -238,7 +239,6 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                     eprintln!("canput = 0, i={}, x={}, y={}", i, x, y);
                     eprintln!("{}", Board::new(player, opponent).show());
                     panic!("inconsistent");
-                    continue;
                 }
                 // putの方向が1方向で後でflipされた可能性がない．
                 if !onebit(canput[i as usize]) || canflip[i as usize] != 0 {
@@ -748,7 +748,7 @@ pub fn retrospective_search(
 /// sm_edge_all : 内部同士で同じ色のエッジの組の数(すべての色の合計)
 /// sm_edge_min : 内部同士で同じ色のエッジの組の数で，色ごとの最小の数
 fn features(b: &Board) -> (u16, u16, u16, u16) {
-    let (mut in_sq, mut in_edge) = (0, 0);
+    let (in_sq, mut in_edge) = (0, 0);
     let mut sm_edges: [u16; 2] = [0; 2];
     let occupied = b.player | b.opponent;
     let ps: [u64; 2] = [b.player, b.opponent];
@@ -759,9 +759,9 @@ fn features(b: &Board) -> (u16, u16, u16, u16) {
             p0 &= p0 - 1;
             let (x, y) = (index & 7, index >> 3);
             for (dx, dy) in DXYS.iter() {
-                let mut x1 = x + dx;
-                let mut y1 = y + dy;
-                let mut i1 = y1 * 8 + x1;
+                let x1 = x + dx;
+                let y1 = y + dy;
+                let i1 = y1 * 8 + x1;
                 if 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && occupied & (1 << i1) != 0 {
                     in_edge += 1;
                     if p0 & (1 << i1) != 0 {

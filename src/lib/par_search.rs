@@ -3,7 +3,7 @@ use rayon::ThreadPoolBuilder;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::lib::othello::{get_moves, Board};
 use crate::lib::search::{
     check_seg3, check_seg3_more, h_function, is_connected, retrospective_flip, SearchResult,
 };
@@ -216,7 +216,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     let mut new_children: Vec<(Board, bool)> = vec![];
     for i in 0..csize {
         let j = children_score[i].1;
-        new_children.push((children[j]));
+        new_children.push(children[j]);
     }
     children = new_children;
 
