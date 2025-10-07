@@ -14,8 +14,9 @@ use clap::Parser;
 
 use crate::lib::othello::{get_moves, Board};
 use crate::lib::search::{
-    check_seg3, check_seg3_more, is_connected, retrospective_flip, SearchResult,
+    check_seg3_more, retrospective_flip, SearchResult,
 };
+use crate::lib::check_occupancy::check_occupancy;
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "reverse_to_initial_bfs", version)]
@@ -78,10 +79,13 @@ fn process_board(
                 opponent: board.player ^ flipped,
             };
             let occupied = prev.player | prev.opponent;
-            if !is_connected(occupied) {
-                continue;
-            }
-            if !check_seg3(occupied) {
+            //if !is_connected(occupied) {
+            //    continue;
+            //}
+            //if !check_seg3(occupied) {
+            //    continue;
+            //}
+            if !check_occupancy(occupied) {
                 continue;
             }
             if !check_seg3_more(prev.player, prev.opponent) {

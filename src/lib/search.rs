@@ -1,4 +1,5 @@
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::lib::check_occupancy::{check_occupancy};
 
 use std::cmp::min;
 use std::collections::HashSet;
@@ -632,10 +633,13 @@ pub fn retrospective_search(
     //}
 
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) {
-        return SearchResult::NotFound;
-    }
-    if !check_seg3(occupied) {
+    //if !is_connected(occupied) {
+    //    return SearchResult::NotFound;
+    //}
+    //if !check_seg3(occupied) {
+    //    return SearchResult::NotFound;
+    //}
+    if !check_occupancy(occupied) {
         return SearchResult::NotFound;
     }
     if !check_seg3_more(board.player, board.opponent) {
@@ -845,10 +849,13 @@ pub fn retrospective_search_move_ordering(
     //}
 
     let occupied = board.player | board.opponent;
-    if !is_connected(occupied) {
-        return SearchResult::NotFound;
-    }
-    if !check_seg3(occupied) {
+    //if !is_connected(occupied) {
+    //    return SearchResult::NotFound;
+    //}
+    //if !check_seg3(occupied) {
+    //    return SearchResult::NotFound;
+    //}
+    if !check_occupancy(occupied) {
         return SearchResult::NotFound;
     }
     if !check_seg3_more(board.player, board.opponent) {
