@@ -5,5 +5,6 @@ pub mod lib {
     pub mod par_search;
     pub mod reverse_common;
     pub mod search;
+    pub mod check_occupancy;
     pub mod solve_kissat;
 }
