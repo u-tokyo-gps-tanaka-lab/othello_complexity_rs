@@ -1,6 +1,9 @@
+use bigdecimal::{BigDecimal, FromPrimitive};
 use clap::Parser;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::error::Error;
+
+const POPULATION_SIZE: u128 = 3_u128.pow(60) * 2_u128.pow(4);
 
 #[derive(Debug, Parser)]
 #[command(
@@ -84,13 +87,26 @@ fn wilson_upper(x: f64, n: f64, z: f64) -> f64 {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let ci = WilsonCI {
+    let (lower, upper) = WilsonCI {
         ok: args.ok,
         ng: args.ng,
         unknown: args.unknown,
         alpha: args.alpha,
     }
     .compute()?;
-    println!("Wilson CI: [{:.6}, {:.6}]", ci.0, ci.1);
+
+    let population = BigDecimal::from(POPULATION_SIZE);
+    let expected_lower = BigDecimal::from_f64(lower)
+        .ok_or("failed to convert lower bound to BigDecimal")?
+        * &population;
+    let expected_upper = BigDecimal::from_f64(upper)
+        .ok_or("failed to convert upper bound to BigDecimal")?
+        * &population;
+
+    println!("Wilson CI: [{:.6}, {:.6}]", lower, upper);
+    println!(
+        "Expected |R| interval: [{:.6e}, {:.6e}]",
+        expected_lower, expected_upper
+    );
     Ok(())
 }
