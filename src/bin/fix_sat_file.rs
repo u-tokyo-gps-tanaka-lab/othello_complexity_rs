@@ -4,14 +4,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 
-use othello_complexity_rs::lib::othello::{Board};
 use othello_complexity_rs::lib::io::{parse_file_to_boards};
-use othello_complexity_rs::lib::search::{is_connected};
 
-fn is_con_ok(_index: usize, board: &Board) -> io::Result<bool> {
-    let o = board.player | board.opponent;
-    Ok(is_connected(o))
-}
 
 fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()> {
     eprintln!("sat_ok_file={}", sat_ok_file);
@@ -28,7 +22,7 @@ fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()>
     let mut okfile = File::create(out_dir.join("sat_OK.txt"))?;
     let mut ngfile = File::create(out_dir.join("sat_NG.txt"))?;
 
-    for (index, b) in boards.iter().enumerate() {
+    for (_index, b) in boards.iter().enumerate() {
         let line = b.to_string();
         let res = in_sat_ok.contains(&[b.player, b.opponent]);
         match res {
