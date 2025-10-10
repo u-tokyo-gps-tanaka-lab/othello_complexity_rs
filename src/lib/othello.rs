@@ -96,7 +96,7 @@ impl Board {
         }
     }
 
-    fn board_symmetry(&self, s: i32, sym: &mut [u64; 2]) {
+    pub fn board_symmetry(&self, s: i32, sym: &mut [u64; 2]) {
         let mut board = [self.player, self.opponent];
 
         if s & 1 != 0 {

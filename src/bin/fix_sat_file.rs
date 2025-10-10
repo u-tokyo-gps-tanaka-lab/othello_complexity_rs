@@ -1,0 +1,108 @@
+use std::env;
+use std::fs::{self, File};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+
+use othello_complexity_rs::lib::othello::{Board};
+use othello_complexity_rs::lib::io::{parse_file_to_boards};
+use othello_complexity_rs::lib::search::{is_connected};
+
+fn is_con_ok(_index: usize, board: &Board) -> io::Result<bool> {
+    let o = board.player | board.opponent;
+    Ok(is_connected(o))
+}
+
+fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()> {
+    eprintln!("sat_ok_file={}", sat_ok_file);
+    let sat_boards = parse_file_to_boards(sat_ok_file)?;
+    eprintln!("sat_boards.len()={}", sat_boards.len());
+    let boards = parse_file_to_boards(path)?;
+    let mut in_sat_ok: HashSet<[u64;2]> = HashSet::new();
+    for i in 0..sat_boards.len() {
+        in_sat_ok.insert([sat_boards[i].player, sat_boards[i].opponent]);
+    }
+
+    // Ensure output directory exists and write outputs there
+    fs::create_dir_all(out_dir)?;
+    let mut okfile = File::create(out_dir.join("sat_OK.txt"))?;
+    let mut ngfile = File::create(out_dir.join("sat_NG.txt"))?;
+
+    for (index, b) in boards.iter().enumerate() {
+        let line = b.to_string();
+        let res = in_sat_ok.contains(&[b.player, b.opponent]);
+        match res {
+            true => {
+                // println!("{}", line);
+                writeln!(okfile, "{}", line)?;
+            }
+            false => {
+                writeln!(ngfile, "{}", line)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    // Parse options: -o DIR | --out-dir DIR | --out-dir=DIR | -o=DIR
+    let mut out_dir: Option<PathBuf> = None;
+    let mut sat_ok_file: Option<String> = None;
+    let mut inputs: Vec<String> = Vec::new();
+
+    let mut i = 1;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-o" | "--out-dir" => {
+                if i + 1 >= args.len() {
+                    eprintln!("Option {} requires a directory path", arg);
+                    std::process::exit(2);
+                }
+                out_dir = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+                continue;
+            }
+            "-s" | "--sat-file" => {
+                if i + 1 >= args.len() {
+                    eprintln!("Option {} requires a directory path", arg);
+                    std::process::exit(2);
+                }
+                sat_ok_file = Some(args[i + 1].to_string());
+                i += 2;
+                continue;
+            }
+            _ => {
+                if let Some(rest) = arg.strip_prefix("--out-dir=") {
+                    out_dir = Some(PathBuf::from(rest));
+                    i += 1;
+                    continue;
+                }
+                if let Some(rest) = arg.strip_prefix("-o=") {
+                    out_dir = Some(PathBuf::from(rest));
+                    i += 1;
+                    continue;
+                }
+                inputs.push(arg.clone());
+                i += 1;
+            }
+        }
+    }
+
+    let out_dir_path: PathBuf =
+        out_dir.unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"));
+
+    // Keep previous simple argv debug print
+    for (i, arg) in args.iter().enumerate() {
+        println!("argv[{}] : {}", i, arg);
+    }
+    eprintln!("inputs={:?}", inputs);
+    for input in inputs {
+        if let Err(e) = process_file(&input, &out_dir_path, &sat_ok_file.clone().unwrap()) {
+            eprintln!("Error: {}", e);
+        }
+    }
+}
