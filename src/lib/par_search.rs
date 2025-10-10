@@ -3,11 +3,9 @@ use rayon::ThreadPoolBuilder;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::lib::check_occupancy::check_occupancy;
 use crate::lib::othello::{get_moves, Board};
-use crate::lib::search::{
-    check_seg3_more, h_function, retrospective_flip, SearchResult,
-};
-use crate::lib::check_occupancy::{check_occupancy};
+use crate::lib::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）
@@ -154,11 +152,8 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // 形状フィルタ
     let occupied = board.player | board.opponent;
-    if // !is_connected(occupied)
-        // || !check_seg3(occupied)
-        !check_occupancy(occupied)
-        || !check_seg3_more(board.player, board.opponent)
-    {
+    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
+        // !is_connected(occupied) || !check_seg3(occupied)
         return SearchResult::NotFound;
     }
 

@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -12,11 +12,9 @@ use std::thread;
 use bytemuck;
 use clap::Parser;
 
-use crate::lib::othello::{get_moves, Board};
-use crate::lib::search::{
-    check_seg3_more, retrospective_flip, SearchResult,
-};
 use crate::lib::check_occupancy::check_occupancy;
+use crate::lib::othello::{get_moves, Board};
+use crate::lib::search::{check_seg3_more, retrospective_flip, SearchResult};
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "reverse_to_initial_bfs", version)]
