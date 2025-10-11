@@ -3,13 +3,12 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::check_occupancy::check_occupancy;
 use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::lib::search::check_seg3_more;
 
-fn is_con_ok(_index: usize, board: &Board) -> io::Result<bool> {
-    let o = board.player | board.opponent;
-    Ok(check_occupancy(o))
+fn is_seg3_more_ok(board: &Board) -> io::Result<bool> {
+    Ok(check_seg3_more(board.player, board.opponent))
 }
 
 fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
@@ -17,14 +16,13 @@ fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
 
     // Ensure output directory exists and write outputs there
     fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("occupancy_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("occupancy_NG.txt"))?;
+    let mut okfile = File::create(out_dir.join("seg3more_OK.txt"))?;
+    let mut ngfile = File::create(out_dir.join("seg3more_NG.txt"))?;
 
-    for (index, b) in boards.iter().enumerate() {
+    for (_, b) in boards.iter().enumerate() {
         let line = b.to_string();
-        match is_con_ok(index, b) {
+        match is_seg3_more_ok(b) {
             Ok(true) => {
-                // println!("{}", line);
                 writeln!(okfile, "{}", line)?;
             }
             Ok(false) => {
