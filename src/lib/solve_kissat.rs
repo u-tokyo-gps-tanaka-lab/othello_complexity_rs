@@ -59,14 +59,9 @@ fn solve_by_kissat(
     let result = match solver.solve() {
         Ok(res) => res,
         Err(_) => return false,
-        //rustsat::solvers::SolverResult::Sat => println!("SAT: 解あり"),
-        //rustsat::solvers::SolverResult::Unsat => println!("UNSAT: 解なし"),
-        //rustsat::solvers::SolverResult::Unknown => println!("UNKNOWN: 解けませんでした"),
-    };
+            };
     result == rustsat::solvers::SolverResult::Sat
-    //eprintln!("result={:?}", result);
-    //Ok(())
-}
+    }
 
 #[allow(dead_code)]
 fn output_cnf(
@@ -110,7 +105,6 @@ fn output_cnf(
 }
 
 pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
-    eprintln!("line={}", line);
     let cs: Vec<char> = line.chars().collect();
     if cs.len() != 64 {
         return Err(Error::new(

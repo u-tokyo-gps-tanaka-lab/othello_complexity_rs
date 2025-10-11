@@ -18,10 +18,11 @@ fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
         let line = b.to_string();
         match is_sat_ok(index, &line) {
             Ok(true) => {
-                println!("{}", line);
+                println!("SAT: {}", line);
                 writeln!(okfile, "{}", line)?;
             }
             Ok(false) => {
+                println!("UNSAT: {}", line);
                 writeln!(ngfile, "{}", line)?;
             }
             Err(e) => {
