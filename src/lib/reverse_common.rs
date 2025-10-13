@@ -169,6 +169,7 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
             node_limit,
         );
         outputs.write_result(result, &line)?;
+        outputs.flush()?;
     }
 
     outputs.flush()
@@ -224,6 +225,7 @@ pub fn run_move_ordering(
             node_limit,
         );
         outputs.write_result(result, &line)?;
+        outputs.flush()?;
     }
 
     outputs.flush()
@@ -275,6 +277,7 @@ pub fn run_parallel(
             table_limit,
         );
         outputs.write_result(result, &line)?;
+        outputs.flush()?;
     }
 
     outputs.flush()
@@ -315,6 +318,7 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
 
         let stat = retrospective_search_bfs(cfg, &board, discs, leaf_cache.leaf())?;
         outputs.write_result(stat, &line)?;
+        outputs.flush()?;
     }
 
     outputs.flush()
@@ -383,6 +387,7 @@ pub fn run_bfs_par(cfg: &BfsCfg) -> io::Result<()> {
 
         let stat = retrospective_search_bfs_par(cfg, &board, discs, leaf_cache.leaf())?;
         outputs.write_result(stat, &line)?;
+        outputs.flush()?;
     }
 
     outputs.flush()

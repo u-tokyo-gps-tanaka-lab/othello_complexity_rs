@@ -1,3 +1,4 @@
+use crate::lib::othello::{CENTER_MASK};
 ///
 // Rust風：ビットボードで「2ステップ可視の閉包（最小不動点）」テストを行う実装例
 // 前提：A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63。
@@ -9,7 +10,7 @@ const FILE_H: u64 = 0x8080_8080_8080_8080;
 
 // 中央2x2（D4, E4, D5, E5）
 //  A1=bit0 とすると、D4=27, E4=28, D5=35, E5=36
-const C: u64 = (1u64 << 27) | (1u64 << 28) | (1u64 << 35) | (1u64 << 36);
+//const C: u64 = (1u64 << 27) | (1u64 << 28) | (1u64 << 35) | (1u64 << 36);
 
 // === 方向定義 ===
 #[derive(Copy, Clone)]
@@ -105,7 +106,7 @@ pub fn reachable_occupancy(occupied: u64) -> u64 {
     ];
 
     // 既知に“説明済み”の集合の初期値
-    let mut t: u64 = C;
+    let mut t: u64 = CENTER_MASK;
 
     // 最悪でも中央4以外の 60 マス分の反復で収束
     for _ in 0..60 {
@@ -148,8 +149,21 @@ pub fn reachable_occupancy(occupied: u64) -> u64 {
 }
 
 pub fn check_occupancy(occupied: u64) -> bool {
-    if (occupied & C) != C {
+    if (occupied & CENTER_MASK) != CENTER_MASK {
         return false;
     }
     reachable_occupancy(occupied) == occupied
+}
+
+pub fn occupancy_order(occupied: u64) -> [u64;64] {
+    let mut ans = [0;64];
+    let mut b = occupied;
+    while b != 0 {
+        let sq = b.trailing_zeros() as usize; // 0..=63
+        let newb = b & (b - 1);
+        let b_one = b ^ newb;
+        ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one;
+        b = newb;
+    }
+    ans
 }

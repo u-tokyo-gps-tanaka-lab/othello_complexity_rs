@@ -4,12 +4,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use othello_complexity_rs::lib::io::parse_file_to_boards;
-use othello_complexity_rs::lib::othello::Board;
 use othello_complexity_rs::lib::search::check_seg3_more;
-
-fn is_seg3_more_ok(board: &Board) -> io::Result<bool> {
-    Ok(check_seg3_more(board.player, board.opponent))
-}
 
 fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
     let boards = parse_file_to_boards(path)?;
@@ -19,18 +14,19 @@ fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
     let mut okfile = File::create(out_dir.join("seg3more_OK.txt"))?;
     let mut ngfile = File::create(out_dir.join("seg3more_NG.txt"))?;
 
-    for (_, b) in boards.iter().enumerate() {
+    for (_index, b) in boards.iter().enumerate() {
         let line = b.to_string();
-        match is_seg3_more_ok(b) {
-            Ok(true) => {
+        match check_seg3_more(b.player, b.opponent) {
+            true => {
+                //println!("{}", line);
                 writeln!(okfile, "{}", line)?;
             }
-            Ok(false) => {
+            false => {
                 writeln!(ngfile, "{}", line)?;
             }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-            }
+//            Err(e) => {
+//                eprintln!("Error: {}", e);
+//            }
         }
     }
 
@@ -43,7 +39,6 @@ fn main() {
     // Parse options: -o DIR | --out-dir DIR | --out-dir=DIR | -o=DIR
     let mut out_dir: Option<PathBuf> = None;
     let mut inputs: Vec<String> = Vec::new();
-
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
