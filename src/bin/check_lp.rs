@@ -4,19 +4,19 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use othello_complexity_rs::lib::io::parse_file_to_boards;
-use othello_complexity_rs::lib::search::check_seg3_more;
+use othello_complexity_rs::lib::check_lp::check_lp;
 
-fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
+fn process_file(path: &str, out_dir: &Path, by_ip_solver: bool) -> io::Result<()> {
     let boards = parse_file_to_boards(path)?;
 
     // Ensure output directory exists and write outputs there
     fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("seg3more_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("seg3more_NG.txt"))?;
+    let mut okfile = File::create(out_dir.join(if by_ip_solver {"ip_OK.txt"} else {"lp_OK.txt"}))?;
+    let mut ngfile = File::create(out_dir.join(if by_ip_solver {"ip_NG.txt"} else {"lp_NG.txt"}))?;
 
     for (_index, b) in boards.iter().enumerate() {
         let line = b.to_string();
-        match check_seg3_more(b.player, b.opponent) {
+        match check_lp(b.player, b.opponent, by_ip_solver) {
             true => {
                 //println!("{}", line);
                 writeln!(okfile, "{}", line)?;
@@ -39,6 +39,7 @@ fn main() {
     // Parse options: -o DIR | --out-dir DIR | --out-dir=DIR | -o=DIR
     let mut out_dir: Option<PathBuf> = None;
     let mut inputs: Vec<String> = Vec::new();
+    let mut by_ip_solver:bool = false;
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
@@ -52,6 +53,12 @@ fn main() {
                 i += 2;
                 continue;
             }
+            "--ip" => {
+                by_ip_solver = true;
+                i += 1;
+                continue;
+            }
+
             _ => {
                 if let Some(rest) = arg.strip_prefix("--out-dir=") {
                     out_dir = Some(PathBuf::from(rest));
@@ -78,7 +85,7 @@ fn main() {
     }
 
     for input in inputs {
-        if let Err(e) = process_file(&input, &out_dir_path) {
+        if let Err(e) = process_file(&input, &out_dir_path, by_ip_solver) {
             eprintln!("Error: {}", e);
         }
     }
