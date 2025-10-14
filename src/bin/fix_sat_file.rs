@@ -1,18 +1,17 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 
-use othello_complexity_rs::lib::io::{parse_file_to_boards};
-
+use othello_complexity_rs::lib::io::parse_file_to_boards;
 
 fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()> {
     eprintln!("sat_ok_file={}", sat_ok_file);
     let sat_boards = parse_file_to_boards(sat_ok_file)?;
     eprintln!("sat_boards.len()={}", sat_boards.len());
     let boards = parse_file_to_boards(path)?;
-    let mut in_sat_ok: HashSet<[u64;2]> = HashSet::new();
+    let mut in_sat_ok: HashSet<[u64; 2]> = HashSet::new();
     for i in 0..sat_boards.len() {
         in_sat_ok.insert([sat_boards[i].player, sat_boards[i].opponent]);
     }

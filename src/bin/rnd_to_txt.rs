@@ -1,12 +1,16 @@
 use clap::Parser;
+use othello_complexity_rs::lib::othello::Board;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use othello_complexity_rs::lib::othello::Board;
 
 /// 入力ファイルの各行を u128 として読み、val2str() の結果を出力します。
 #[derive(Debug, Parser)]
-#[command(name = "num2str", version, about = "Read u128 per line and print val2str()")]
+#[command(
+    name = "num2str",
+    version,
+    about = "Read u128 per line and print val2str()"
+)]
 struct Args {
     /// 入力ファイルのパス（"-" なら標準入力）
     #[arg(value_name = "INPUT")]
@@ -59,8 +63,13 @@ fn val2str(mut rank: u128) -> String {
     for y in 0..8 {
         for x in 0..8 {
             let mask = 1u64 << (y * 8 + x);
-            let d: u128 = if 3 <= x && x <= 4 && 3 <= y && y <= 4 {2} else {3};
-            let v: u128 = rank % d; if d == 3 {
+            let d: u128 = if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
+                2
+            } else {
+                3
+            };
+            let v: u128 = rank % d;
+            if d == 3 {
                 if v == 1 {
                     player |= mask;
                 } else if v == 2 {

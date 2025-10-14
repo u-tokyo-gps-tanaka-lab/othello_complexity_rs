@@ -3,16 +3,24 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::check_lp::check_lp;
+use othello_complexity_rs::lib::io::parse_file_to_boards;
 
 fn process_file(path: &str, out_dir: &Path, by_ip_solver: bool) -> io::Result<()> {
     let boards = parse_file_to_boards(path)?;
 
     // Ensure output directory exists and write outputs there
     fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join(if by_ip_solver {"ip_OK.txt"} else {"lp_OK.txt"}))?;
-    let mut ngfile = File::create(out_dir.join(if by_ip_solver {"ip_NG.txt"} else {"lp_NG.txt"}))?;
+    let mut okfile = File::create(out_dir.join(if by_ip_solver {
+        "ip_OK.txt"
+    } else {
+        "lp_OK.txt"
+    }))?;
+    let mut ngfile = File::create(out_dir.join(if by_ip_solver {
+        "ip_NG.txt"
+    } else {
+        "lp_NG.txt"
+    }))?;
 
     for (_index, b) in boards.iter().enumerate() {
         let line = b.to_string();
@@ -24,9 +32,6 @@ fn process_file(path: &str, out_dir: &Path, by_ip_solver: bool) -> io::Result<()
             false => {
                 writeln!(ngfile, "{}", line)?;
             }
-//            Err(e) => {
-//                eprintln!("Error: {}", e);
-//            }
         }
     }
 
@@ -39,7 +44,7 @@ fn main() {
     // Parse options: -o DIR | --out-dir DIR | --out-dir=DIR | -o=DIR
     let mut out_dir: Option<PathBuf> = None;
     let mut inputs: Vec<String> = Vec::new();
-    let mut by_ip_solver:bool = false;
+    let mut by_ip_solver: bool = false;
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];

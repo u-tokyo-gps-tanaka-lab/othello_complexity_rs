@@ -24,9 +24,6 @@ fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
             false => {
                 writeln!(ngfile, "{}", line)?;
             }
-//            Err(e) => {
-//                eprintln!("Error: {}", e);
-//            }
         }
     }
 
