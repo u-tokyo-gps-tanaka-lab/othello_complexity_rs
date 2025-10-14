@@ -1,4 +1,4 @@
-use crate::lib::othello::{CENTER_MASK};
+use crate::lib::othello::CENTER_MASK;
 ///
 // Rust風：ビットボードで「2ステップ可視の閉包（最小不動点）」テストを行う実装例
 // 前提：A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63。
@@ -75,23 +75,22 @@ fn backshift(d: Dir, b: u64) -> u64 {
     }
 }
 
-pub fn show_o(o: u64) {
-    eprintln!("");
+pub fn occupied_to_string(o: u64) -> String {
+    let mut s = String::new();
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
             if o & (1u64 << i) != 0 {
-                eprint!("O");
+                s.push('G');
             } else {
-                eprint!("-");
+                s.push('-');
             }
         }
-        eprintln!("");
     }
+    return s;
 }
 
 pub fn reachable_occupancy(occupied: u64) -> u64 {
-    //showO(O);
     // 必要条件：中央2x2 は常に占有（満たさなければ即不可能）
 
     let dirs = [
@@ -130,7 +129,6 @@ pub fn reachable_occupancy(occupied: u64) -> u64 {
 
             add_all |= r_d;
             //println!("i={}", i); i += 1;
-            //showO(add_all);
         }
 
         // 未取り込み分だけ追加
@@ -152,11 +150,21 @@ pub fn check_occupancy(occupied: u64) -> bool {
     if (occupied & CENTER_MASK) != CENTER_MASK {
         return false;
     }
-    reachable_occupancy(occupied) == occupied
+    let result = reachable_occupancy(occupied);
+    return result == occupied;
 }
 
-pub fn occupancy_order(occupied: u64) -> [u64;64] {
-    let mut ans = [0;64];
+pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
+    if (occupied & CENTER_MASK) != CENTER_MASK {
+        return (false, occupied_to_string(occupied));
+    }
+    let result = reachable_occupancy(occupied);
+    let line = occupied_to_string(result);
+    return (result == occupied, line);
+}
+
+pub fn occupancy_order(occupied: u64) -> [u64; 64] {
+    let mut ans = [0; 64];
     let mut b = occupied;
     while b != 0 {
         let sq = b.trailing_zeros() as usize; // 0..=63

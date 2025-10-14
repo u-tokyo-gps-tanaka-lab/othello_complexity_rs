@@ -3,13 +3,13 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::check_occupancy::check_occupancy;
+use othello_complexity_rs::lib::check_occupancy::check_occupancy_with_string;
 use othello_complexity_rs::lib::io::parse_file_to_boards;
 use othello_complexity_rs::lib::othello::Board;
 
-fn is_con_ok(_index: usize, board: &Board) -> io::Result<bool> {
+fn is_board_ok(_index: usize, board: &Board) -> io::Result<(bool, String)> {
     let o = board.player | board.opponent;
-    Ok(check_occupancy(o))
+    Ok(check_occupancy_with_string(o))
 }
 
 fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
@@ -19,16 +19,19 @@ fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
     fs::create_dir_all(out_dir)?;
     let mut okfile = File::create(out_dir.join("occupancy_OK.txt"))?;
     let mut ngfile = File::create(out_dir.join("occupancy_NG.txt"))?;
+    let mut okfile_explainable = File::create(out_dir.join("occupancy_OK_explainable.txt"))?;
+    let mut ngfile_explainable = File::create(out_dir.join("occupancy_NG_explainable.txt"))?;
 
     for (index, b) in boards.iter().enumerate() {
         let line = b.to_string();
-        match is_con_ok(index, b) {
-            Ok(true) => {
-                // println!("{}", line);
+        match is_board_ok(index, b) {
+            Ok((true, res)) => {
                 writeln!(okfile, "{}", line)?;
+                writeln!(okfile_explainable, "{}", res)?;
             }
-            Ok(false) => {
+            Ok((false, res)) => {
                 writeln!(ngfile, "{}", line)?;
+                writeln!(ngfile_explainable, "{}", res)?;
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
