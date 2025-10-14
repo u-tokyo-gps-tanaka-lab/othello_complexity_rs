@@ -23,8 +23,8 @@ struct Args {
     #[arg(long)]
     unknown: u64,
 
-    /// Significance level (two-sided alpha); e.g. 0.05 for 95% CI
-    #[arg(long, default_value_t = 0.05)]
+    /// Significance level (two-sided alpha); e.g. 0.005 for 99.5% CI
+    #[arg(long, default_value_t = 0.005)]
     alpha: f64,
 }
 
@@ -46,7 +46,8 @@ impl WilsonCI {
 
         let lower = wilson_lower(self.ok as f64, n, z);
         let upper = wilson_upper((self.ok + self.unknown) as f64, n, z);
-        Ok((lower, upper, 1.0 - self.alpha))
+        let conf_level = 100.0 * (1.0 - self.alpha);
+        Ok((lower, upper, conf_level))
     }
 
     fn validate(&self) -> Result<(), Box<dyn Error>> {
@@ -59,6 +60,7 @@ impl WilsonCI {
         if self.alpha <= 0.0 || self.alpha >= 1.0 {
             return Err("alpha must be in (0,1).".into());
         }
+        println!("Sample size = {}", self.ok + self.ng + self.unknown);
         Ok(())
     }
 }
@@ -103,12 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("failed to convert upper bound to BigDecimal")?
         * &population;
 
-    println!(
-        "{}% Wilson CI: [{:.6}, {:.6}]",
-        100.0 * conf_level,
-        lower,
-        upper
-    );
+    println!("{}% Wilson CI: [{:.6}, {:.6}]", conf_level, lower, upper);
     println!(
         "Expected |R| interval: [{:.6e}, {:.6e}]",
         expected_lower, expected_upper
