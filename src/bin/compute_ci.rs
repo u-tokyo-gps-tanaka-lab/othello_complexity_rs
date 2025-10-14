@@ -37,7 +37,7 @@ struct WilsonCI {
 }
 
 impl WilsonCI {
-    fn compute(&self) -> Result<(f64, f64), Box<dyn Error>> {
+    fn compute(&self) -> Result<(f64, f64, f64), Box<dyn Error>> {
         self.validate()?;
         let n = (self.ok + self.ng + self.unknown) as f64;
 
@@ -46,7 +46,7 @@ impl WilsonCI {
 
         let lower = wilson_lower(self.ok as f64, n, z);
         let upper = wilson_upper((self.ok + self.unknown) as f64, n, z);
-        Ok((lower, upper))
+        Ok((lower, upper, 1.0 - self.alpha))
     }
 
     fn validate(&self) -> Result<(), Box<dyn Error>> {
@@ -87,7 +87,7 @@ fn wilson_upper(x: f64, n: f64, z: f64) -> f64 {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let (lower, upper) = WilsonCI {
+    let (lower, upper, conf_level) = WilsonCI {
         ok: args.ok,
         ng: args.ng,
         unknown: args.unknown,
@@ -103,7 +103,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("failed to convert upper bound to BigDecimal")?
         * &population;
 
-    println!("Wilson CI: [{:.6}, {:.6}]", lower, upper);
+    println!(
+        "{}% Wilson CI: [{:.6}, {:.6}]",
+        100.0 * conf_level,
+        lower,
+        upper
+    );
     println!(
         "Expected |R| interval: [{:.6e}, {:.6e}]",
         expected_lower, expected_upper
