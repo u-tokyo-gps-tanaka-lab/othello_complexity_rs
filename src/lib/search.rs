@@ -1,4 +1,4 @@
-use crate::lib::check_occupancy::check_occupancy;
+use crate::lib::check_occupancy::{check_occupancy, occupancy_order};
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
 
 use std::cmp::min;
@@ -143,6 +143,7 @@ fn no_cycle(g: Vec<Vec<usize>>) -> bool {
     true
 }
 
+
 pub fn check_seg3(b: u64) -> bool {
     let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     for y in 0..8 {
@@ -183,37 +184,46 @@ pub fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
-fn onebit(x: u8) -> bool {
+pub fn onebit(x: u8) -> bool {
     x & (x - 1) == 0
 }
-/// 盤面が初期配置に到達不能かどうかの粗めのチェック．
-pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
-    //let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
-    let occupied = player | opponent;
-    let mut canput: [u8; 64] = [0; 64];
-    let mut canflip: [u8; 64] = [0; 64];
+fn can_put_flip(occupied: u64, order: &[u64;64]) -> ([u8;64], [u8;64]) {
+       
+    let mut canput : [u8;64] = [0;64];
+    let mut canflip : [u8;64] = [0;64];
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
             if occupied & (1 << i) == 0 {
                 continue;
             }
-            let mut ls: [u8; 8] = [0; 8];
+            let mut ls: [u8;8] = [0;8];
+            let mut ls1: [u8;8] = [0;8];
+            let o1 = order[i as usize];
             for (d, (dx, dy)) in DXYS.iter().enumerate() {
                 let mut l = 1;
+                let mut l1 = 1;
                 let mut x1 = x + dx;
                 let mut y1 = y + dy;
                 let mut i1 = y1 * 8 + x1;
+                let mut in_o1 = true;
                 while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && occupied & (1 << i1) != 0 {
+                    if in_o1 && o1 & (1 << i1) == 0 {
+                        in_o1 = false;
+                    }
+                    if in_o1 {
+                        l1 += 1;
+                    }
                     l += 1;
                     x1 += dx;
                     y1 += dy;
                     i1 = y1 * 8 + x1;
                 }
                 ls[d] = l;
+                ls1[d] = l1;
             }
             for d in 0..8 {
-                if ls[d] >= 3 {
+                if ls1[d] >= 3 {
                     if !(3 <= x && x <= 4 && 3 <= y && y <= 4) {
                         canput[i as usize] |= 1u8 << d;
                     }
@@ -224,6 +234,17 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
             }
         }
     }
+    (canput, canflip)
+}
+/// 盤面が初期配置に到達不能かどうかの粗めのチェック．
+pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
+    //if !check_seg3_more(player, opponent) {
+    //    return false;
+    //}
+
+    let occupied = player | opponent;
+    let order = occupancy_order(occupied);
+    let (canput, canflip) = can_put_flip(occupied, &order);
     let ps = [player, opponent];
     for i in 0..2 {
         let p0 = ps[i];
@@ -240,34 +261,50 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                     eprintln!("canput = 0, i={}, x={}, y={}", i, x, y);
                     eprintln!("{}", Board::new(player, opponent).show());
                     panic!("inconsistent");
+
                 }
                 // putの方向が1方向で後でflipされた可能性がない．
-                if !onebit(canput[i as usize]) || canflip[i as usize] != 0 {
+                if canflip[i as usize] != 0 {
                     continue;
                 }
-                let d = canput[i as usize].trailing_zeros();
-                let d1 = d & 3;
-                let (dx, dy) = DXYS[d as usize];
-                let di = dy * 8 + dx;
-                // 隣と，その隣のマスがd1方向以外にflipされる可能性がない．
-                for i1 in [i + di, i + di * 2] {
-                    if p0 & (1 << i1) == 0 {
-                        let f = canflip[i1 as usize];
-                        if f == 0 {
-                            return false;
-                        }
-                        if f & !(1 << d1) == 0 {
-                            if i1 == i + di {
-                                return false;
+                let mut mask = canput[i as usize];
+                let mut mask_count = 0;
+                let mut ng_count = 0;
+                while mask != 0 {
+                    let d = mask.trailing_zeros();
+                    mask_count += 1;
+                    mask &= mask - 1;
+                    let d1 = d & 3;
+                    let (dx, dy) = DXYS[d as usize];
+                    let di = dy * 8 + dx;
+                    // 隣と，その隣のマスがd1方向以外にflipされる可能性がない．
+                    for i1 in [i + di, i + di * 2] {
+                        if p0 & (1 << i1) == 0 {
+                            let f = canflip[i1 as usize];
+                            if f == 0 {
+                                ng_count += 1;
+                                break;
                             }
-                            let i2 = i + di;
-                            if p0 & (1 << i2) != 0 && canflip[i2 as usize] & !(1 << d1) == 0 {
-                                //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
-                                //eprintln!("{}", Board::new(player, opponent).show());
-                                return false;
+                            if f & !(1 << d1) == 0 {
+                                if i1 == i + di {
+                                    ng_count += 1;
+                                    break;
+                                }
+                                let i2 = i + di;
+                                if p0 & (1 << i2) != 0 && canflip[i2 as usize] & ! (1 << d1) == 0 {
+                                    //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
+                                    //eprintln!("{}", Board::new(player, opponent).show());
+                                    ng_count += 1;
+                                    break;
+                                }
                             }
                         }
                     }
+                }
+                if mask_count == ng_count {
+                    //eprintln!("x, y = {:?}", (x, y));
+                    //eprintln!("{}", Board::new(player, opponent).show());
+                    return false;
                 }
             }
         }
