@@ -5,6 +5,8 @@ pub mod lib {
     pub mod io;
     pub mod othello;
     pub mod par_search;
+    pub mod par_search1;
+    pub mod search_fwd_par;
     pub mod reverse_common;
     pub mod search;
     pub mod solve_kissat;

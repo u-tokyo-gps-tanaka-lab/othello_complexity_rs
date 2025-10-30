@@ -826,7 +826,8 @@ pub fn h_function(b: &Board) -> f64 {
     ans += 1.0 / (in_edge + 1) as f64;
     ans += 1.0 / (sm_edge_sum + 1) as f64;
     ans += 1.0 / (sm_edge_min + 1) as f64;
-    ans
+    let scount = (b.player | b.opponent).count_ones();
+    ans * 2_f64.powf(scount as f64)
 }
 
 /// retrospective_searchでmove orderingを実行するバージョン
