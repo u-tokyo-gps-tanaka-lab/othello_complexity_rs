@@ -5,8 +5,10 @@ use rayon::ThreadPoolBuilder;
 use std::thread;
 
 use crate::othello::{get_moves, Board, CENTER_MASK};
+use crate::prunings::check_seg3::check_seg3_more;
 use crate::prunings::{check_lp::check_lp, check_occupancy::check_occupancy};
-use crate::search::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
+use crate::search::move_ordering::h_function;
+use crate::search::search::{retrospective_flip, SearchResult};
 
 use std::{
     sync::{

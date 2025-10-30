@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::othello::{get_moves, Board};
 use crate::prunings::check_occupancy::check_occupancy;
-use crate::search::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
+use crate::prunings::check_seg3::check_seg3_more;
+use crate::search::move_ordering::h_function;
+use crate::search::search::{retrospective_flip, SearchResult};
 
 //--------------------------------------
 // 並列パラメータ（必要なら調整）

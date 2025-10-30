@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use othello_complexity_rs::io::parse_file_to_boards;
 use othello_complexity_rs::othello::Board;
-use othello_complexity_rs::search::search::is_connected;
+use othello_complexity_rs::prunings::check_con::is_connected;
 
 fn is_con_ok(_index: usize, board: &Board) -> io::Result<bool> {
     let o = board.player | board.opponent;
