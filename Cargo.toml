@@ -17,6 +17,10 @@ statrs = "0.18.0"
 bigdecimal = "0.4"
 highs = "1"
 highs-sys = "1"
+crossbeam-skiplist = "0.1"
+crossbeam = "0.8"
+ordered-float = "4"
+flurry = "0.5"
 
 [profile.dev]
 panic = "unwind"

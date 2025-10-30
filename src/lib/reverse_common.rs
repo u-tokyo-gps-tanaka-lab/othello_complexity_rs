@@ -12,9 +12,11 @@ use crate::lib::bfs_search::{
 use crate::lib::io::parse_file_to_boards;
 use crate::lib::othello::{Board, CENTER_MASK};
 use crate::lib::par_search::{init_rayon, retrospective_search_parallel};
+use crate::lib::par_search1::{retrospective_search_parallel1};
 use crate::lib::search::{
     retrospective_search, retrospective_search_move_ordering, search, Btable, SearchResult,
 };
+use crate::lib::search_fwd_par::{make_fwd_table};
 
 pub fn default_input_path() -> PathBuf {
     PathBuf::from("board.txt")
@@ -54,6 +56,20 @@ impl LeafCache {
         let mut leafnode: HashSet<[u64; 2]> = HashSet::new();
         let initial = Board::initial();
         search(&initial, &mut searched, &mut leafnode, discs);
+        for i in 4..9 {
+
+            let mut ans = vec![];
+            for s in &searched {
+                if (s[0] | s[1]).count_ones() == i {
+                    ans.push(s);
+                }
+            }
+            println!("i={}, ans.len()={}", i, ans.len());
+            ans.sort();
+            for j in 0..ans.len() {
+                println!("{}", Board::new(ans[j][0], ans[j][1]).to_string());
+            }
+        }
         LeafCache {
             searched,
             leaf: leafnode,
@@ -273,6 +289,59 @@ pub fn run_parallel(
             false,
             discs,
             leaf_cache.leaf(),
+            node_limit,
+            table_limit,
+        );
+        outputs.write_result(result, &line)?;
+        outputs.flush()?;
+    }
+
+    outputs.flush()
+}
+
+pub fn run_parallel1(
+    input: &Path,
+    out_dir: &Path,
+    discs: i32,
+    node_limit: usize,
+    table_limit: usize,
+    rayon_threads: Option<usize>,
+) -> io::Result<()> {
+    let boards = read_boards(input)?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    //let leaf_cache = LeafCache::new(discs);
+    //println!(
+    //    "info: discs = {}: internal = {}, leaf = {}",
+    //    discs,
+    //    leaf_cache.searched_count(),
+    //    leaf_cache.leaf_count()
+    //);
+    
+
+    init_rayon(rayon_threads);
+
+    for board in boards {
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let result = retrospective_search_parallel1(
+            &board,
+            discs,
+            &leaf,
             node_limit,
             table_limit,
         );
