@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use othello_complexity_rs::lib::bfs_search::Cfg as BfsCfg;
-use othello_complexity_rs::lib::reverse_common::{
+use othello_complexity_rs::search::bfs_search::Cfg as BfsCfg;
+use othello_complexity_rs::search::reverse_common::{
     default_input_path, default_out_dir, read_env_with_default, run_bfs, run_bfs_par, run_dfs,
     run_move_ordering, run_parallel,
 };

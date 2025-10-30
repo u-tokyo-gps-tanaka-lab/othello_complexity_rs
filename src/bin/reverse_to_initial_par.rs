@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use othello_complexity_rs::lib::reverse_common::{
+use othello_complexity_rs::search::reverse_common::{
     default_input_path, default_out_dir, read_env_with_default, run_parallel,
 };
 

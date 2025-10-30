@@ -3,9 +3,9 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::check_occupancy::check_occupancy_with_string;
-use othello_complexity_rs::lib::io::parse_file_to_boards;
-use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::io::parse_file_to_boards;
+use othello_complexity_rs::othello::Board;
+use othello_complexity_rs::prunings::check_occupancy::check_occupancy_with_string;
 
 fn is_board_ok(_index: usize, board: &Board) -> io::Result<(bool, String)> {
     let o = board.player | board.opponent;

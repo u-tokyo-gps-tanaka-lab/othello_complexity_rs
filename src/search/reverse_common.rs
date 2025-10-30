@@ -5,18 +5,18 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::lib::bfs_search::{
+use crate::io::parse_file_to_boards;
+use crate::othello::{Board, CENTER_MASK};
+use crate::search::bfs_search::{
     retrospective_search_bfs, retrospective_search_bfs_par, retrospective_search_bfs_par_resume,
     Cfg as BfsCfg,
 };
-use crate::lib::io::parse_file_to_boards;
-use crate::lib::othello::{Board, CENTER_MASK};
-use crate::lib::par_search::{init_rayon, retrospective_search_parallel};
-use crate::lib::par_search1::retrospective_search_parallel1;
-use crate::lib::search::{
+use crate::search::par_search::{init_rayon, retrospective_search_parallel};
+use crate::search::par_search1::retrospective_search_parallel1;
+use crate::search::search::{
     retrospective_search, retrospective_search_move_ordering, search, Btable, SearchResult,
 };
-use crate::lib::search_fwd_par::make_fwd_table;
+use crate::search::search_fwd_par::make_fwd_table;
 
 pub fn default_input_path() -> PathBuf {
     PathBuf::from("board.txt")

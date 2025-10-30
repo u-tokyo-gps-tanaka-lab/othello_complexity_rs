@@ -1,4 +1,4 @@
-use crate::lib::othello::Board;
+use crate::othello::Board;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 

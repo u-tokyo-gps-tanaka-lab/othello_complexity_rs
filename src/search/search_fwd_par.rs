@@ -1,4 +1,4 @@
-use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::othello::{flip, get_moves, Board, DXYS};
 use dashmap::DashSet;
 use rayon::ThreadPoolBuilder;
 use std::sync::{

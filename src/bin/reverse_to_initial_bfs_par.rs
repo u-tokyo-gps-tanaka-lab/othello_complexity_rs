@@ -1,7 +1,7 @@
 use clap::Parser;
 
-use othello_complexity_rs::lib::bfs_search::Cfg;
-use othello_complexity_rs::lib::reverse_common::run_bfs_par;
+use othello_complexity_rs::search::bfs_search::Cfg;
+use othello_complexity_rs::search::reverse_common::run_bfs_par;
 
 fn main() {
     let cfg: Cfg = Cfg::parse();

@@ -1,4 +1,4 @@
-use crate::lib::othello::DXYS;
+use crate::othello::DXYS;
 
 use std::collections::HashMap;
 use std::fs::File;

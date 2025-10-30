@@ -1,5 +1,5 @@
-use crate::lib::check_occupancy::{check_occupancy, occupancy_order};
-use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use crate::othello::{flip, get_moves, Board, DXYS};
+use crate::prunings::check_occupancy::{check_occupancy, occupancy_order};
 
 use std::cmp::min;
 use std::collections::HashSet;

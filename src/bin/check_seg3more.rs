@@ -3,8 +3,8 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::io::parse_file_to_boards;
-use othello_complexity_rs::lib::search::check_seg3_more;
+use othello_complexity_rs::io::parse_file_to_boards;
+use othello_complexity_rs::search::search::check_seg3_more;
 
 fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
     let boards = parse_file_to_boards(path)?;

@@ -12,9 +12,9 @@ use std::thread;
 use bytemuck;
 use clap::Parser;
 
-use crate::lib::check_occupancy::check_occupancy;
-use crate::lib::othello::{get_moves, Board};
-use crate::lib::search::{check_seg3_more, retrospective_flip, SearchResult};
+use crate::othello::{get_moves, Board};
+use crate::prunings::check_occupancy::check_occupancy;
+use crate::search::search::{check_seg3_more, retrospective_flip, SearchResult};
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "reverse_to_initial_bfs", version)]

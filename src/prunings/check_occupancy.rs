@@ -1,4 +1,4 @@
-use crate::lib::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
+use crate::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 // 前提：A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63。
 //       方向は N=+8, S=-8, E=+1, W=-1, NE=+9, NW=+7, SE=-7, SW=-9。
 

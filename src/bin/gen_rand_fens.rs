@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::othello::Board;
 
 /// nCk を u128 で返す。u128 を超える場合は None。
 pub fn combination_u128(n: usize, k: usize) -> Option<u128> {

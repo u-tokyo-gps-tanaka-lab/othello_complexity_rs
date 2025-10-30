@@ -4,10 +4,9 @@ use ordered_float::NotNan;
 use rayon::ThreadPoolBuilder;
 use std::thread;
 
-use crate::lib::check_lp::check_lp;
-use crate::lib::check_occupancy::check_occupancy;
-use crate::lib::othello::{get_moves, Board, CENTER_MASK};
-use crate::lib::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
+use crate::othello::{get_moves, Board, CENTER_MASK};
+use crate::prunings::{check_lp::check_lp, check_occupancy::check_occupancy};
+use crate::search::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
 
 use std::{
     sync::{
