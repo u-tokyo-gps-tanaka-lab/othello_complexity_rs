@@ -59,9 +59,9 @@ fn solve_by_kissat(
     let result = match solver.solve() {
         Ok(res) => res,
         Err(_) => return false,
-            };
+    };
     result == rustsat::solvers::SolverResult::Sat
-    }
+}
 
 #[allow(dead_code)]
 fn output_cnf(
@@ -349,7 +349,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     }
     // output_cnf(index, &s, vm.count(), &comment);
     let ans = solve_by_kissat(index, &s, vm.count(), &comment);
-println!(
+    println!(
         "index={}, ans={}, vars={}, clauses={}",
         index,
         ans,

@@ -222,7 +222,6 @@ const fn not_h_file() -> u64 {
     0x7F7F_7F7F_7F7F_7F7F
 }
 #[inline(always)]
-//const fn not_rank_1() -> u64 { 0xFF00_FFFF_FFFF_FFFF }
 const fn not_rank_1() -> u64 {
     0xFFFF_FFFF_FFFF_FF00
 }
@@ -232,35 +231,35 @@ const fn not_rank_8() -> u64 {
 }
 
 #[inline(always)]
-fn east(x: u64) -> u64 {
+pub fn east(x: u64) -> u64 {
     (x << 1) & not_a_file()
 }
 #[inline(always)]
-fn west(x: u64) -> u64 {
+pub fn west(x: u64) -> u64 {
     (x >> 1) & not_h_file()
 }
 #[inline(always)]
-fn north(x: u64) -> u64 {
+pub fn north(x: u64) -> u64 {
     (x << 8) & not_rank_1()
 }
 #[inline(always)]
-fn south(x: u64) -> u64 {
+pub fn south(x: u64) -> u64 {
     (x >> 8) & not_rank_8()
 }
 #[inline(always)]
-fn ne(x: u64) -> u64 {
+pub fn ne(x: u64) -> u64 {
     (x << 9) & (not_a_file() & not_rank_1())
 }
 #[inline(always)]
-fn nw(x: u64) -> u64 {
+pub fn nw(x: u64) -> u64 {
     (x << 7) & (not_h_file() & not_rank_1())
 }
 #[inline(always)]
-fn se(x: u64) -> u64 {
+pub fn se(x: u64) -> u64 {
     (x >> 7) & (not_a_file() & not_rank_8())
 }
 #[inline(always)]
-fn sw(x: u64) -> u64 {
+pub fn sw(x: u64) -> u64 {
     (x >> 9) & (not_h_file() & not_rank_8())
 }
 
