@@ -74,13 +74,14 @@ pub fn retrospective_search_parallel1(
     discs: i32,
     leafnode: &Vec<[u64; 2]>,
     node_limit: usize,
-    _table_limit: usize,
+    use_lp: bool,
 ) -> SearchResult {
     // 優先度キュー（ロックフリー SkipSet）
     let pq: Arc<SkipSet<(NotNan<f64>, [u64; 2])>> = Arc::new(SkipSet::new());
 
     // 訪問済み（HashSet）
-    let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+    //let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+    let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::with_capacity(node_limit + 100));
 
     // 訪問数
     let visited_count = Arc::new(AtomicUsize::new(0));
@@ -207,7 +208,7 @@ pub fn retrospective_search_parallel1(
                         // ============================================
                         continue;
                     }
-                    if !check_lp(node[0], node[1], false) {
+                    if use_lp && !check_lp(node[0], node[1], false) {
                         // ===== 追加: 処理完了（inflight を減算） =====
                         inflight.fetch_sub(1, Ato::AcqRel);
                         // ============================================

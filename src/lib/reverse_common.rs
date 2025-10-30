@@ -303,7 +303,7 @@ pub fn run_parallel1(
     out_dir: &Path,
     discs: i32,
     node_limit: usize,
-    table_limit: usize,
+    use_lp: bool,
     rayon_threads: Option<usize>,
 ) -> io::Result<()> {
     let boards = read_boards(input)?;
@@ -336,7 +336,7 @@ pub fn run_parallel1(
             continue;
         }
 
-        let result = retrospective_search_parallel1(&board, discs, &leaf, node_limit, table_limit);
+        let result = retrospective_search_parallel1(&board, discs, &leaf, node_limit, use_lp);
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }

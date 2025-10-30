@@ -30,8 +30,8 @@ struct Cli {
     max_nodes: Option<usize>,
 
     /// Table size hint for the transposition table
-    #[arg(long = "table-size", value_name = "N")]
-    table_size: Option<usize>,
+    #[arg(long)]
+    use_lp: bool,
 
     /// Number of rayon worker threads (0 = default)
     #[arg(long, value_name = "N")]
@@ -47,9 +47,7 @@ fn run(cli: Cli) -> io::Result<()> {
     let max_nodes = cli
         .max_nodes
         .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
-    let table_size = cli
-        .table_size
-        .unwrap_or_else(|| read_env_with_default("TABLE_SIZE", 100_000usize));
+    let use_lp = cli.use_lp;
     let thread_setting = cli
         .threads
         .unwrap_or_else(|| read_env_with_default("RAYON_THREADS", 60usize));
@@ -59,7 +57,7 @@ fn run(cli: Cli) -> io::Result<()> {
         Some(thread_setting)
     };
 
-    run_parallel1(&input, &out_dir, discs, max_nodes, table_size, threads)
+    run_parallel1(&input, &out_dir, discs, max_nodes, use_lp, threads)
 }
 
 fn main() {
