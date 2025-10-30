@@ -5,6 +5,14 @@ use crate::prunings::check_seg3::check_seg3_more;
 use std::cmp::min;
 use std::collections::HashSet;
 
+/// Tri-state result for limited search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchResult {
+    Found,
+    NotFound,
+    Unknown, // node limit exceeded or resource constraint
+}
+
 pub struct Btable {
     cache_size: usize,
     table: Vec<[u64; 2]>,
@@ -141,14 +149,6 @@ pub fn search(
         };
         search(&next, searched, leafnode, discs);
     }
-}
-
-/// Tri-state result for limited search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchResult {
-    Found,
-    NotFound,
-    Unknown, // node limit exceeded or resource constraint
 }
 
 /// pos は opponent が直前に置いた位置 (0..=63)。

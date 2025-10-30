@@ -7,14 +7,14 @@ use std::str::FromStr;
 
 use crate::io::parse_file_to_boards;
 use crate::othello::{Board, CENTER_MASK};
-use crate::search::bfs_search::{
+use crate::search::bfs::{
     retrospective_search_bfs, retrospective_search_bfs_par, retrospective_search_bfs_par_resume,
     Cfg as BfsCfg,
 };
+use crate::search::core::{retrospective_search, search, Btable, SearchResult};
 use crate::search::move_ordering::retrospective_search_move_ordering;
 use crate::search::par_search::{init_rayon, retrospective_search_parallel};
 use crate::search::par_search1::retrospective_search_parallel1;
-use crate::search::search::{retrospective_search, search, Btable, SearchResult};
 use crate::search::search_fwd_par::make_fwd_table;
 
 pub fn default_input_path() -> PathBuf {

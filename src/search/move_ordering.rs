@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::{
     othello::{get_moves, Board, DXYS},
     prunings::{check_occupancy::check_occupancy, check_seg3::check_seg3_more},
-    search::search::{retrospective_flip, Btable, SearchResult},
+    search::core::{retrospective_flip, Btable, SearchResult},
 };
 
 /// in_sq : 内部のみのマスの数(8連結)

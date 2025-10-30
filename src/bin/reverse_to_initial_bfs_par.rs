@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use othello_complexity_rs::search::bfs_search::Cfg;
+use othello_complexity_rs::search::bfs::Cfg;
 use othello_complexity_rs::search::reverse_common::run_bfs_par;
 
 fn main() {
