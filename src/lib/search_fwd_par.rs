@@ -1,12 +1,11 @@
-
-use rayon::ThreadPoolBuilder;
 use crate::lib::othello::{flip, get_moves, Board, DXYS};
+use dashmap::DashSet;
+use rayon::ThreadPoolBuilder;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use dashmap::DashSet;
-const NUM_THREADS: usize = 64;            // 64スレッド程度
+const NUM_THREADS: usize = 64; // 64スレッド程度
 
 fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     let mut ans = 0;
@@ -16,7 +15,7 @@ fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
         b &= b - 1;
         let (x, y) = ((index % 8) as i32, (index / 8) as i32);
         let mut can_flip = false;
-        for (dx, dy) in DXYS.iter(){
+        for (dx, dy) in DXYS.iter() {
             let mut x1 = x + dx;
             let mut y1 = y + dy;
             let mut i1 = y1 * 8 + x1;
@@ -42,7 +41,7 @@ fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     ans
 }
 
-fn check_fwd_sub(b: &[u64;2], target: &[u64;2]) -> bool {
+fn check_fwd_sub(b: &[u64; 2], target: &[u64; 2]) -> bool {
     let o1 = b[0] | b[1];
     let o2 = target[0] | target[1];
     if o1 & o2 != o1 {
@@ -55,7 +54,7 @@ fn check_fwd_sub(b: &[u64;2], target: &[u64;2]) -> bool {
     b[0] & stable == target[1] & stable && b[1] & stable == target[0] & stable
 }
 
-fn check_fwd(b: &[u64;2], target: &[[u64;2];8]) -> bool {
+fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     for i in 0..8 {
         if check_fwd_sub(b, &target[i]) {
             return true;
@@ -64,10 +63,10 @@ fn check_fwd(b: &[u64;2], target: &[[u64;2];8]) -> bool {
     false
 }
 
-pub fn make_fwd_table(b: &[u64;2], discs: i32) -> Vec<[u64;2]> {
+pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     let board = Board::new(b[0], b[1]);
     println!("b=\n{}\n, discs={}", board.show(), discs);
-    let mut target = [*b;8];
+    let mut target = [*b; 8];
     for i in 1..8 {
         board.board_symmetry(i, &mut target[i as usize]);
     }
@@ -95,8 +94,8 @@ pub fn make_fwd_table(b: &[u64;2], discs: i32) -> Vec<[u64;2]> {
                         if j >= ans.len() {
                             break; // 仕事がなくなった
                         }
-                        let b: [u64;2] = ans[j];
-                        
+                        let b: [u64; 2] = ans[j];
+
                         let mut moves = get_moves(b[0], b[1]);
                         //println!("j={}, board={}, moves=0b{:b}", j, Board::new(b[0], b[1]).to_string(), moves);
                         while moves != 0 {
@@ -105,7 +104,11 @@ pub fn make_fwd_table(b: &[u64;2], discs: i32) -> Vec<[u64;2]> {
                             let flipped = flip(idx as usize, b[0], b[1]);
                             //println!("idx={}, flipped=0b{:b}", idx, flipped);
                             if flipped == 0 {
-                                println!("flipped==0, idx={}, board=\n{}", idx, Board::new(b[0], b[1]).show());
+                                println!(
+                                    "flipped==0, idx={}, board=\n{}",
+                                    idx,
+                                    Board::new(b[0], b[1]).show()
+                                );
                                 continue;
                             }
                             let next = Board {
@@ -122,7 +125,10 @@ pub fn make_fwd_table(b: &[u64;2], discs: i32) -> Vec<[u64;2]> {
                             //visited.insert(uni, &guard);
                             visited.insert(uni);
                             if get_moves(uni[0], uni[1]) == 0 {
-                                let next1 = Board {player: uni[1], opponent: uni[0]};
+                                let next1 = Board {
+                                    player: uni[1],
+                                    opponent: uni[0],
+                                };
                                 if !check_fwd(&[next1.player, next1.opponent], &target) {
                                     //println!("ng = \n{}", Board::new(next.player, next.opponent).show());
                                     continue;
@@ -149,7 +155,7 @@ pub fn make_fwd_table(b: &[u64;2], discs: i32) -> Vec<[u64;2]> {
         }
         println!("after collect()");
         newans.sort();
-        
+
         println!("i={}, newans.len() = {}", i, newans.len());
         //for j in 0..newans.len() {
         //    println!("{}", Board::new(newans[j][0], newans[j][1]).to_string());

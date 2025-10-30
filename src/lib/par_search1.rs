@@ -1,17 +1,15 @@
 use crossbeam_skiplist::SkipSet;
+use dashmap::DashSet;
 use ordered_float::NotNan;
 use rayon::ThreadPoolBuilder;
 use std::thread;
-use dashmap::DashSet;
 
-use crate::lib::othello::{get_moves, Board, CENTER_MASK};
-use crate::lib::search::{h_function, retrospective_flip, SearchResult, check_seg3_more};
-use crate::lib::check_occupancy::check_occupancy;
 use crate::lib::check_lp::check_lp;
-
+use crate::lib::check_occupancy::check_occupancy;
+use crate::lib::othello::{get_moves, Board, CENTER_MASK};
+use crate::lib::search::{check_seg3_more, h_function, retrospective_flip, SearchResult};
 
 use std::{
-
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering as Ato},
         Arc,
@@ -25,9 +23,9 @@ use std::{
 fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
     let oc = x[0] | x[1];
     if discs == oc.count_ones() as i32 {
-    // 実装はユーザー側にて
+        // 実装はユーザー側にて
         if let Ok(_) = leafnode.binary_search(&x) {
-            return true
+            return true;
         }
     }
     false
@@ -38,27 +36,25 @@ fn heuristic_function(x: [u64; 2]) -> f64 {
 }
 
 /// ===== パラメータ =====
-const NUM_THREADS: usize = 64;            // 64スレッド程度
-//const NUM_NODES: usize = 1_000_000usize;  // 訪問済みの上限（例）。必要に応じて変更
+const NUM_THREADS: usize = 64; // 64スレッド程度
+                               //const NUM_NODES: usize = 1_000_000usize;  // 訪問済みの上限（例）。必要に応じて変更
 
 // retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
-fn prev_states(b: [u64;2]) -> Vec<[u64;2]> {
+fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
     let board = Board::new(b[0], b[1]);
-    let mut retroflips = [0u64;10000];
+    let mut retroflips = [0u64; 10000];
     let mut op = board.opponent & !CENTER_MASK;
     let mut ans = vec![];
     while op != 0 {
         let index = op.trailing_zeros();
         op &= op - 1;
-        let num = retrospective_flip(
-            index,
-            board.player,
-            board.opponent,
-            &mut retroflips,
-        );
+        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
         for i in 1..num {
             let flipped = retroflips[i];
-            let prev = Board {player: board.opponent ^ (flipped | (1u64 << index)), opponent: board.player ^ flipped};
+            let prev = Board {
+                player: board.opponent ^ (flipped | (1u64 << index)),
+                opponent: board.player ^ flipped,
+            };
             ans.push([prev.player, prev.opponent]);
             if get_moves(prev.opponent, prev.player) == 0 {
                 ans.push([prev.opponent, prev.player]);
@@ -88,8 +84,10 @@ pub fn retrospective_search_parallel1(
 
     // 訪問数
     let visited_count = Arc::new(AtomicUsize::new(0));
-    let node_per_stone: Arc<[AtomicUsize; 65]> = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
-    let done_per_stone: Arc<[AtomicUsize; 65]> = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
+    let node_per_stone: Arc<[AtomicUsize; 65]> =
+        Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
+    let done_per_stone: Arc<[AtomicUsize; 65]> =
+        Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
 
     // 終了フラグ
     let done = Arc::new(AtomicBool::new(false));
@@ -119,7 +117,9 @@ pub fn retrospective_search_parallel1(
     }
 
     // スレッドプール（最大64）
-    let parallelism = thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let parallelism = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
     let num_threads = std::cmp::min(NUM_THREADS, parallelism);
     let pool = ThreadPoolBuilder::new()
         .num_threads(num_threads)
@@ -137,8 +137,8 @@ pub fn retrospective_search_parallel1(
             let found = found.clone();
             let node_per_stone = node_per_stone.clone();
             let done_per_stone = done_per_stone.clone();
-            let inflight = inflight.clone();     // ← 追加
-            let notfound = notfound.clone();     // ← 追加
+            let inflight = inflight.clone(); // ← 追加
+            let notfound = notfound.clone(); // ← 追加
             s.spawn(move |_| {
                 // 各スレッドで flurry の epoch guard を保持
                 //let guard = visited.guard();
@@ -199,7 +199,7 @@ pub fn retrospective_search_parallel1(
                             {
                                 let _ = found.push(node);
                             }
-                            
+
                             break;
                         }
                         // ===== 追加: 処理完了（inflight を減算） =====
@@ -221,7 +221,7 @@ pub fn retrospective_search_parallel1(
                         }
                         let occupied = s[0] | s[1];
                         if !check_occupancy(occupied) || !check_seg3_more(s[0], s[1]) {
-                            continue
+                            continue;
                         }
                         let succ = Board::new(s[0], s[1]).unique();
                         // 既訪問チェック
@@ -276,5 +276,4 @@ pub fn retrospective_search_parallel1(
     } else {
         SearchResult::Unknown
     }
-    
 }

@@ -12,11 +12,11 @@ use crate::lib::bfs_search::{
 use crate::lib::io::parse_file_to_boards;
 use crate::lib::othello::{Board, CENTER_MASK};
 use crate::lib::par_search::{init_rayon, retrospective_search_parallel};
-use crate::lib::par_search1::{retrospective_search_parallel1};
+use crate::lib::par_search1::retrospective_search_parallel1;
 use crate::lib::search::{
     retrospective_search, retrospective_search_move_ordering, search, Btable, SearchResult,
 };
-use crate::lib::search_fwd_par::{make_fwd_table};
+use crate::lib::search_fwd_par::make_fwd_table;
 
 pub fn default_input_path() -> PathBuf {
     PathBuf::from("board.txt")
@@ -57,7 +57,6 @@ impl LeafCache {
         let initial = Board::initial();
         search(&initial, &mut searched, &mut leafnode, discs);
         for i in 4..9 {
-
             let mut ans = vec![];
             for s in &searched {
                 if (s[0] | s[1]).count_ones() == i {
@@ -325,7 +324,6 @@ pub fn run_parallel1(
     //    leaf_cache.searched_count(),
     //    leaf_cache.leaf_count()
     //);
-    
 
     init_rayon(rayon_threads);
 
@@ -338,13 +336,7 @@ pub fn run_parallel1(
             continue;
         }
 
-        let result = retrospective_search_parallel1(
-            &board,
-            discs,
-            &leaf,
-            node_limit,
-            table_limit,
-        );
+        let result = retrospective_search_parallel1(&board, discs, &leaf, node_limit, table_limit);
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }

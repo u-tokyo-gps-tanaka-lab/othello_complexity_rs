@@ -143,7 +143,17 @@ fn no_cycle(g: Vec<Vec<usize>>) -> bool {
     true
 }
 
-
+/// 下記の2条件によって到達不能な局面を検出する
+/// 矛盾が生じる（到達不能）ならfalse, 無矛盾ならtrue
+///
+/// cond 1:
+/// ある石から見て、8方向のどの方向にも連続した3つ以上の石が存在しない場合、その石を置いた際にflip操作が起こらなかったことになり、矛盾する。
+/// 従って局面が初期配置から到達可能であるためには、全ての石について8方向のうち必ず1つ以上の方向で3つ以上の石が連続している必要がある
+///
+/// cond 2:
+/// 局面 $s$ について、64個の各マスを頂点とし、マス$i$への着手がマス$j$に依存している際に $i$ から $j$ への有向辺を持つ有向グラフ $G_s$ を作成する（ただし $i \neq j$）。
+/// $G_s$ に閉路が存在するならば、$G_s$に対応する局面$s$は初期局面から到達不能である。
+/// 閉路が存在することは「着手の依存関係に循環がある」ことを意味し、矛盾する。
 pub fn check_seg3(b: u64) -> bool {
     let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     for y in 0..8 {
@@ -184,21 +194,22 @@ pub fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
+#[inline(always)]
 pub fn onebit(x: u8) -> bool {
     x & (x - 1) == 0
 }
-fn can_put_flip(occupied: u64, order: &[u64;64]) -> ([u8;64], [u8;64]) {
-       
-    let mut canput : [u8;64] = [0;64];
-    let mut canflip : [u8;64] = [0;64];
+
+fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
+    let mut canput: [u8; 64] = [0; 64];
+    let mut canflip: [u8; 64] = [0; 64];
     for y in 0..8 {
         for x in 0..8 {
             let i = y * 8 + x;
             if occupied & (1 << i) == 0 {
                 continue;
             }
-            let mut ls: [u8;8] = [0;8];
-            let mut ls1: [u8;8] = [0;8];
+            let mut ls: [u8; 8] = [0; 8];
+            let mut ls1: [u8; 8] = [0; 8];
             let o1 = order[i as usize];
             for (d, (dx, dy)) in DXYS.iter().enumerate() {
                 let mut l = 1;
@@ -261,7 +272,6 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                     eprintln!("canput = 0, i={}, x={}, y={}", i, x, y);
                     eprintln!("{}", Board::new(player, opponent).show());
                     panic!("inconsistent");
-
                 }
                 // putの方向が1方向で後でflipされた可能性がない．
                 if canflip[i as usize] != 0 {
@@ -291,7 +301,7 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                                     break;
                                 }
                                 let i2 = i + di;
-                                if p0 & (1 << i2) != 0 && canflip[i2 as usize] & ! (1 << d1) == 0 {
+                                if p0 & (1 << i2) != 0 && canflip[i2 as usize] & !(1 << d1) == 0 {
                                     //eprintln!("x, y, dx, dy, i1 = {:?}", (x, y, dx, dy,i1));
                                     //eprintln!("{}", Board::new(player, opponent).show());
                                     ng_count += 1;
