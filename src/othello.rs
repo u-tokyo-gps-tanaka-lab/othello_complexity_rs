@@ -295,3 +295,24 @@ pub fn get_moves(player: u64, opponent: u64) -> u64 {
     }
     moves
 }
+
+/// ボード検証のエラー型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardValidation {
+    /// プレイヤーと相手の石が重なっている
+    Overlap,
+    /// 中央4マスが埋まっていない
+    MissingCenter,
+}
+
+/// ボードが有効かどうかを検証する
+pub fn validate_board(board: &Board) -> Result<(), BoardValidation> {
+    if (board.player & board.opponent) != 0 {
+        return Err(BoardValidation::Overlap);
+    }
+    let occupied = board.player | board.opponent;
+    if (occupied & CENTER_MASK) != CENTER_MASK {
+        return Err(BoardValidation::MissingCenter);
+    }
+    Ok(())
+}

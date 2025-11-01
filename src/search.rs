@@ -1,5 +1,6 @@
 pub mod bfs;
 pub mod core;
+pub mod leaf_cache;
 pub mod move_ordering;
 pub mod par_search;
 pub mod par_search1;
