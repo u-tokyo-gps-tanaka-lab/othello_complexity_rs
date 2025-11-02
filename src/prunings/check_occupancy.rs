@@ -4,7 +4,7 @@ use crate::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 
 // === 方向定義 ===
 #[derive(Copy, Clone)]
-enum Dir {
+pub enum Dir {
     N,
     S,
     E,
@@ -15,8 +15,9 @@ enum Dir {
     SW,
 }
 
+/// 方向dと逆方向に1マス分ビットシフトする
 #[inline]
-fn backshift(d: Dir, b: u64) -> u64 {
+pub fn backshift(d: Dir, b: u64) -> u64 {
     match d {
         Dir::N => south(b),
         Dir::S => north(b),
@@ -44,9 +45,14 @@ pub fn occupied_to_string(o: u64) -> String {
     return s;
 }
 
+/// 中央4マスから到達可能なoccupied bitboardを計算
+///
+/// # 前提条件
+/// - 中央2x2 (D4, E4, D5, E5) は常に占有されている必要がある
+///
+/// # 戻り値
+/// 中央4マスから到達可能なマス目を表すビットマスク
 pub fn reachable_occupancy(occupied: u64) -> u64 {
-    // 必要条件：中央2x2 は常に占有（満たさなければ即不可能）
-
     let dirs = [
         Dir::N,
         Dir::S,
@@ -58,45 +64,42 @@ pub fn reachable_occupancy(occupied: u64) -> u64 {
         Dir::SW,
     ];
 
-    // 既知に“説明済み”の集合の初期値
-    let mut t: u64 = CENTER_MASK;
+    // 中央4マスから到達可能であることが確認済みのマスの集合（初期値は中央4マス）
+    let mut explained: u64 = CENTER_MASK;
 
-    // 最悪でも中央4以外の 60 マス分の反復で収束
     for _ in 0..60 {
         let mut add_all: u64 = 0;
         for &d in &dirs {
-            // T を O の中で逆方向に押し広げる：
-            // W0 = T（距離0）
-            // W1 = backshift(d, W0) & O（距離1：不可）
-            // W2 = backshift(d, W1) & O（距離2：有効）
-            //let w1 = backshift(d, T) & O;
-            let w1 = backshift(d, t) & t;
-            let mut wk = backshift(d, w1) & occupied; // 距離2スタート（有効）
+            // 方向dにおいて、既に到達可能な2マスが隣接しているペアを検出
+            let w1 = backshift(d, explained) & explained;
+            // そのペアからさらに1マス逆方向（合計距離2）にある占有マスを検出開始点とする
+            let mut scanning_pos = backshift(d, w1) & occupied;
 
-            let mut r_d = wk; // 方向 d における「距離>=2で見通せる」集合
+            // 方向dにおいて、既存の到達可能領域から連続する占有マスで新たに到達可能なマス
+            let mut r_d = scanning_pos;
 
-            // 空きに当たるまで（O に連続する限り）さらに遡る
-            while wk != 0 {
-                wk = backshift(d, wk) & occupied; // 距離3,4,... と伸ばす
-                r_d |= wk;
+            // 連続する占有マスの鎖を空マス（非占有）に当たるまで逆方向に辿る
+            while scanning_pos != 0 {
+                scanning_pos = backshift(d, scanning_pos) & occupied; // 距離3,4,... と伸ばす
+                r_d |= scanning_pos;
             }
 
             add_all |= r_d;
-            //println!("i={}", i); i += 1;
         }
 
-        // 未取り込み分だけ追加
-        let add = add_all & !t;
+        // 今回の反復で新たに到達可能と判明したマス（未追跡分のみ）
+        let add = add_all & !explained;
         if add == 0 {
-            break; // これ以上広がらない → 不動点
+            break; // 新規追加なし → 収束
         }
-        t |= add;
+        explained |= add;
 
-        if t == occupied {
-            return t; // 早期収束
+        // 全ての占有マスが到達可能になった場合は早期終了
+        if explained == occupied {
+            return explained;
         }
     }
-    t
+    explained
 }
 
 pub fn check_occupancy(occupied: u64) -> bool {

@@ -63,6 +63,8 @@ fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     false
 }
 
+/// 初期配置からdiscs手までの到達可能な序盤盤面を列挙する
+/// 確定石を使って、目的配置bへのパスが明らかに存在しない盤面を枝刈りする
 pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     let board = Board::new(b[0], b[1]);
     println!("b=\n{}\n, discs={}", board.show(), discs);
