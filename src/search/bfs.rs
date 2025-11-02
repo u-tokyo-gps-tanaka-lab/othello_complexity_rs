@@ -13,7 +13,7 @@ use bytemuck;
 use clap::Parser;
 
 use crate::othello::{get_moves, Board};
-use crate::prunings::{check_occupancy::check_occupancy, check_seg3::check_seg3_more};
+use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
 use crate::search::core::{retrospective_flip, SearchResult};
 
 #[derive(Debug, Clone, Parser)]

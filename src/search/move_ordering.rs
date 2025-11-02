@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     othello::{get_moves, Board, DXYS},
-    prunings::{check_occupancy::check_occupancy, check_seg3::check_seg3_more},
+    prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
     search::core::{retrospective_flip, Btable, SearchResult},
 };
 

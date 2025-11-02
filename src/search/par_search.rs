@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::othello::{get_moves, Board};
-use crate::prunings::check_occupancy::check_occupancy;
-use crate::prunings::check_seg3::check_seg3_more;
+use crate::prunings::occupancy::check_occupancy;
+use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{retrospective_flip, SearchResult};
 use crate::search::move_ordering::h_function;
 

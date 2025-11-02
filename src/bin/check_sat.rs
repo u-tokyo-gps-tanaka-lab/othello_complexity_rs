@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use othello_complexity_rs::io::parse_file_to_boards;
-use othello_complexity_rs::prunings::solve_kissat::is_sat_ok;
+use othello_complexity_rs::prunings::kissat::is_sat_ok;
 
 fn process_file(path: &str, out_dir: &Path) -> io::Result<()> {
     let boards = parse_file_to_boards(path)?;

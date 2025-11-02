@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use crate::othello::{Board, CENTER_MASK, DXYS};
-use crate::prunings::check_occupancy::occupancy_order;
+use crate::prunings::occupancy::occupancy_order;
 use highs::{HighsModelStatus, RowProblem, Sense};
 use std::ffi::CString;
 use std::fs::File;

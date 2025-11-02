@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use othello_complexity_rs::othello::CENTER_MASK;
-use othello_complexity_rs::prunings::check_occupancy::{backshift, Dir};
+use othello_complexity_rs::prunings::occupancy::{backshift, Dir};
 
 /// 中央4マスから到達可能なoccupied bitboardを計算し、各ステップの途中経過を返す
 ///

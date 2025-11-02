@@ -1,6 +1,6 @@
 use crate::{
     othello::{Board, DXYS},
-    prunings::check_occupancy::occupancy_order,
+    prunings::occupancy::occupancy_order,
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {

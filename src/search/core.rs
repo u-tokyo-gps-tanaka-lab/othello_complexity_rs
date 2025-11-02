@@ -1,6 +1,6 @@
 use crate::othello::{flip, get_moves, Board};
-use crate::prunings::check_occupancy::check_occupancy;
-use crate::prunings::check_seg3::check_seg3_more;
+use crate::prunings::occupancy::check_occupancy;
+use crate::prunings::seg3::check_seg3_more;
 
 use std::cmp::min;
 use std::collections::HashSet;
