@@ -1,5 +1,5 @@
 use crate::{
-    othello::{Board, DXYS},
+    othello::{Board, Direction},
     prunings::occupancy::occupancy_order,
 };
 
@@ -56,7 +56,8 @@ pub fn check_seg3(b: u64) -> bool {
                 continue;
             }
             let mut oks: Vec<Vec<usize>> = vec![];
-            for (dx, dy) in DXYS.iter() {
+            for dir in Direction::all().iter() {
+                let (dx, dy) = dir.to_offset();
                 let mut l = 1;
                 let mut x1 = x + dx;
                 let mut y1 = y + dy;
@@ -96,7 +97,8 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
             let mut ls: [u8; 8] = [0; 8];
             let mut ls1: [u8; 8] = [0; 8];
             let o1 = order[i as usize];
-            for (d, (dx, dy)) in DXYS.iter().enumerate() {
+            for (d, dir) in Direction::all().iter().enumerate() {
+                let (dx, dy) = dir.to_offset();
                 let mut l = 1;
                 let mut l1 = 1;
                 let mut x1 = x + dx;
@@ -171,7 +173,7 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
                     mask_count += 1;
                     mask &= mask - 1;
                     let d1 = d & 3;
-                    let (dx, dy) = DXYS[d as usize];
+                    let (dx, dy) = Direction::all()[d as usize].to_offset();
                     let di = dy * 8 + dx;
                     // 隣と，その隣のマスがd1方向以外にflipされる可能性がない．
                     for i1 in [i + di, i + di * 2] {

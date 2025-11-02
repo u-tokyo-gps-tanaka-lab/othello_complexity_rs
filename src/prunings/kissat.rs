@@ -1,4 +1,4 @@
-use crate::othello::DXYS;
+use crate::othello::Direction;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -202,7 +202,8 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         let y = (sq / 8) as i32;
         for col in 0..2 {
             let mut ps: Vec<i32> = vec![]; // sqにcolの石を置くすべてのflip
-            for (d, (dx, dy)) in DXYS.iter().enumerate() {
+            for (d, direction) in Direction::all().iter().enumerate() {
+                let (dx, dy) = direction.to_offset();
                 let mut sqs: Vec<usize> = vec![];
                 let mut rl = 1;
                 let mut x1 = x + dx;

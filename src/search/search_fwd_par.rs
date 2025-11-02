@@ -1,4 +1,4 @@
-use crate::othello::{flip, get_moves, Board, DXYS};
+use crate::othello::{flip, get_moves, Board, Direction};
 use dashmap::DashSet;
 use rayon::ThreadPoolBuilder;
 use std::sync::{
@@ -15,7 +15,8 @@ fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
         b &= b - 1;
         let (x, y) = ((index % 8) as i32, (index / 8) as i32);
         let mut can_flip = false;
-        for (dx, dy) in DXYS.iter() {
+        for dir in Direction::all().iter() {
+            let (dx, dy) = dir.to_offset();
             let mut x1 = x + dx;
             let mut y1 = y + dy;
             let mut i1 = y1 * 8 + x1;

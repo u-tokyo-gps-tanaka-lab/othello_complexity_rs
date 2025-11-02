@@ -1,34 +1,6 @@
-use crate::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
+use crate::othello::{backshift, Direction, CENTER_MASK};
 // 前提：A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63。
 //       方向は N=+8, S=-8, E=+1, W=-1, NE=+9, NW=+7, SE=-7, SW=-9。
-
-// === 方向定義 ===
-#[derive(Copy, Clone)]
-pub enum Dir {
-    N,
-    S,
-    E,
-    W,
-    NE,
-    NW,
-    SE,
-    SW,
-}
-
-/// 方向dと逆方向に1マス分ビットシフトする
-#[inline]
-pub fn backshift(d: Dir, b: u64) -> u64 {
-    match d {
-        Dir::N => south(b),
-        Dir::S => north(b),
-        Dir::E => west(b),
-        Dir::W => east(b),
-        Dir::NE => sw(b),
-        Dir::NW => se(b),
-        Dir::SE => nw(b),
-        Dir::SW => ne(b),
-    }
-}
 
 pub fn occupied_to_string(o: u64) -> String {
     let mut s = String::new();
@@ -53,16 +25,7 @@ pub fn occupied_to_string(o: u64) -> String {
 /// # 戻り値
 /// 中央4マスから到達可能なマス目を表すビットマスク
 pub fn reachable_occupancy(occupied: u64) -> u64 {
-    let dirs = [
-        Dir::N,
-        Dir::S,
-        Dir::E,
-        Dir::W,
-        Dir::NE,
-        Dir::NW,
-        Dir::SE,
-        Dir::SW,
-    ];
+    let dirs = Direction::all();
 
     // 中央4マスから到達可能であることが確認済みのマスの集合（初期値は中央4マス）
     let mut explained: u64 = CENTER_MASK;

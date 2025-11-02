@@ -2,8 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use othello_complexity_rs::othello::CENTER_MASK;
-use othello_complexity_rs::prunings::occupancy::{backshift, Dir};
+use othello_complexity_rs::othello::{backshift, Direction, CENTER_MASK};
 
 /// 中央4マスから到達可能なoccupied bitboardを計算し、各ステップの途中経過を返す
 ///
@@ -14,16 +13,7 @@ use othello_complexity_rs::prunings::occupancy::{backshift, Dir};
 /// - タプルの最初の要素: 中央4マスから到達可能なマス目を表すビットマスク（最終結果）
 /// - タプルの2番目の要素: 各反復ステップでの`explained`の値を記録したVec（初期値を含む）
 fn reachable_occupancy_with_steps(occupied: u64) -> (u64, Vec<u64>) {
-    let dirs = [
-        Dir::N,
-        Dir::S,
-        Dir::E,
-        Dir::W,
-        Dir::NE,
-        Dir::NW,
-        Dir::SE,
-        Dir::SW,
-    ];
+    let dirs = Direction::all();
     let mut explained: u64 = CENTER_MASK;
     let mut steps = vec![explained];
     for _ in 0..60 {

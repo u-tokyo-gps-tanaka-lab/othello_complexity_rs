@@ -29,19 +29,65 @@ use std::cmp::Ordering;
 
 // translated with ChatGPT 4o
 
-pub const DXYS: [(i32, i32); 8] = [
-    (1, 0),
-    (1, 1),
-    (0, 1),
-    (-1, 1),
-    (-1, 0),
-    (-1, -1),
-    (0, -1),
-    (1, -1),
-];
-pub const DIRS: [i32; 4] = [1, 8, 9, 7];
-
 pub const CENTER_MASK: u64 = 0x0000_0018_1800_0000u64; // 4 center squares
+
+/// 8方向を表すEnum
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Direction {
+    N,
+    S,
+    E,
+    W,
+    NE,
+    NW,
+    SE,
+    SW,
+}
+
+impl Direction {
+    /// 座標オフセット (dx, dy) を返す
+    pub fn to_offset(&self) -> (i32, i32) {
+        match self {
+            Direction::E => (1, 0),
+            Direction::NE => (1, 1),
+            Direction::N => (0, 1),
+            Direction::NW => (-1, 1),
+            Direction::W => (-1, 0),
+            Direction::SW => (-1, -1),
+            Direction::S => (0, -1),
+            Direction::SE => (1, -1),
+        }
+    }
+
+    /// 全8方向の配列を返す（イテレーション用）
+    pub const fn all() -> [Direction; 8] {
+        [
+            Direction::E,
+            Direction::NE,
+            Direction::N,
+            Direction::NW,
+            Direction::W,
+            Direction::SW,
+            Direction::S,
+            Direction::SE,
+        ]
+    }
+}
+
+/// 方向dと逆方向に1マス分ビットシフトする
+#[inline]
+pub fn backshift(d: Direction, b: u64) -> u64 {
+    match d {
+        Direction::N => south(b),
+        Direction::S => north(b),
+        Direction::E => west(b),
+        Direction::W => east(b),
+        Direction::NE => sw(b),
+        Direction::NW => se(b),
+        Direction::SE => nw(b),
+        Direction::SW => ne(b),
+    }
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Board {

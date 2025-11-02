@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    othello::{get_moves, Board, DXYS},
+    othello::{get_moves, Board, Direction},
     prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
     search::core::{retrospective_flip, Btable, SearchResult},
 };
@@ -21,7 +21,8 @@ fn features(b: &Board) -> (u16, u16, u16, u16) {
             let index = p0.trailing_zeros() as i32; // 0..=63
             p0 &= p0 - 1;
             let (x, y) = (index & 7, index >> 3);
-            for (dx, dy) in DXYS.iter() {
+            for dir in Direction::all().iter() {
+                let (dx, dy) = dir.to_offset();
                 let x1 = x + dx;
                 let y1 = y + dy;
                 let i1 = y1 * 8 + x1;

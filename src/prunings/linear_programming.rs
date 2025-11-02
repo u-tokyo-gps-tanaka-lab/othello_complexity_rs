@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use crate::othello::{Board, CENTER_MASK, DXYS};
+use crate::othello::{Board, Direction, CENTER_MASK};
 use crate::prunings::occupancy::occupancy_order;
 use highs::{HighsModelStatus, RowProblem, Sense};
 use std::ffi::CString;
@@ -248,7 +248,8 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool) -> bool {
         let x = (sq % 8) as i32;
         let y = (sq / 8) as i32;
         for col in 0..2 {
-            for (dir, (dx, dy)) in DXYS.iter().enumerate() {
+            for (dir, direction) in Direction::all().iter().enumerate() {
+                let (dx, dy) = direction.to_offset();
                 let mut sqs: Vec<usize> = vec![];
                 let mut rl = 1;
                 let mut x1 = x + dx;
