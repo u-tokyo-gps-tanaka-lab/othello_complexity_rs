@@ -82,13 +82,22 @@ pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
     return (result == occupied, line);
 }
 
+/// 下記の考え方に基づいて、各石の置かれた順序を計算
+/// 1. マスAの石を取り除いたら、マスBが説明不可能になった
+/// → マスBは、マスAを経由して初めて中心と接続できた
+/// → つまり、マスBはマスAの後に置かれた石
+/// 2. マスAを取り除いても、マスCが依然として説明可能
+/// → マスCは、マスAに依存せずに中心と接続できている
+/// → つまり、マスCはマスAと同時またはそれ以前に置かれた石
 pub fn occupancy_order(occupied: u64) -> [u64; 64] {
     let mut ans = [0; 64];
     let mut b = occupied;
     while b != 0 {
         let sq = b.trailing_zeros() as usize; // 0..=63
         let newb = b & (b - 1);
+        // bからマスsqの石を取り除いた盤面
         let b_one = b ^ newb;
+        // マスsqと同時またはそれ以前に置かれた石の集合
         ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one;
         b = newb;
     }

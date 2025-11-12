@@ -1,8 +1,10 @@
+use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use othello_complexity_rs::othello::{backshift, Direction, CENTER_MASK};
+use othello_complexity_rs::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
+use othello_complexity_rs::prunings::occupancy::{occupied_to_string, reachable_occupancy};
 
 /// 中央4マスから到達可能なoccupied bitboardを計算し、各ステップの途中経過を返す
 ///
@@ -11,34 +13,70 @@ use othello_complexity_rs::othello::{backshift, Direction, CENTER_MASK};
 ///
 /// # 戻り値
 /// - タプルの最初の要素: 中央4マスから到達可能なマス目を表すビットマスク（最終結果）
-/// - タプルの2番目の要素: 各反復ステップでの`explained`の値を記録したVec（初期値を含む）
+/// - タプルの2番目の要素: 中央からBFS順に外側へ広がるよう更新された`explained`の履歴（初期値を含む）
 fn reachable_occupancy_with_steps(occupied: u64) -> (u64, Vec<u64>) {
-    let dirs = Direction::all();
-    let mut explained: u64 = CENTER_MASK;
-    let mut steps = vec![explained];
-    for _ in 0..60 {
-        let mut add_all: u64 = 0;
-        for &d in &dirs {
-            let w1 = backshift(d, explained) & explained;
-            let mut scanning_pos = backshift(d, w1) & occupied;
-            let mut r_d = scanning_pos;
-            while scanning_pos != 0 {
-                scanning_pos = backshift(d, scanning_pos) & occupied;
-                r_d |= scanning_pos;
+    let final_explained = reachable_occupancy(occupied);
+    let mut steps = Vec::new();
+    let mut visited = CENTER_MASK & final_explained;
+
+    // 初期状態（中央4マス）を記録
+    steps.push(visited);
+
+    if visited == final_explained {
+        return (final_explained, steps);
+    }
+
+    let mut queue = VecDeque::new();
+
+    // 中央4マスからBFSの初期フロンティアを構築
+    let mut seeds = visited;
+    while seeds != 0 {
+        let tz = seeds.trailing_zeros();
+        let bit = 1u64 << tz;
+        queue.push_back(bit);
+        seeds &= seeds - 1;
+    }
+
+    // 8方向の近傍に順次拡張し、盤面中央から外側へと波状に広げる
+    while let Some(bit) = queue.pop_front() {
+        for neighbor in neighbors(bit) {
+            if neighbor == 0 || (final_explained & neighbor) == 0 || (visited & neighbor) != 0 {
+                continue;
             }
-            add_all |= r_d;
-        }
-        let add = add_all & !explained;
-        if add == 0 {
-            break;
-        }
-        explained |= add;
-        steps.push(explained); // 各ステップを記録
-        if explained == occupied {
-            return (explained, steps);
+            visited |= neighbor;
+            steps.push(visited);
+            queue.push_back(neighbor);
         }
     }
-    (explained, steps)
+
+    // 念のため、BFSで拾えなかったマスがあれば補完（理論上は空のはず）
+    if visited != final_explained {
+        eprint!("warning: some squares were not reached in BFS, completing remaining squares...\n");
+        let mut remaining = final_explained & !visited;
+        while remaining != 0 {
+            let tz = remaining.trailing_zeros();
+            let bit = 1u64 << tz;
+            visited |= bit;
+            steps.push(visited);
+            remaining &= remaining - 1;
+        }
+    }
+
+    (final_explained, steps)
+}
+
+/// 指定したマスの8近傍を返す（盤面外は0）
+fn neighbors(bit: u64) -> [u64; 8] {
+    [
+        north(bit),
+        ne(bit),
+        east(bit),
+        se(bit),
+        south(bit),
+        sw(bit),
+        west(bit),
+        nw(bit),
+    ]
 }
 
 /// O/X/G/-形式の文字列をu64ビットボードに変換
@@ -69,30 +107,11 @@ fn parse_board(s: &str) -> Result<u64, String> {
     Ok(occupied)
 }
 
-/// explainedをG/-形式の文字列を生成
-/// - G: explained (到達可能なマス)
-/// - -: not explained (到達不可能なマス)
-fn format_step(explained: u64) -> String {
-    let mut s = String::new();
-    for y in 0..8 {
-        for x in 0..8 {
-            let i = y * 8 + x;
-            let bit = 1u64 << i;
-            if explained & bit != 0 {
-                s.push('G');
-            } else {
-                s.push('-');
-            }
-        }
-    }
-    s
-}
-
 /// stepsをファイルに書き込む（G/-形式の文字列のみ、1行に1ステップ）
 fn write_steps_to_file(path: &Path, steps: &[u64]) -> std::io::Result<()> {
     let mut file = fs::File::create(path)?;
     for &explained in steps {
-        let line = format_step(explained);
+        let line = occupied_to_string(explained);
         writeln!(file, "{}", line)?;
     }
     Ok(())
@@ -143,7 +162,7 @@ fn main() {
 
     // 標準出力に表示
     for (i, &explained) in steps.iter().enumerate() {
-        let line = format_step(explained);
+        let line = occupied_to_string(explained);
         println!("Step {}: {}", i, line);
     }
 

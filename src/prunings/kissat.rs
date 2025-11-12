@@ -4,14 +4,11 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Write};
 
-//use rustsat::instances::SatInstance;
-//use rustsat::instances::fio::dimacs;
-use rustsat::solvers::Solve;
-//use rustsat_kissat::Kissat;
-//use rustsat::types::{Lit, Var, Clause};
-use rustsat::types::{Clause, Lit};
-// use rustsat::instances::{BasicVarManager, CnfFormula};
-use rustsat::instances::Cnf;
+use rustsat::{
+    instances::Cnf,
+    solvers::Solve,
+    types::{Clause, Lit},
+};
 
 struct VarMaker {
     count: i32,
@@ -100,7 +97,6 @@ fn output_cnf(
         writeln!(file, " 0")?;
     }
     writeln!(file, "")?;
-    // Ok(())
     Err(Error::new(ErrorKind::Other, "one cnf file only"))
 }
 

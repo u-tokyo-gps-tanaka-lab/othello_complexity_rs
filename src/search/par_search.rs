@@ -9,7 +9,6 @@ use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{retrospective_flip, SearchResult};
 use crate::search::move_ordering::h_function;
 
-//--------------------------------------
 // 並列パラメータ（必要なら調整）
 const PAR_MAX_DEPTH: usize = 12; // この深さまでは spawn を許可
 const PAR_MIN_CHILDREN: usize = 4; // 子の数がこの数以上なら分割を検討
@@ -19,13 +18,11 @@ fn should_split(depth: usize, children: usize) -> bool {
     depth < PAR_MAX_DEPTH && children >= PAR_MIN_CHILDREN
 }
 
-//--------------------------------------
 // thread-local retroflips バッファ
 thread_local! {
     static TL_RETRO: RefCell<Vec<[u64; 10_000]>> = RefCell::new(Vec::new());
 }
 
-//--------------------------------------
 // 並列探索用の共有状態
 struct ParShared<'a> {
     leafnode: &'a std::collections::HashSet<[u64; 2]>, // 読み取り専用
@@ -42,7 +39,6 @@ struct ParShared<'a> {
     stop: &'a AtomicUsize,
 }
 
-//--------------------------------------
 // ユーティリティ：スレッドプール初期化（必要なら呼ぶ）
 pub fn init_rayon(num_threads: Option<usize>) {
     use std::sync::Once;
@@ -56,7 +52,6 @@ pub fn init_rayon(num_threads: Option<usize>) {
     });
 }
 
-//--------------------------------------
 // 公開エントリ：並列版 retrospective（シグネチャを分けました）
 pub fn retrospective_search_parallel(
     board: &Board,
@@ -99,7 +94,6 @@ pub fn retrospective_search_parallel(
     res
 }
 
-//--------------------------------------
 // 動的並列コア
 fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) -> SearchResult {
     // 全体の早期停止を確認
