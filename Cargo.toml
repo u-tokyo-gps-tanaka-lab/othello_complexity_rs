@@ -46,5 +46,9 @@ path = "src/bin/reverse_to_initial/gbfs_par.rs"
 name = "reverse_to_initial_move_ordering"
 path = "src/bin/reverse_to_initial/move_ordering.rs"
 
+[[bin]]
+name = "check"
+path = "src/bin/check.rs"
+
 [profile.dev]
 panic = "unwind"
