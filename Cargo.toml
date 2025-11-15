@@ -22,5 +22,29 @@ crossbeam = "0.8"
 ordered-float = "4"
 flurry = "0.5"
 
+[[bin]]
+name = "reverse_to_initial"
+path = "src/bin/reverse_to_initial/main.rs"
+
+[[bin]]
+name = "reverse_to_initial_bfs"
+path = "src/bin/reverse_to_initial/bfs.rs"
+
+[[bin]]
+name = "reverse_to_initial_bfs_par"
+path = "src/bin/reverse_to_initial/bfs_par.rs"
+
+[[bin]]
+name = "reverse_to_initial_dfs_par"
+path = "src/bin/reverse_to_initial/dfs_par.rs"
+
+[[bin]]
+name = "reverse_to_initial_gbfs_par"
+path = "src/bin/reverse_to_initial/gbfs_par.rs"
+
+[[bin]]
+name = "reverse_to_initial_move_ordering"
+path = "src/bin/reverse_to_initial/move_ordering.rs"
+
 [profile.dev]
 panic = "unwind"
