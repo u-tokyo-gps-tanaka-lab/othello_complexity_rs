@@ -1,5 +1,5 @@
 use clap::Parser;
-use othello_complexity_rs::lib::othello::Board;
+use othello_complexity_rs::othello::Board;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
@@ -33,8 +33,8 @@ fn main() -> io::Result<()> {
     let mut out = BufWriter::new(stdout.lock());
 
     // 各行処理
-    for (lineno, line_res) in reader.lines().enumerate() {
-        let line_no = lineno + 1;
+    for (_lineno, line_res) in reader.lines().enumerate() {
+        let _line_no = _lineno + 1;
         let line = line_res?;
 
         // 空行はスキップ（必要なら削除）

@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use othello_complexity_rs::lib::othello::{flip, get_moves, Board};
+use othello_complexity_rs::othello::{flip, get_moves, Board};
 
 /// 初期局面から nmoves 手ランダムに指した局面を返す
 fn do_random_play(nmoves: i32) -> Board {

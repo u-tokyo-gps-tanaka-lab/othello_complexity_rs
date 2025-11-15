@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::lib::io::parse_file_to_boards;
+use othello_complexity_rs::io::parse_file_to_boards;
 
 fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()> {
     eprintln!("sat_ok_file={}", sat_ok_file);
