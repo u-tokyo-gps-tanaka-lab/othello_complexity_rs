@@ -15,8 +15,8 @@ use crate::search::{
     core::{retrospective_search, Btable},
     leaf_cache::LeafCache,
     move_ordering::retrospective_search_move_ordering,
-    par_search::{init_rayon, retrospective_search_parallel},
-    par_search1::retrospective_search_parallel1,
+    parallel_dfs::{init_rayon, retrospective_search_parallel},
+    parallel_gbfs::parallel_retrospective_greedy_best_first_search,
     search_fwd_par::make_fwd_table,
 };
 
@@ -239,7 +239,9 @@ pub fn run_parallel1(
             continue;
         }
 
-        let result = retrospective_search_parallel1(&board, discs, &leaf, node_limit, use_lp);
+        let result = parallel_retrospective_greedy_best_first_search(
+            &board, discs, &leaf, node_limit, use_lp,
+        );
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }

@@ -18,9 +18,6 @@ use std::{
     time::Duration,
 };
 
-/// ===== ユーザー提供の関数 =====
-/// これらは別モジュールやFFIで実装済みである前提。
-/// ここではシグネチャのみ宣言します。
 fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
     let oc = x[0] | x[1];
     if discs == oc.count_ones() as i32 {
@@ -36,9 +33,7 @@ fn heuristic_function(x: [u64; 2]) -> f64 {
     h_function(&Board::new(x[0], x[1]))
 }
 
-/// ===== パラメータ =====
 const NUM_THREADS: usize = 64; // 64スレッド程度
-                               //const NUM_NODES: usize = 1_000_000usize;  // 訪問済みの上限（例）。必要に応じて変更
 
 // retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
 fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
@@ -68,9 +63,7 @@ fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
 /// 並列 Greedy Best-First Search
 /// - start: 初期状態
 /// - 戻り値: 見つかった leaf の状態（見つからなければ None）
-//--------------------------------------
-// 公開エントリ：並列版 retrospective（シグネチャを分けました）
-pub fn retrospective_search_parallel1(
+pub fn parallel_retrospective_greedy_best_first_search(
     board: &Board,
     discs: i32,
     leafnode: &Vec<[u64; 2]>,

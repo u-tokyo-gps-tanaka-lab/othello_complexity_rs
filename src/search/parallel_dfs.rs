@@ -52,7 +52,6 @@ pub fn init_rayon(num_threads: Option<usize>) {
     });
 }
 
-// 公開エントリ：並列版 retrospective（シグネチャを分けました）
 pub fn retrospective_search_parallel(
     board: &Board,
     from_pass: bool,
@@ -200,7 +199,8 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
         return SearchResult::NotFound;
     }
     let csize = children.len();
-    // children をh_functrionに従ってソートする．
+
+    // move ordering by handmade heuristic
     let mut children_score: Vec<(f64, usize)> = vec![];
     for i in 0..csize {
         children_score.push((h_function(&children[i].0), i));
