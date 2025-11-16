@@ -148,7 +148,7 @@ pub fn run_move_ordering(
 }
 
 /// parallel dfs
-pub fn run_parallel(
+pub fn run_parallel_dfs(
     input: &Path,
     out_dir: &Path,
     discs: i32,
@@ -201,7 +201,7 @@ pub fn run_parallel(
 }
 
 /// parallel greedy best first search + priority queue (skiplist)
-pub fn run_parallel1(
+pub fn run_parallel_gbfs(
     input: &Path,
     out_dir: &Path,
     discs: i32,

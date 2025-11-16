@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use othello_complexity_rs::search::reverse_common::{
-    default_input_path, default_out_dir, read_env_with_default, run_parallel1,
+    default_input_path, default_out_dir, read_env_with_default, run_parallel_gbfs,
 };
 
 #[derive(Parser, Debug)]
@@ -57,7 +57,7 @@ fn run(cli: Cli) -> io::Result<()> {
         Some(thread_setting)
     };
 
-    run_parallel1(&input, &out_dir, discs, max_nodes, use_lp, threads)
+    run_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
 }
 
 fn main() {

@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 use othello_complexity_rs::search::bfs::Cfg as BfsCfg;
 use othello_complexity_rs::search::reverse_common::{
     default_input_path, default_out_dir, read_env_with_default, run_bfs, run_bfs_par, run_dfs,
-    run_move_ordering, run_parallel,
+    run_move_ordering, run_parallel_dfs, run_parallel_gbfs,
 };
 
 #[derive(Parser, Debug)]
@@ -28,6 +28,7 @@ enum Strategy {
     Parallel,
     Bfs,
     BfsPar,
+    GbfsPar,
 }
 
 #[derive(Subcommand, Debug)]
@@ -38,6 +39,8 @@ pub enum Command {
     MoveOrdering(BasicOpts),
     /// Parallel reverse search using rayon workers
     Parallel(ParallelOpts),
+    /// Parallel greedy best-first search with priority queue
+    GbfsPar(GbfsOpts),
     /// BFS-based meet-in-the-middle search
     Bfs(BfsArgs),
     /// Parallel BFS search with resume support
@@ -110,6 +113,35 @@ impl ParallelOpts {
 }
 
 #[derive(Args, Debug, Clone)]
+pub struct GbfsOpts {
+    #[command(flatten)]
+    basic: BasicOpts,
+
+    /// Use LP-based move ordering
+    #[arg(long)]
+    use_lp: bool,
+
+    /// Number of rayon worker threads (0 = library default)
+    #[arg(long, value_name = "N")]
+    threads: Option<usize>,
+}
+
+impl GbfsOpts {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, Option<usize>) {
+        let (input, out_dir, discs, max_nodes) = self.basic.resolve();
+        let thread_setting = self
+            .threads
+            .unwrap_or_else(|| read_env_with_default("RAYON_THREADS", 60usize));
+        let threads = if thread_setting == 0 {
+            None
+        } else {
+            Some(thread_setting)
+        };
+        (input, out_dir, discs, max_nodes, self.use_lp, threads)
+    }
+}
+
+#[derive(Args, Debug, Clone)]
 pub struct BfsArgs {
     /// Input file containing board positions
     #[arg(value_name = "INPUT")]
@@ -171,7 +203,11 @@ fn dispatch(cli: Cli) -> io::Result<()> {
         }
         Command::Parallel(opts) => {
             let (input, out_dir, discs, max_nodes, table_size, threads) = opts.resolve();
-            run_parallel(&input, &out_dir, discs, max_nodes, table_size, threads)
+            run_parallel_dfs(&input, &out_dir, discs, max_nodes, table_size, threads)
+        }
+        Command::GbfsPar(opts) => {
+            let (input, out_dir, discs, max_nodes, use_lp, threads) = opts.resolve();
+            run_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
         }
         Command::Bfs(args) => {
             let cfg: BfsCfg = args.into();
@@ -192,6 +228,7 @@ fn normalize_strategy_name(name: &str) -> Option<Strategy> {
         "par" | "parallel" | "rayon" => Some(Strategy::Parallel),
         "bfs" => Some(Strategy::Bfs),
         "bfs-par" | "bfspar" | "bfs-parallel" | "parallel-bfs" => Some(Strategy::BfsPar),
+        "gbfs" | "gbfs-par" | "parallel-gbfs" | "gbfspar" => Some(Strategy::GbfsPar),
         _ => None,
     }
 }
@@ -203,6 +240,7 @@ fn strategy_to_subcommand(strategy: Strategy) -> &'static str {
         Strategy::Parallel => "parallel",
         Strategy::Bfs => "bfs",
         Strategy::BfsPar => "bfs-par",
+        Strategy::GbfsPar => "gbfs-par",
     }
 }
 
@@ -213,6 +251,7 @@ fn recognize_subcommand(arg: &str) -> Option<Strategy> {
         "parallel" => Some(Strategy::Parallel),
         "bfs" => Some(Strategy::Bfs),
         "bfs-par" => Some(Strategy::BfsPar),
+        "gbfs-par" => Some(Strategy::GbfsPar),
         _ => None,
     }
 }
