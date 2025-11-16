@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use othello_complexity_rs::search::reverse_common::{
-    default_input_path, default_out_dir, read_env_with_default, run_move_ordering,
+    default_input_path, default_out_dir, read_env_with_default, run_dfs_move_ordering,
 };
 
 #[derive(Parser, Debug)]
@@ -40,7 +40,7 @@ fn run(cli: Cli) -> io::Result<()> {
         .max_nodes
         .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
 
-    run_move_ordering(&input, &out_dir, discs, max_nodes)
+    run_dfs_move_ordering(&input, &out_dir, discs, max_nodes)
 }
 
 fn main() {

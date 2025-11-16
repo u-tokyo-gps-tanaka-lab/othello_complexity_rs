@@ -91,7 +91,7 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
 }
 
 /// dfs + move ordering
-pub fn run_move_ordering(
+pub fn run_dfs_move_ordering(
     input: &Path,
     out_dir: &Path,
     discs: i32,
@@ -292,7 +292,7 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
 }
 
 /// parallel bfs
-pub fn run_bfs_par(cfg: &BfsCfg) -> io::Result<()> {
+pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
     println!("cfg={:?}", cfg);
 
     fs::create_dir_all(&cfg.out_dir)?;

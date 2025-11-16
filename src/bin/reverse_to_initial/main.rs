@@ -5,8 +5,8 @@ use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::search::bfs::Cfg as BfsCfg;
 use othello_complexity_rs::search::reverse_common::{
-    default_input_path, default_out_dir, read_env_with_default, run_bfs, run_bfs_par, run_dfs,
-    run_move_ordering, run_parallel_dfs, run_parallel_gbfs,
+    default_input_path, default_out_dir, read_env_with_default, run_bfs, run_dfs,
+    run_dfs_move_ordering, run_parallel_bfs, run_parallel_dfs, run_parallel_gbfs,
 };
 
 #[derive(Parser, Debug)]
@@ -21,29 +21,23 @@ pub struct Cli {
     command: Command,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Strategy {
-    Dfs,
-    MoveOrdering,
-    Parallel,
-    Bfs,
-    BfsPar,
-    GbfsPar,
-}
-
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Sequential depth-first reverse search (default implementation)
     Dfs(BasicOpts),
     /// Sequential reverse search with move ordering heuristics
+    #[command(name = "dfs-move-ordering")]
     MoveOrdering(BasicOpts),
     /// Parallel reverse search using rayon workers
+    #[command(name = "dfs-parallel")]
     Parallel(ParallelOpts),
     /// Parallel greedy best-first search with priority queue
+    #[command(name = "gbfs-parallel")]
     GbfsPar(GbfsOpts),
     /// BFS-based meet-in-the-middle search
     Bfs(BfsArgs),
     /// Parallel BFS search with resume support
+    #[command(name = "bfs-parallel")]
     BfsPar(BfsArgs),
 }
 
@@ -117,7 +111,7 @@ pub struct GbfsOpts {
     #[command(flatten)]
     basic: BasicOpts,
 
-    /// Use LP-based move ordering
+    /// Use LP-solver for pruning
     #[arg(long)]
     use_lp: bool,
 
@@ -199,7 +193,7 @@ fn dispatch(cli: Cli) -> io::Result<()> {
         }
         Command::MoveOrdering(opts) => {
             let (input, out_dir, discs, max_nodes) = opts.resolve();
-            run_move_ordering(&input, &out_dir, discs, max_nodes)
+            run_dfs_move_ordering(&input, &out_dir, discs, max_nodes)
         }
         Command::Parallel(opts) => {
             let (input, out_dir, discs, max_nodes, table_size, threads) = opts.resolve();
@@ -215,114 +209,13 @@ fn dispatch(cli: Cli) -> io::Result<()> {
         }
         Command::BfsPar(args) => {
             let cfg: BfsCfg = args.into();
-            run_bfs_par(&cfg)
+            run_parallel_bfs(&cfg)
         }
     }
-}
-
-fn normalize_strategy_name(name: &str) -> Option<Strategy> {
-    let normalized = name.trim().to_ascii_lowercase().replace('_', "-");
-    match normalized.as_str() {
-        "default" | "dfs" => Some(Strategy::Dfs),
-        "mo" | "move" | "move-ordering" | "moveordering" => Some(Strategy::MoveOrdering),
-        "par" | "parallel" | "rayon" => Some(Strategy::Parallel),
-        "bfs" => Some(Strategy::Bfs),
-        "bfs-par" | "bfspar" | "bfs-parallel" | "parallel-bfs" => Some(Strategy::BfsPar),
-        "gbfs" | "gbfs-par" | "parallel-gbfs" | "gbfspar" => Some(Strategy::GbfsPar),
-        _ => None,
-    }
-}
-
-fn strategy_to_subcommand(strategy: Strategy) -> &'static str {
-    match strategy {
-        Strategy::Dfs => "dfs",
-        Strategy::MoveOrdering => "move-ordering",
-        Strategy::Parallel => "parallel",
-        Strategy::Bfs => "bfs",
-        Strategy::BfsPar => "bfs-par",
-        Strategy::GbfsPar => "gbfs-par",
-    }
-}
-
-fn recognize_subcommand(arg: &str) -> Option<Strategy> {
-    match arg {
-        "dfs" => Some(Strategy::Dfs),
-        "move-ordering" => Some(Strategy::MoveOrdering),
-        "parallel" => Some(Strategy::Parallel),
-        "bfs" => Some(Strategy::Bfs),
-        "bfs-par" => Some(Strategy::BfsPar),
-        "gbfs-par" => Some(Strategy::GbfsPar),
-        _ => None,
-    }
-}
-
-fn build_arg_vector() -> Vec<String> {
-    let mut raw_args: Vec<String> = std::env::args().collect();
-    if raw_args.len() <= 1 {
-        return raw_args;
-    }
-
-    let mut other_args: Vec<String> = Vec::new();
-    let mut strategy: Option<Strategy> = None;
-
-    let mut iter = raw_args.clone().into_iter().skip(1).peekable();
-    while let Some(arg) = iter.next() {
-        if let Some(value) = arg
-            .strip_prefix("--mode=")
-            .or_else(|| arg.strip_prefix("--strategy="))
-        {
-            strategy = normalize_strategy_name(value);
-            if strategy.is_none() {
-                eprintln!("error: unknown strategy '{}'.", value);
-                std::process::exit(2);
-            }
-            continue;
-        }
-
-        if arg == "--mode" || arg == "--strategy" || arg == "-m" {
-            let value = iter.next().unwrap_or_else(|| {
-                eprintln!("error: missing value for {}.", arg);
-                std::process::exit(2);
-            });
-            strategy = normalize_strategy_name(&value);
-            if strategy.is_none() {
-                eprintln!("error: unknown strategy '{}'.", value);
-                std::process::exit(2);
-            }
-            continue;
-        }
-
-        other_args.push(arg);
-    }
-
-    let mut new_args = Vec::with_capacity(raw_args.len());
-    new_args.push(raw_args.remove(0));
-
-    if let Some(existing) = other_args.first().and_then(|arg| recognize_subcommand(arg)) {
-        if let Some(selected) = strategy {
-            if selected != existing {
-                eprintln!(
-                    "error: conflicting strategy selections: '{}' vs '{}'.",
-                    strategy_to_subcommand(selected),
-                    strategy_to_subcommand(existing)
-                );
-                std::process::exit(2);
-            }
-        }
-        strategy = None;
-    }
-
-    if let Some(selected) = strategy {
-        new_args.push(strategy_to_subcommand(selected).to_string());
-    }
-
-    new_args.extend(other_args);
-    new_args
 }
 
 fn main() {
-    let argv = build_arg_vector();
-    let cli = Cli::parse_from(argv);
+    let cli = Cli::parse();
     if let Err(e) = dispatch(cli) {
         eprintln!("error: {}", e);
         std::process::exit(1);
