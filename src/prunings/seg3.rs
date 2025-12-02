@@ -33,7 +33,7 @@ pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
     true
 }
 
-/// 下記の2条件によって到達不能な局面を検出する
+/// 下記の2条件によって到達不能な局面を検出する (extended abstractで使用)
 /// 矛盾が生じる（到達不能）ならfalse, 無矛盾ならtrue
 ///
 /// cond 1:
@@ -44,7 +44,8 @@ pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
 /// 局面 $s$ について、64個の各マスを頂点とし、マス$i$への着手がマス$j$に依存している際に $i$ から $j$ への有向辺を持つ有向グラフ $G_s$ を作成する（ただし $i \neq j$）。
 /// $G_s$ に閉路が存在するならば、$G_s$に対応する局面$s$は初期局面から到達不能である。
 /// 閉路が存在することは「着手の依存関係に循環がある」ことを意味し、矛盾する。
-pub fn check_seg3(b: u64) -> bool {
+#[allow(dead_code)]
+fn check_seg3(b: u64) -> bool {
     let mut g: Vec<Vec<usize>> = vec![vec![]; 64];
     for y in 0..8 {
         for x in 0..8 {
@@ -135,7 +136,7 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
     (canput, canflip)
 }
 
-/// 盤面が初期配置に到達不能かどうかの粗めのチェック．
+/// 反転整合性のチェック
 pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
     //if !check_seg3_more(player, opponent) {
     //    return false;

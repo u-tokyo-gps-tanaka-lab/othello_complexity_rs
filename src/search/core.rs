@@ -1,6 +1,7 @@
 use crate::othello::{flip, get_moves, Board};
 use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
+use crate::search::transposition::Btable;
 
 use std::cmp::min;
 use std::collections::HashSet;
@@ -11,61 +12,6 @@ pub enum SearchResult {
     Found,
     NotFound,
     Unknown, // node limit exceeded or resource constraint
-}
-
-pub struct Btable {
-    cache_size: usize,
-    table: Vec<[u64; 2]>,
-    cache: HashSet<[u64; 2]>,
-}
-
-impl Btable {
-    pub fn new(table_size: usize, cache_size: usize) -> Self {
-        Btable {
-            cache_size: cache_size,
-            table: Vec::with_capacity(table_size),
-            cache: HashSet::new(),
-        }
-    }
-    pub fn clear(&mut self) {
-        self.table.clear();
-        self.cache.clear();
-    }
-    pub fn len(&self) -> usize {
-        let ans = self.cache.len() + self.table.len();
-        ans
-    }
-    pub fn insert(&mut self, uni: [u64; 2]) -> bool {
-        if self.cache.contains(&uni) {
-            return false;
-        }
-        if let Ok(_) = self.table.binary_search(&uni) {
-            return false;
-        }
-        self.cache.insert(uni);
-        if self.cache.len() >= self.cache_size {
-            if self.table.len() + self.cache.len() > self.table.capacity() {
-                self.cache.clear();
-                return true;
-            }
-            let mut c2v: Vec<[u64; 2]> = self.cache.iter().map(|x| *x).collect();
-            self.cache.clear();
-            c2v.sort();
-            let mut i = self.table.len();
-            let mut j = c2v.len();
-            self.table.resize(i + j, [0u64; 2]);
-            for k in (0..(i + j)).rev() {
-                if j == 0 || (i > 0 && self.table[i - 1] >= c2v[j - 1]) {
-                    self.table[k] = self.table[i - 1];
-                    i -= 1;
-                } else {
-                    self.table[k] = c2v[j - 1];
-                    j -= 1;
-                }
-            }
-        }
-        return true;
-    }
 }
 
 #[allow(dead_code)]
@@ -446,16 +392,7 @@ pub fn retrospective_search(
     //}
 
     let occupied = board.player | board.opponent;
-    //if !is_connected(occupied) {
-    //    return SearchResult::NotFound;
-    //}
-    //if !check_seg3(occupied) {
-    //    return SearchResult::NotFound;
-    //}
-    if !check_occupancy(occupied) {
-        return SearchResult::NotFound;
-    }
-    if !check_seg3_more(board.player, board.opponent) {
+    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
         return SearchResult::NotFound;
     }
     // let line = board.to_string();

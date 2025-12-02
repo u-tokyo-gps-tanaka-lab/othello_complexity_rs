@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use crate::{
     othello::{get_moves, Board, Direction},
     prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
-    search::core::{retrospective_flip, Btable, SearchResult},
+    search::core::{retrospective_flip, SearchResult},
+    search::transposition::Btable,
 };
 
 /// in_sq : 内部のみのマスの数(8連結)
@@ -109,16 +110,7 @@ pub fn retrospective_search_move_ordering(
     //}
 
     let occupied = board.player | board.opponent;
-    //if !is_connected(occupied) {
-    //    return SearchResult::NotFound;
-    //}
-    //if !check_seg3(occupied) {
-    //    return SearchResult::NotFound;
-    //}
-    if !check_occupancy(occupied) {
-        return SearchResult::NotFound;
-    }
-    if !check_seg3_more(board.player, board.opponent) {
+    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
         return SearchResult::NotFound;
     }
     // let line = board.to_string();

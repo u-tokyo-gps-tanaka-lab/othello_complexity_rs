@@ -77,16 +77,7 @@ fn process_board(
                 opponent: board.player ^ flipped,
             };
             let occupied = prev.player | prev.opponent;
-            //if !is_connected(occupied) {
-            //    continue;
-            //}
-            //if !check_seg3(occupied) {
-            //    continue;
-            //}
-            if !check_occupancy(occupied) {
-                continue;
-            }
-            if !check_seg3_more(prev.player, prev.opponent) {
+            if !check_occupancy(occupied) || !check_seg3_more(prev.player, prev.opponent) {
                 continue;
             }
             let uni = prev.unique();

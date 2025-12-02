@@ -46,7 +46,7 @@ pub enum Direction {
 
 impl Direction {
     /// 座標オフセット (dx, dy) を返す
-    pub fn to_offset(&self) -> (i32, i32) {
+    pub const fn to_offset(&self) -> (i32, i32) {
         match self {
             Direction::E => (1, 0),
             Direction::NE => (1, 1),

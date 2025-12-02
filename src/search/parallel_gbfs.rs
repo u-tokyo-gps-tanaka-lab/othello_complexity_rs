@@ -21,7 +21,6 @@ use std::{
 fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
     let oc = x[0] | x[1];
     if discs == oc.count_ones() as i32 {
-        // 実装はユーザー側にて
         if let Ok(_) = leafnode.binary_search(&x) {
             return true;
         }
@@ -181,7 +180,6 @@ pub fn parallel_retrospective_greedy_best_first_search(
                     }
                     // ===== 追加: このノードを「処理中」としてカウント =====
                     inflight.fetch_add(1, Ato::AcqRel);
-                    // ======
                     let num_disc = (node[0] | node[1]).count_ones() as i32;
                     let _ = &done_per_stone[num_disc as usize].fetch_add(1, Ato::Relaxed);
                     // 目標判定
@@ -199,13 +197,11 @@ pub fn parallel_retrospective_greedy_best_first_search(
                         }
                         // ===== 追加: 処理完了（inflight を減算） =====
                         inflight.fetch_sub(1, Ato::AcqRel);
-                        // ============================================
                         continue;
                     }
                     if use_lp && !check_lp(node[0], node[1], false) {
                         // ===== 追加: 処理完了（inflight を減算） =====
                         inflight.fetch_sub(1, Ato::AcqRel);
-                        // ============================================
                         continue;
                     }
                     // 展開
@@ -250,7 +246,6 @@ pub fn parallel_retrospective_greedy_best_first_search(
                     }
                     // ===== 追加: このノードの展開が終わったので inflight を減算 =====
                     inflight.fetch_sub(1, Ato::AcqRel);
-                    // ============================================================
                 }
             });
         }
