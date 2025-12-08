@@ -165,7 +165,7 @@ pub fn retrospective_search_move_ordering(
 
     let mut next_w_score: Vec<(f64, Board)> = vec![];
     while b != 0 {
-        let index = b.trailing_zeros(); // 0..=63
+        let index = b.trailing_zeros() as usize; // 0..=63
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙

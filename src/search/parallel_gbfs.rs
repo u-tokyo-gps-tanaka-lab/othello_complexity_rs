@@ -41,7 +41,7 @@ fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
     let mut op = board.opponent & !CENTER_MASK;
     let mut ans = vec![];
     while op != 0 {
-        let index = op.trailing_zeros();
+        let index = op.trailing_zeros() as usize;
         op &= op - 1;
         let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
         for i in 1..num {
