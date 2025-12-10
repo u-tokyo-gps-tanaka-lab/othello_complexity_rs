@@ -362,3 +362,92 @@ pub fn validate_board(board: &Board) -> Result<(), BoardValidation> {
     }
     Ok(())
 }
+
+/// ビットボードから特定の縦の列 (file=0..7) のビットだけを取り出し、8bitに圧縮して返す
+/// @cite https://www.chessprogramming.org/Occupancy_of_any_Line
+#[inline]
+fn gather_file(bb: u64, file: u8) -> u8 {
+    debug_assert!(file < 8);
+    // 1. (bb >> file) で、左からfile列目の垂直方向のラインを左端に寄せる
+    // 2. & 0x0101_0101_0101_0101 で左端のラインだけを取り出す
+    // 3. 0x0102_0408_1020_4080 を掛けてから 56bit 右シフトすると、離れていた列ビットが8bit整数に収まる
+    let masked = (bb >> file) & 0x0101010101010101;
+    ((masked.wrapping_mul(0x0102040810204080)) >> 56) as u8
+}
+
+/// 四辺それぞれの player/opponent を 8bit にしたタプル配列を返す
+#[inline]
+fn edge_bytes(board: &Board) -> [(u8, u8); 4] {
+    let p = board.player;
+    let o = board.opponent;
+    [
+        ((p & !not_rank_1()) as u8, (o & !not_rank_1()) as u8), // 上辺
+        (
+            ((p & !not_rank_8()) >> 56) as u8,
+            ((o & !not_rank_8()) >> 56) as u8,
+        ), // 下辺
+        (gather_file(p, 0), gather_file(o, 0)),                 // 左辺
+        (gather_file(p, 7), gather_file(o, 7)),                 // 右辺
+    ]
+}
+
+/// u8 bitboardが、MSBからstart番目を起点としてパターンpatを含むか判定する
+#[inline]
+fn pat_match_window(p: u8, o: u8, start: u8, pat: &[u8]) -> bool {
+    for (i, ch) in pat.iter().enumerate() {
+        let bit = 1u8 << (start + i as u8); // 調べたい位置(start+i)だけが1のマスクを作る
+        match *ch {
+            b'X' | b'x' => {
+                if p & bit == 0 || o & bit != 0 {
+                    return false;
+                }
+            }
+            b'O' | b'o' => {
+                if o & bit == 0 {
+                    return false;
+                }
+            }
+            b'-' | b'_' => {
+                if (p | o) & bit != 0 {
+                    return false;
+                }
+            }
+            b'?' => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// 四辺のどこかにパターン（長さ1..8）が現れるかを判定する
+/// 与えたパターンに加え、XとOを入れ替えたパターンも同時にチェックする
+pub fn edge_has_pattern(board: &Board, pattern: &str) -> bool {
+    let pat = pattern.as_bytes();
+    if pat.is_empty() || pat.len() > 8 {
+        return false;
+    }
+    let pat_inv = pat
+        .iter()
+        .map(|c| match *c {
+            b'X' | b'x' => b'O',
+            b'O' | b'o' => b'X',
+            other => other,
+        })
+        .collect::<Vec<u8>>();
+
+    for (p_edge, o_edge) in edge_bytes(board) {
+        for start in 0..=8 - pat.len() {
+            if pat_match_window(p_edge, o_edge, start as u8, pat)
+                || pat_match_window(p_edge, o_edge, start as u8, &pat_inv)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 複数パターンの OR 判定
+pub fn edge_has_any(board: &Board, patterns: &[&str]) -> bool {
+    patterns.iter().any(|p| edge_has_pattern(board, p))
+}
