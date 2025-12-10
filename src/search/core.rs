@@ -108,10 +108,12 @@ pub fn retrospective_flip(
     result: &mut [u64; 10_000],
 ) -> usize {
     assert!(pos < 64);
-    assert!(((1u64 << pos) & opponent) != 0);
-    // 中央 4 マスではない（問題文どおり）
-    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0);
+    assert!(((1u64 << pos) & opponent) != 0); // posに相手石がある
+    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0); // posが中央4マスでない
 
+    // 直前にopponentがマスposに着手したという仮定が成り立つかチェック;
+    // posへの着手が本当に直前手ならば、その石だけを取り除いた盤面でopponentはplayerをflipできない
+    // flipできる場合、直前手でflipされなかった石があることになり矛盾
     if flip(pos, opponent ^ (1u64 << pos), player) != 0 {
         return 0;
     }
