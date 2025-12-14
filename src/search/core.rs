@@ -102,15 +102,21 @@ pub fn search(
 /// その着手であり得る “ひっくり返り集合” を result に列挙して個数を返す。
 /// 返り値が非ゼロのとき `result[0] == 0`（便宜上）。反復時は 1 から使うこと。
 pub fn retrospective_flip(
-    pos: u32,
-    _player: u64,
+    pos: usize,
+    player: u64,
     opponent: u64,
     result: &mut [u64; 10_000],
 ) -> usize {
     assert!(pos < 64);
-    assert!(((1u64 << pos) & opponent) != 0);
-    // 中央 4 マスではない（問題文どおり）
-    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0);
+    assert!(((1u64 << pos) & opponent) != 0); // posに相手石がある
+    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0); // posが中央4マスでない
+
+    // 直前にopponentがマスposに着手したという仮定が成り立つかチェック;
+    // posへの着手が本当に直前手ならば、その石だけを取り除いた盤面でopponentはplayerをflipできない
+    // flipできる場合、直前手でflipされなかった石があることになり矛盾
+    if flip(pos, opponent ^ (1u64 << pos), player) != 0 {
+        return 0;
+    }
 
     let xpos = (pos % 8) as i32;
     let ypos = (pos / 8) as i32;
@@ -167,7 +173,8 @@ pub fn retrospective_flip(
         }
         if length >= 2 {
             // 1..=length-1 個を候補として累積
-            let seq = (1..length).map(|i| 1u64 << (pos - (i as u32 * 8)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos - (i * 8)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -190,7 +197,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos + (i as u32 * 8)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos + (i * 8)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -213,7 +221,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos - i as u32));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos - i));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -236,7 +245,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos + i as u32));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos + i));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -259,7 +269,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos - (i as u32 * 9)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos - (i * 9)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -282,7 +293,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos + (i as u32 * 9)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos + (i * 9)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -305,7 +317,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos - (i as u32 * 7)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos - (i * 7)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -328,7 +341,8 @@ pub fn retrospective_flip(
             }
         }
         if length >= 2 {
-            let seq = (1..length).map(|i| 1u64 << (pos + (i as u32 * 7)));
+            let len = length as usize;
+            let seq = (1..len).map(|i| 1u64 << (pos + (i * 7)));
             add_direction_sets(&mut answer, result, seq);
         }
     }
@@ -446,7 +460,7 @@ pub fn retrospective_search(
     let mut _searched: i32 = 0;
 
     while b != 0 {
-        let index = b.trailing_zeros(); // 0..=63
+        let index = b.trailing_zeros() as usize; // 0..=63
         b &= b - 1;
 
         // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙

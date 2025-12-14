@@ -179,7 +179,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
         let mut bb = b;
         while bb != 0 {
-            let index = bb.trailing_zeros();
+            let index = bb.trailing_zeros() as usize;
             bb &= bb - 1;
 
             let num = retrospective_flip(index, board.player, board.opponent, &mut retro[num_disc]);
