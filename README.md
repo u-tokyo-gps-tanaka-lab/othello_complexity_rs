@@ -2,7 +2,7 @@
 
 Codes and raw results of the paper "Estimation of the number of legal positions in Othello" (https://ipsj.ixsq.nii.ac.jp/records/2005522 (in Japanese)), presented at IPSJ Game Programming Workshop 2025.
 
-"オセロの実現可能局面数の推計" https://ipsj.ixsq.nii.ac.jp/records/2005522 で使用したコードと実験結果です。
+"オセロの実現可能局面数の推計" https://ipsj.ixsq.nii.ac.jp/records/2005522 で使用したコードと実験結果です。なお、資料に誤りがあったため、[正誤表](https://github.com/u-tokyo-gps-tanaka-lab/othello_complexity_rs/blob/master/%E3%82%AA%E3%82%BB%E3%83%AD%E3%81%AE%E5%AE%9F%E7%8F%BE%E5%8F%AF%E8%83%BD%E5%B1%80%E9%9D%A2%E6%95%B0%E3%81%AE%E6%8E%A8%E8%A8%88_%E6%AD%A3%E8%AA%A4%E8%A1%A8.pdf)を作成しました。
 
 ## ビルド
 
@@ -10,7 +10,7 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 cargo build --release
 ```
 
-[highs-sys](https://crates.io/crates/highs-sys/1.12.1)クレートのビルドに cmake が必要です。あらかじめcmakeのPATHが通っていることを確認してください。
+[highs-sys](https://crates.io/crates/highs-sys/1.12.1) クレートのビルドに cmake が必要です。あらかじめ cmake の PATH が通っていることを確認してください。
 
 ## 使い方
 
