@@ -79,8 +79,14 @@ fn edge_has_pattern(board: &Board, pattern: &str) -> bool {
     false
 }
 
-pub fn check_edge_patterns(board: &Board, patterns: &[&str]) -> bool {
-    patterns.iter().any(|p| edge_has_pattern(board, p))
+/// 物理的な四辺（盤の外周1段）に IMPOSSIBLE_PATTERNS が含まれるかをチェックし、
+/// - 含まれるなら `false`
+/// - 含まれないなら `true`
+pub fn check_edge_patterns(player: u64, opponent: u64) -> bool {
+    let board = Board::new(player, opponent);
+    !IMPOSSIBLE_PATTERNS
+        .iter()
+        .any(|p| edge_has_pattern(&board, p))
 }
 
 /// 盤の四辺から8近傍を辿って到達できる「外部と連結した空点」の集合を求める
@@ -202,9 +208,15 @@ fn board_has_pattern(board: &Board, pattern: &str) -> bool {
     false
 }
 
-/// 複数パターンの OR 判定
-pub fn check_edge_patterns_in_board(board: &Board, patterns: &[&str]) -> bool {
-    patterns.iter().any(|p| board_has_pattern(board, p))
+/// 盤の実エッジに加え仮想エッジ（外部と連結した空点＋隣接）も「辺」と見なして
+/// IMPOSSIBLE_PATTERNS が含まれるかをチェックし、
+/// - 含まれるなら `false`
+/// - 含まれないなら `true`
+pub fn check_virtual_edge_patterns(player: u64, opponent: u64) -> bool {
+    let board = Board::new(player, opponent);
+    !IMPOSSIBLE_PATTERNS
+        .iter()
+        .any(|p| board_has_pattern(&board, p))
 }
 
 #[cfg(test)]

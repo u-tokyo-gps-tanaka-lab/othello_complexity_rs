@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use othello_complexity_rs::io::parse_file_to_boards;
 use othello_complexity_rs::othello::Board;
 use othello_complexity_rs::prunings::impossible_edges::{
-    check_edge_patterns, check_edge_patterns_in_board, IMPOSSIBLE_PATTERNS,
+    check_edge_patterns, check_virtual_edge_patterns,
 };
 
-/// 盤面集合を読み込み、四辺に指定パターンがあるかで仕分ける
+/// 盤面集合を読み込み、四辺に IMPOSSIBLE_PATTERNS があるかで仕分ける
 #[derive(Parser, Debug)]
 #[command(
     name = "edge_pattern",
@@ -23,10 +23,6 @@ struct Cli {
     /// 出力先ディレクトリ（デフォルト: crate 直下の result/）
     #[arg(short = 'o', long = "out-dir", value_name = "DIR")]
     out_dir: Option<PathBuf>,
-
-    /// 検査パターン（1..8 文字）。複数指定すると OR で判定（例: -p XOXO -p OXOX）
-    #[arg(short, long, value_name = "PATTERN")]
-    pattern: Vec<String>,
 }
 
 fn write_board(writer: &mut BufWriter<File>, b: &Board) -> std::io::Result<()> {
@@ -44,54 +40,48 @@ fn main() -> std::io::Result<()> {
 
     let mut edge_ok = BufWriter::new(File::create(out_dir.join("edge_OK.txt"))?);
     let mut edge_ng = BufWriter::new(File::create(out_dir.join("edge_NG.txt"))?);
-    let mut board_ok = BufWriter::new(File::create(out_dir.join("edge_in_board_OK.txt"))?);
-    let mut board_ng = BufWriter::new(File::create(out_dir.join("edge_in_board_NG.txt"))?);
+    let mut virtual_edge_ok = BufWriter::new(File::create(out_dir.join("virtual_edge_OK.txt"))?);
+    let mut virtual_edge_ng = BufWriter::new(File::create(out_dir.join("virtual_edge_NG.txt"))?);
     let mut summary = BufWriter::new(File::create(out_dir.join("edge_summary.txt"))?);
-
-    let patterns: Vec<&str> = if args.pattern.is_empty() {
-        IMPOSSIBLE_PATTERNS.to_vec()
-    } else {
-        args.pattern.iter().map(|s| s.as_str()).collect()
-    };
 
     let mut ok_cnt = 0usize;
     let mut ng_cnt = 0usize;
-    let mut board_ok_cnt = 0usize;
-    let mut board_ng_cnt = 0usize;
+    let mut virtual_ok_cnt = 0usize;
+    let mut virtual_ng_cnt = 0usize;
 
     for b in &boards {
         let board_str = b.to_string();
-        let edge_is_ng = check_edge_patterns(b, &patterns);
-        let in_board_is_ng = check_edge_patterns_in_board(b, &patterns);
+        let edge_is_ok = check_edge_patterns(b.player, b.opponent);
+        let virtual_edge_is_ok = check_virtual_edge_patterns(b.player, b.opponent);
 
-        if edge_is_ng {
-            write_board(&mut edge_ng, b)?;
-            ng_cnt += 1;
-        } else {
+        if edge_is_ok {
             write_board(&mut edge_ok, b)?;
             ok_cnt += 1;
-        }
-        if in_board_is_ng {
-            write_board(&mut board_ng, b)?;
-            board_ng_cnt += 1;
         } else {
-            write_board(&mut board_ok, b)?;
-            board_ok_cnt += 1;
+            write_board(&mut edge_ng, b)?;
+            ng_cnt += 1;
+        }
+        if virtual_edge_is_ok {
+            write_board(&mut virtual_edge_ok, b)?;
+            virtual_ok_cnt += 1;
+        } else {
+            write_board(&mut virtual_edge_ng, b)?;
+            virtual_ng_cnt += 1;
         }
 
         writeln!(
             summary,
             "{}, {}, {}",
             board_str,
-            if edge_is_ng { "ng" } else { "ok" },
-            if in_board_is_ng { "ng" } else { "ok" }
+            if edge_is_ok { "ok" } else { "ng" },
+            if virtual_edge_is_ok { "ok" } else { "ng" }
         )?;
     }
 
     edge_ok.flush()?;
     edge_ng.flush()?;
-    board_ok.flush()?;
-    board_ng.flush()?;
+    virtual_edge_ok.flush()?;
+    virtual_edge_ng.flush()?;
     summary.flush()?;
 
     println!(
@@ -102,10 +92,10 @@ fn main() -> std::io::Result<()> {
     );
 
     println!(
-        "edge_in_board done: {} boards (OK: {}, NG: {})",
+        "virtual_edge done: {} boards (OK: {}, NG: {})",
         boards.len(),
-        board_ok_cnt,
-        board_ng_cnt
+        virtual_ok_cnt,
+        virtual_ng_cnt
     );
     Ok(())
 }
