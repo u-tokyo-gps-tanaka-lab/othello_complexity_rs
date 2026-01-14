@@ -74,6 +74,20 @@ impl Direction {
     }
 }
 
+#[inline]
+pub fn opposite(dir: Direction) -> Direction {
+    match dir {
+        Direction::N => Direction::S,
+        Direction::S => Direction::N,
+        Direction::E => Direction::W,
+        Direction::W => Direction::E,
+        Direction::NE => Direction::SW,
+        Direction::NW => Direction::SE,
+        Direction::SE => Direction::NW,
+        Direction::SW => Direction::NE,
+    }
+}
+
 /// 方向dと逆方向に1マス分ビットシフトする
 #[inline]
 pub fn backshift(d: Direction, b: u64) -> u64 {
@@ -260,21 +274,24 @@ where
 }
 
 #[inline(always)]
-const fn not_a_file() -> u64 {
+pub const fn not_a_file() -> u64 {
     0xFEFE_FEFE_FEFE_FEFE
 }
 #[inline(always)]
-const fn not_h_file() -> u64 {
+pub const fn not_h_file() -> u64 {
     0x7F7F_7F7F_7F7F_7F7F
 }
 #[inline(always)]
-const fn not_rank_1() -> u64 {
+pub const fn not_rank_1() -> u64 {
     0xFFFF_FFFF_FFFF_FF00
 }
 #[inline(always)]
-const fn not_rank_8() -> u64 {
+pub const fn not_rank_8() -> u64 {
     0x00FF_FFFF_FFFF_FFFF
 }
+
+// 8x8盤の四辺のビットマスク
+pub const BORDER_MASK: u64 = !not_rank_1() | !not_rank_8() | !not_a_file() | !not_h_file();
 
 #[inline(always)]
 pub fn east(x: u64) -> u64 {
@@ -307,6 +324,12 @@ pub fn se(x: u64) -> u64 {
 #[inline(always)]
 pub fn sw(x: u64) -> u64 {
     (x >> 9) & (not_h_file() & not_rank_8())
+}
+
+/// 与えたビットボードの8近傍を返す
+#[inline(always)]
+pub fn moore_neighborhood(bb: u64) -> u64 {
+    east(bb) | west(bb) | north(bb) | south(bb) | ne(bb) | nw(bb) | se(bb) | sw(bb)
 }
 
 /// 与えられた pos に打ったときにひっくり返る相手石の集合を返す（打った石は含まない）
