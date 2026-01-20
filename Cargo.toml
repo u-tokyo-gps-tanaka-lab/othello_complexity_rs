@@ -52,3 +52,7 @@ path = "src/bin/check.rs"
 
 [profile.dev]
 panic = "unwind"
+
+[profile.release]
+lto = true
+codegen-units = 1
