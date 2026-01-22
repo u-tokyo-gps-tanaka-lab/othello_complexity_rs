@@ -1,42 +1,22 @@
-use std::env;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::path::Path;
 
 use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
 
 use crate::search::{
-    core::retrospective_search,
+    dfs::retrospective_search,
     external_bfs::{
         parallel_retrospective_bfs, parallel_retrospective_bfs_resume, unblocked_retrospective_bfs,
         Cfg as BfsCfg,
     },
+    forward::make_fwd_table,
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::{init_rayon, retrospective_search_parallel},
-    parallel_forward::make_fwd_table,
     parallel_gbfs::parallel_retrospective_greedy_best_first_search,
     transposition::{Btable, LeafCache},
 };
-
-pub fn default_input_path() -> PathBuf {
-    PathBuf::from("board.txt")
-}
-
-pub fn default_out_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result")
-}
-
-pub fn read_env_with_default<T>(key: &str, default: T) -> T
-where
-    T: FromStr,
-{
-    env::var(key)
-        .ok()
-        .and_then(|s| s.parse::<T>().ok())
-        .unwrap_or(default)
-}
 
 /// pure dfs
 pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> io::Result<()> {

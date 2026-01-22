@@ -1,11 +1,78 @@
 use crate::othello::{flip, get_moves, Board, Direction};
 use dashmap::DashSet;
 use rayon::ThreadPoolBuilder;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 const NUM_THREADS: usize = 64; // 64スレッド程度
+
+// translated with ChatGPT 4o
+/**
+ * retrospective-dfs-reversi
+ *
+ * https://github.com/eukaryo/retrospective-dfs-reversi
+ *
+ * @date 2020
+ * @author Hiroki Takizawa
+ */
+pub fn fwd_search(
+    board: &Board,
+    searched: &mut HashSet<[u64; 2]>,
+    leafnode: &mut HashSet<[u64; 2]>,
+    discs: i32,
+) {
+    let uni = board.unique();
+
+    if board.popcount() >= discs as u32 {
+        if get_moves(board.player, board.opponent) != 0 {
+            leafnode.insert(uni);
+            return;
+        } else if get_moves(board.opponent, board.player) != 0 {
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
+            fwd_search(&next, searched, leafnode, discs);
+        }
+        return;
+    }
+
+    if !searched.insert(uni) {
+        return;
+    }
+
+    let mut moves = get_moves(board.player, board.opponent);
+    if moves == 0 {
+        if get_moves(board.opponent, board.player) != 0 {
+            let next = Board {
+                player: board.opponent,
+                opponent: board.player,
+            };
+            fwd_search(&next, searched, leafnode, discs);
+        }
+        return;
+    }
+    // println!("{}", board.show());
+    // println!("moves={}", mask_to_moves(moves));
+    while moves != 0 {
+        let idx = moves.trailing_zeros();
+        moves &= moves - 1;
+
+        let flipped = flip(idx as usize, board.player, board.opponent);
+        if flipped == 0 {
+            continue;
+        }
+        let next = Board {
+            player: board.opponent ^ flipped,
+            opponent: board.player ^ (flipped | (1u64 << idx)),
+        };
+        fwd_search(&next, searched, leafnode, discs);
+    }
+}
 
 fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     let mut ans = 0;
@@ -64,7 +131,6 @@ fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     false
 }
 
-/// 初期配置からdiscs手までの到達可能な序盤盤面を列挙する
 /// 確定石を使って、目的配置bへのパスが明らかに存在しない盤面を枝刈りする
 pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     let board = Board::new(b[0], b[1]);
@@ -75,16 +141,19 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     }
     let initial = Board::initial();
     let mut ans = Arc::new(vec![[initial.player, initial.opponent]]);
+
     for i in 4..discs {
         let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
         let next = Arc::new(AtomicUsize::new(0));
         let mut anslen = ans.len();
         //println!("anslen={}", anslen);
+
         let pool = ThreadPoolBuilder::new()
             .num_threads(NUM_THREADS)
             .thread_name(|i| format!("gbfs-worker-{i}"))
             .build()
             .expect("failed to build thread pool");
+
         pool.scope(|s| {
             for _tid in 0..NUM_THREADS {
                 let visited = visited.clone();
