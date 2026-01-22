@@ -218,13 +218,22 @@ pub fn merge_sorted_bins(inputs: &[PathBuf], output: &PathBuf) -> io::Result<usi
 fn merge_files(num_disc: i32, tmp_dir: &PathBuf, block_count: usize) -> Result<usize> {
     let mut inputs: Vec<PathBuf> = vec![];
     for i in 0..block_count {
-        inputs.push(tmp_dir.join(format!("b_{}_{}.bin", num_disc, i)));
+        let path = tmp_dir.join(format!("b_{}_{}.bin", num_disc, i));
+        if path.exists() {
+            inputs.push(path);
+        }
     }
     let outfile = tmp_dir.join(format!("r_{}.bin", num_disc));
-    let count = merge_sorted_bins(&inputs, &outfile)?;
-    for i in 0..inputs.len() {
-        fs::remove_file(&inputs[i])?;
-    }
+    let count = if inputs.is_empty() {
+        File::create(&outfile)?;
+        0
+    } else {
+        let c = merge_sorted_bins(&inputs, &outfile)?;
+        for p in &inputs {
+            fs::remove_file(p)?;
+        }
+        c
+    };
     eprintln!("{} : {}", num_disc, count);
     Ok(count)
 }
@@ -382,7 +391,6 @@ pub fn retrospective_search_bfs_par_resume(
     Ok(SearchResult::NotFound)
 }
 
-//--------------------------------------
 // 公開エントリ：ブロック版 retrospective
 pub fn retrospective_search_bfs_par(
     cfg: &Cfg,
@@ -419,7 +427,6 @@ pub fn retrospective_search_bfs_par(
     retrospective_search_bfs_par_resume(cfg, num_disc as i32, discs, leafnode)
 }
 
-//--------------------------------------
 // 公開エントリ：ブロック版 retrospective
 pub fn retrospective_search_bfs_seq(
     cfg: &Cfg,
@@ -525,7 +532,6 @@ fn process_bfs(num_disc: i32, tmp_dir: &PathBuf) -> Result<bool> {
     Ok(true)
 }
 
-//--------------------------------------
 // 公開エントリ：並列版 retrospective（シグネチャを分けました）
 pub fn retrospective_search_bfs(
     cfg: &Cfg,
