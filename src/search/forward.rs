@@ -7,8 +7,8 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    thread,
 };
-const NUM_THREADS: usize = 64; // 64スレッド程度
 
 // translated with ChatGPT 4o
 /**
@@ -131,10 +131,11 @@ fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     false
 }
 
+/// 石discs個の配置を初期配置から全列挙
 /// 確定石を使って、目的配置bへのパスが明らかに存在しない盤面を枝刈りする
 pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     let board = Board::new(b[0], b[1]);
-    println!("b=\n{}\n, discs={}", board.show(), discs);
+    println!("b=\n{}\ndiscs={}", board.show(), discs);
     let mut target = [*b; 8];
     for i in 1..8 {
         board.board_symmetry(i, &mut target[i as usize]);
@@ -148,14 +149,19 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         let mut anslen = ans.len();
         //println!("anslen={}", anslen);
 
+        // スレッドプール構築
+        let num_threads = thread::available_parallelism()
+            .map(|n| n.get().min(64))
+            .unwrap_or(1);
         let pool = ThreadPoolBuilder::new()
-            .num_threads(NUM_THREADS)
-            .thread_name(|i| format!("gbfs-worker-{i}"))
+            .num_threads(num_threads)
+            .thread_name(|i| format!("forward-worker-{i}"))
             .build()
             .expect("failed to build thread pool");
 
+        // ワーカースレッド起動
         pool.scope(|s| {
-            for _tid in 0..NUM_THREADS {
+            for _ in 0..num_threads {
                 let visited = visited.clone();
                 let ans = ans.clone();
                 let next = next.clone();
@@ -216,7 +222,7 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
                 });
             }
         });
-        println!("before collect");
+        // println!("before collect");
         let mut newans = vec![];
         //let guard = visited.guard();
         //for node in visited.iter(&guard) {
@@ -225,7 +231,7 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         for node in visited.iter() {
             newans.push(*node);
         }
-        println!("after collect()");
+        // println!("after collect()");
         newans.sort();
 
         println!("i={}, newans.len() = {}", i, newans.len());
@@ -233,7 +239,17 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         //    println!("{}", Board::new(newans[j][0], newans[j][1]).to_string());
         //}
         ans = Arc::new(newans);
-        println!("after Arc::new(newans)");
+        // println!("after Arc::new(newans)");
     }
     ans.to_vec()
+}
+
+pub fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
+    let oc = x[0] | x[1];
+    if discs == oc.count_ones() as i32 {
+        if let Ok(_) = leafnode.binary_search(&x) {
+            return true;
+        }
+    }
+    false
 }

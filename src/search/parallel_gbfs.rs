@@ -12,23 +12,14 @@ use crate::othello::{get_moves, Board, CENTER_MASK};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::seg3::check_seg3_more;
 use crate::prunings::{linear_programming::check_lp, occupancy::check_occupancy};
-use crate::search::core::{retrospective_flip, SearchResult};
+use crate::search::core::{prev_states, retrospective_flip, SearchResult};
+use crate::search::forward::is_leaf;
 
 // 探索の終了状態
 const STATE_RUNNING: u8 = 0;
 const STATE_FOUND: u8 = 1;
 const STATE_NOT_FOUND: u8 = 2;
 const STATE_LIMIT_REACHED: u8 = 3;
-
-fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
-    let oc = x[0] | x[1];
-    if discs == oc.count_ones() as i32 {
-        if let Ok(_) = leafnode.binary_search(&x) {
-            return true;
-        }
-    }
-    false
-}
 
 thread_local! {
     static RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
@@ -60,31 +51,6 @@ fn heuristic_function(x: [u64; 2]) -> f64 {
             branching as f64
         }
     })
-}
-
-// retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
-fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
-    let board = Board::new(b[0], b[1]);
-    let mut retroflips = [0u64; 10000];
-    let mut op = board.opponent & !CENTER_MASK;
-    let mut ans = vec![];
-    while op != 0 {
-        let index = op.trailing_zeros() as usize;
-        op &= op - 1;
-        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
-        for i in 1..num {
-            let flipped = retroflips[i];
-            let prev = Board {
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-            ans.push([prev.player, prev.opponent]);
-            if get_moves(prev.opponent, prev.player) == 0 {
-                ans.push([prev.opponent, prev.player]);
-            }
-        }
-    }
-    ans
 }
 
 /// 並列 Greedy Best-First Search

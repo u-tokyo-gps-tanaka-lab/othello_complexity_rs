@@ -12,6 +12,7 @@ use crate::search::{
         Cfg as BfsCfg,
     },
     forward::make_fwd_table,
+    inmemory_bfs::parallel_inmemory_retrospective_bfs,
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::{init_rayon, retrospective_search_parallel},
     parallel_gbfs::parallel_retrospective_greedy_best_first_search,
@@ -335,6 +336,38 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
 
         let stat = parallel_retrospective_bfs(cfg, &board, discs, leaf_cache.leaf())?;
         outputs.write_result(stat, &line)?;
+        outputs.flush()?;
+    }
+
+    outputs.flush()
+}
+
+/// In-memory parallel BFS with DashSet visited tracking
+pub fn run_parallel_inmemory_bfs(input: &Path, out_dir: &Path, discs: i32) -> io::Result<()> {
+    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        println!("got leaf nodes");
+
+        let result = parallel_inmemory_retrospective_bfs(&board, discs, &leaf);
+        outputs.write_result(result, &line)?;
         outputs.flush()?;
     }
 

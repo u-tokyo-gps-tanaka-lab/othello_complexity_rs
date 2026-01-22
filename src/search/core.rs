@@ -1,4 +1,4 @@
-use crate::othello::flip;
+use crate::othello::{flip, get_moves, Board, CENTER_MASK};
 
 use std::{cmp::min, env, path::PathBuf, str::FromStr};
 
@@ -298,4 +298,56 @@ pub fn retrospective_flip(
     }
 
     answer
+}
+
+// retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
+pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
+    let board = Board::new(b[0], b[1]);
+    let mut retroflips = [0u64; 10000];
+    let mut op = board.opponent & !CENTER_MASK;
+    let mut ans = vec![];
+
+    while op != 0 {
+        let index = op.trailing_zeros() as usize;
+        op &= op - 1;
+        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
+        for i in 1..num {
+            let flipped = retroflips[i];
+            let prev = Board {
+                player: board.opponent ^ (flipped | (1u64 << index)),
+                opponent: board.player ^ flipped,
+            };
+            ans.push([prev.player, prev.opponent]);
+            if get_moves(prev.opponent, prev.player) == 0 {
+                ans.push([prev.opponent, prev.player]);
+            }
+        }
+    }
+    ans
+}
+
+// retroflipsを使い回すパターン
+pub fn prev_states_with_buffer(b: [u64; 2], retroflips: &mut [u64; 10_000]) -> Vec<[u64; 2]> {
+    let board = Board::new(b[0], b[1]);
+    let mut op = board.opponent & !CENTER_MASK;
+    let mut ans = vec![];
+
+    while op != 0 {
+        let index = op.trailing_zeros() as usize;
+        op &= op - 1;
+
+        let num = retrospective_flip(index, board.player, board.opponent, retroflips);
+        for i in 1..num {
+            let flipped = retroflips[i];
+            let prev = Board {
+                player: board.opponent ^ (flipped | (1u64 << index)),
+                opponent: board.player ^ flipped,
+            };
+            ans.push([prev.player, prev.opponent]);
+            if get_moves(prev.opponent, prev.player) == 0 {
+                ans.push([prev.opponent, prev.player]);
+            }
+        }
+    }
+    ans
 }
