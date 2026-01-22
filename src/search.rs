@@ -1,5 +1,5 @@
-pub mod bfs;
 pub mod core;
+pub mod external_bfs;
 pub mod move_ordering;
 pub mod parallel_dfs;
 pub mod parallel_forward;

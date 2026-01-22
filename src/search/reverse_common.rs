@@ -8,11 +8,11 @@ use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
 
 use crate::search::{
-    bfs::{
+    core::retrospective_search,
+    external_bfs::{
         retrospective_search_bfs, retrospective_search_bfs_par,
         retrospective_search_bfs_par_resume, Cfg as BfsCfg,
     },
-    core::retrospective_search,
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::{init_rayon, retrospective_search_parallel},
     parallel_forward::make_fwd_table,
