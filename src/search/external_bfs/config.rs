@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+/// 外部メモリBFS探索の設定パラメータ
 #[derive(Debug, Clone, Parser)]
 #[command(name = "reverse_to_initial_bfs", version)]
 pub struct Cfg {

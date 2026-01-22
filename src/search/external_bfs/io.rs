@@ -9,6 +9,17 @@ use crate::othello::{get_moves, Board};
 use crate::search::core::SearchResult;
 
 /// ファイルサイズが16バイトの倍数であることを検証
+///
+/// # パラメータ
+/// - `len`: 検証するファイルサイズ(バイト単位)
+/// - `context`: エラーメッセージに含めるコンテキスト文字列
+///
+/// # 戻り値
+/// ファイルサイズが16の倍数であれば`Ok(())`、そうでなければ`InvalidData`エラー
+///
+/// # アルゴリズム詳細
+/// オセロ盤面は[u64; 2]で表現され、1レコードが16バイト固定であるため、
+/// ファイルサイズが16の倍数でない場合はデータ破損とみなす。
 pub(in crate::search::external_bfs) fn validate_file_size(len: u64, context: &str) -> Result<()> {
     if len % 16 != 0 {
         return Err(Error::new(
@@ -22,7 +33,20 @@ pub(in crate::search::external_bfs) fn validate_file_size(len: u64, context: &st
     Ok(())
 }
 
-/// 探索すべき局面をファイルに書き出す
+/// 探索すべき盤面をファイルに書き出す
+///
+/// # パラメータ
+/// - `tmp_dir`: 一時ディレクトリのパス
+/// - `board`: 書き出す盤面
+/// - `num_disc`: 石数(ファイル名の命名に使用)
+///
+/// # 戻り値
+/// 書き込み成功時は`Ok(())`、I/Oエラー時は`Err`
+///
+/// # アルゴリズム詳細
+/// - 盤面を[player, opponent]の形式で保存
+/// - パス判定を行い、相手にパスが必要な場合は盤面を反転して追加保存
+/// - 出力ファイル名は`r_{num_disc}.bin`形式
 pub(in crate::search::external_bfs) fn write_given_board(
     tmp_dir: &PathBuf,
     board: &Board,
@@ -40,7 +64,21 @@ pub(in crate::search::external_bfs) fn write_given_board(
     Ok(())
 }
 
-/// 最終結果ファイルをleafnodeと照合
+/// 最終結果ファイルをリーフノードと照合
+///
+/// # パラメータ
+/// - `tmp_dir`: 一時ディレクトリのパス
+/// - `discs`: 目標石数
+/// - `leafnode`: 前進探索で生成された到達可能盤面の集合
+///
+/// # 戻り値
+/// リーフノードに一致する盤面が見つかれば`SearchResult::Found`、
+/// 全レコードを確認して一致がなければ`SearchResult::NotFound`
+///
+/// # アルゴリズム詳細
+/// - 後退探索の最終層(`r_{discs}.bin`)を読み込み
+/// - 各レコードをネイティブエンディアンで解釈し、リーフノードとの一致判定を行う
+/// - 一致した時点で即座に`Found`を返す(早期終了)
 pub(in crate::search::external_bfs) fn check_leafnode_match(
     tmp_dir: &PathBuf,
     discs: i32,
@@ -67,7 +105,20 @@ pub(in crate::search::external_bfs) fn check_leafnode_match(
     Ok(SearchResult::NotFound)
 }
 
-/// 1レコード (=16バイト) をネイティブエンディアンのまま読み取る
+/// 1レコード(=16バイト)をネイティブエンディアンのまま読み取る
+///
+/// # パラメータ
+/// - `reader`: 読み込み元のバッファ付きファイルリーダ
+///
+/// # 戻り値
+/// - `Ok(Some((p, o)))`: player/opponentのu64ペアを読み込んだ場合
+/// - `Ok(None)`: EOFに到達した場合
+/// - `Err`: 部分読み込みエラーや不完全なレコード
+///
+/// # アルゴリズム詳細
+/// - 最初に1バイト読み込んでEOF判定を行い、部分読み込みエラーを回避
+/// - ネイティブエンディアンを使用してプラットフォーム依存の高速化を実現
+/// - バイナリフォーマット: \[player:8bytes\]\[opponent:8bytes\]
 pub(crate) fn read_pair(reader: &mut BufReader<File>) -> io::Result<Option<(u64, u64)>> {
     let mut buf = [0u8; 16];
     // まず 1 バイト読んで EOF 判定を分ける（partial read 対策）
@@ -84,7 +135,19 @@ pub(crate) fn read_pair(reader: &mut BufReader<File>) -> io::Result<Option<(u64,
     Ok(Some((p, o)))
 }
 
-/// 1レコードを書き出し（ネイティブエンディアンのまま）
+/// 1レコードを書き出し(ネイティブエンディアンのまま)
+///
+/// # パラメータ
+/// - `writer`: 書き込み先のバッファ付きファイルライタ
+/// - `p`: playerのビットボード(u64)
+/// - `o`: opponentのビットボード(u64)
+///
+/// # 戻り値
+/// 書き込み成功時は`Ok(())`、I/Oエラー時は`Err`
+///
+/// # アルゴリズム詳細
+/// - ネイティブエンディアンで16バイト書き込み
+/// - read_pairと対称的な実装により、同一プラットフォーム内での入出力を保証
 pub(crate) fn write_pair(writer: &mut BufWriter<File>, p: u64, o: u64) -> io::Result<()> {
     writer.write_all(&p.to_ne_bytes())?;
     writer.write_all(&o.to_ne_bytes())?;

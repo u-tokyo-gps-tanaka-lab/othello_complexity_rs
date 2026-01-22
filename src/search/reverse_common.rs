@@ -10,8 +10,8 @@ use crate::othello::validate_board;
 use crate::search::{
     core::retrospective_search,
     external_bfs::{
-        retrospective_search_bfs, retrospective_search_bfs_par,
-        retrospective_search_bfs_par_resume, Cfg as BfsCfg,
+        parallel_retrospective_bfs, parallel_retrospective_bfs_resume, unblocked_retrospective_bfs,
+        Cfg as BfsCfg,
     },
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::{init_rayon, retrospective_search_parallel},
@@ -283,7 +283,7 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = retrospective_search_bfs(cfg, &board, discs, leaf_cache.leaf())?;
+        let stat = unblocked_retrospective_bfs(cfg, &board, discs, leaf_cache.leaf())?;
         outputs.write_result(stat, &line)?;
         outputs.flush()?;
     }
@@ -333,7 +333,7 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
                 format!("failed to parse disc count from {}: {e}", last),
             )
         })?;
-        retrospective_search_bfs_par_resume(cfg, num_disc, discs, leaf_cache.leaf())?;
+        parallel_retrospective_bfs_resume(cfg, num_disc, discs, leaf_cache.leaf())?;
         return outputs.flush();
     }
 
@@ -353,7 +353,7 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = retrospective_search_bfs_par(cfg, &board, discs, leaf_cache.leaf())?;
+        let stat = parallel_retrospective_bfs(cfg, &board, discs, leaf_cache.leaf())?;
         outputs.write_result(stat, &line)?;
         outputs.flush()?;
     }

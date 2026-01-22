@@ -9,6 +9,6 @@ pub use config::Cfg;
 pub use expand::expand_layer_blocked;
 pub use merge::merge_sorted_bins;
 pub use search::{
-    retrospective_search_bfs, retrospective_search_bfs_par, retrospective_search_bfs_par_resume,
-    retrospective_search_bfs_seq,
+    parallel_retrospective_bfs, parallel_retrospective_bfs_resume, sequential_retrospective_bfs,
+    unblocked_retrospective_bfs,
 };

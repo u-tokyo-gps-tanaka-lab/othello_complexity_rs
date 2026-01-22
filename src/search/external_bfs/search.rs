@@ -10,13 +10,42 @@ use super::config::Cfg;
 use super::expand::{expand_layer_blocked, expand_layer_blocked_seq, expand_layer_inplace};
 use super::io::{check_leafnode_match, write_given_board};
 
+/// システムで利用可能な並列度(論理コア数)を取得
+///
+/// # 戻り値
+/// 利用可能なスレッド数。取得失敗時はフォールバックとして1を返す。
+///
+/// # 実装詳細
+/// - `std::thread::available_parallelism()`を使用
+/// - NonZeroUsizeをusizeに変換
 fn available_threads() -> usize {
     std::thread::available_parallelism()
         .map(NonZeroUsize::get)
         .unwrap_or(1) // 取得失敗時のフォールバック
 }
 
-pub fn retrospective_search_bfs_par_resume(
+/// 中断された並列BFS後退探索を再開
+///
+/// # パラメータ
+/// - `cfg`: 探索設定(スレッド数、一時ディレクトリなど)
+/// - `num_disc`: 現在の石数(再開開始点)
+/// - `discs`: 目標石数(前進探索との合流点)
+/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+///
+/// # 戻り値
+/// - `SearchResult::Found`: リーフノードとの合流に成功
+/// - `SearchResult::NotFound`: 後退探索が終端に到達(合流失敗)
+/// - `Err`: I/Oエラー
+///
+/// # アルゴリズム詳細
+/// - num_discからdiscsまで逆順に層を展開
+/// - 各層でexpand_layer_blocked()を並列実行
+/// - 最終層でcheck_leafnode_match()による合流判定
+///
+/// # レジューム機能
+/// - 既存の`r_{num_disc}.bin`から再開
+/// - 中間ファイルが残っている前提
+pub fn parallel_retrospective_bfs_resume(
     cfg: &Cfg,
     num_disc: i32,
     discs: i32,
@@ -37,7 +66,28 @@ pub fn retrospective_search_bfs_par_resume(
     check_leafnode_match(tmp_dir, discs, leafnode)
 }
 
-pub fn retrospective_search_bfs_par(
+/// 指定盤面から並列BFS後退探索を実行
+///
+/// # パラメータ
+/// - `cfg`: 探索設定
+/// - `board`: 探索開始盤面
+/// - `discs`: 目標石数(前進探索との合流点)
+/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+///
+/// # 戻り値
+/// - `SearchResult::Found`: 合流成功、盤面は到達可能
+/// - `SearchResult::NotFound`: 合流失敗、盤面は到達不可能
+/// - `Err`: I/Oエラー
+///
+/// # アルゴリズム詳細
+/// - 盤面の石数がdiscs以下の場合は直接リーフノード照合
+/// - それ以外はwrite_given_board()で初期化後、_resumeを呼び出し
+/// - 並列度はcfg.jobsで指定(0の場合は自動設定)
+///
+/// # 探索戦略
+/// - 双方向探索: 前進(初期盤面から)と後退(目標盤面から)を組み合わせ
+/// - 中間層(discs石)で合流判定を行うことで探索空間を削減
+pub fn parallel_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
@@ -60,10 +110,27 @@ pub fn retrospective_search_bfs_par(
         };
     }
     write_given_board(tmp_dir, board, num_disc)?;
-    retrospective_search_bfs_par_resume(cfg, num_disc as i32, discs, leafnode)
+    parallel_retrospective_bfs_resume(cfg, num_disc as i32, discs, leafnode)
 }
 
-pub fn retrospective_search_bfs_seq(
+/// 指定盤面から単一スレッドBFS後退探索を実行
+///
+/// # パラメータ
+/// - `cfg`: 探索設定(block_sizeを使用)
+/// - `board`: 探索開始盤面
+/// - `discs`: 目標石数
+/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+///
+/// # 戻り値
+/// 並列版と同様
+///
+/// # アルゴリズム詳細
+/// - expand_layer_blocked_seq()を使用(単一スレッド版)
+/// - ブロックサイズはcfg.block_sizeで明示的に指定
+///
+/// # 使用場面
+/// - デバッグ、検証用途
+pub fn sequential_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
@@ -96,7 +163,25 @@ pub fn retrospective_search_bfs_seq(
     check_leafnode_match(tmp_dir, discs, leafnode)
 }
 
-pub fn retrospective_search_bfs(
+/// インプレース方式(ブロック分割なし)でBFS後退探索を実行
+///
+/// # パラメータ
+/// - `cfg`: 探索設定
+/// - `board`: 探索開始盤面
+/// - `discs`: 目標石数
+/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+///
+/// # 戻り値
+/// 並列版と同様
+///
+/// # アルゴリズム詳細
+/// - expand_layer_inplace()を使用(全メモリ展開)
+/// - ブロック分割やマージ処理なし
+///
+/// # 制約
+/// - 小規模探索専用
+/// - 大規模状態空間ではメモリ不足の可能性
+pub fn unblocked_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
