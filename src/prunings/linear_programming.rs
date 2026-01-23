@@ -105,6 +105,7 @@ pub fn dump_solution_columns<P: AsRef<Path>>(
 }
 
 /// 連続緩和(0<=x<=1)で可否のみ判定 (HiGHS 1.12.0 API)
+/// by_ip_solver: falseが望ましい
 fn check_feasibility(
     n_vars: usize,
     constraints: &[SparseConstraint],
@@ -159,24 +160,27 @@ fn check_feasibility(
             highs_sys::Highs_passColName(mptr, i as i32, CString::new(col_name).unwrap().as_ptr());
         }
     }
-    //
-    //model.set_option("output_flag", true);          // ログ表示
-    //model.set_option("log_dev_level", 1);
-    //model.set_option("write_model_file", "debug.lp");          // .lp か .mps
-    //model.set_option("write_model_to_file", true);
-    model.set_option("threads", 1i32);
-    // “可否が分かれば十分”向けの軽量設定（任意）
-    //if !by_ip_solver {
-    //    let _ = model.set_option("solver", "ipm");         // IPMを使う
-    //    let _ = model.set_option("run_crossover", "off");  // クロスオーバー無効
-    //  let _ = model.set_option("presolve", "on");        // presolve 明示
-    //}
-    // let _ = model.set_option("threads", 4);         // 並列数を指定したい場合
-    // let _ = model.set_option("time_limit", 5.0);    // 早期打切り
 
-    let solved = model.solve(); // v1.12の標準手順  [oai_citation:1‡docs.rs](https://docs.rs/highs/latest/highs/struct.Model.html)
-                                //dump_solution_columns(&solved, "vars.tsv", /*round_binary=*/true, &vm);
-                                // ステータスを可否に丸める
+    // ログ表示
+    // model.set_option("output_flag", true);
+    // model.set_option("log_dev_level", 1)
+    // model.set_option("write_model_file", "debug.lp");
+    // model.set_option("write_model_to_file", true);
+
+    model.set_option("threads", 0);
+    model.set_option("presolve", "on");
+
+    // model.set_option("time_limit", 5.0);    // 早期打切り
+
+    // 高速な設定としてChatGPTが提案してきたが、むしろ遅くなった
+    // if !by_ip_solver {
+    // model.set_option("solver", "ipm");
+    // model.set_option("run_crossover", "off");
+    // }
+
+    let solved = model.solve();
+    //dump_solution_columns(&solved, "vars.tsv", /*round_binary=*/true, &vm);
+
     match solved.status() {
         // 実行可能（最適・目標到達・下界到達・非有界は可行点が存在）
         HighsModelStatus::Optimal
@@ -194,6 +198,7 @@ fn check_feasibility(
     }
 }
 
+/// by_ip_solver: falseが望ましい
 pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool) -> bool {
     //let b = Board::new(player, opponent);
     //println!("b={}", b.to_string());

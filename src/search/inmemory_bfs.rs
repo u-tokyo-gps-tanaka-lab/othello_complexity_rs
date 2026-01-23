@@ -7,6 +7,7 @@ use std::thread;
 
 use crate::othello::{get_moves, Board};
 use crate::prunings::impossible_edges::check_edge_patterns;
+use crate::prunings::linear_programming::check_lp;
 use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{prev_states_with_buffer, SearchResult};
@@ -69,7 +70,7 @@ pub fn parallel_inmemory_retrospective_bfs(
         .build()
         .expect("failed to build thread pool");
 
-    for _ in (discs..initial_disc_count).rev() {
+    for i in (discs..initial_disc_count).rev() {
         if current_layer.is_empty() {
             return SearchResult::NotFound;
         }
@@ -94,6 +95,8 @@ pub fn parallel_inmemory_retrospective_bfs(
                 });
             }
         });
+
+        println!("layer={} : {}", i, current_layer.len());
 
         if found.load(Ordering::Acquire) {
             return SearchResult::Found;
@@ -135,6 +138,7 @@ fn expand_nodes(
             if !check_occupancy(oc)
                 || !check_seg3_more(prev[0], prev[1])
                 || !check_edge_patterns(prev[0], prev[1])
+                || !check_lp(prev[0], prev[1], false)
             {
                 continue;
             }
