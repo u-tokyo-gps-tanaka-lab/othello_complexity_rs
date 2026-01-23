@@ -179,6 +179,7 @@ fn expand_pass_nodes(current_layer: &mut Vec<[u64; 2]>, visited: &DashSet<[u64; 
         if !check_occupancy(oc)
             || !check_seg3_more(swapped[0], swapped[1])
             || !check_edge_patterns(swapped[0], swapped[1])
+            || !check_lp(swapped[0], swapped[1], false)
         {
             continue;
         }
