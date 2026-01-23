@@ -1,4 +1,4 @@
-use crate::othello::Direction;
+use crate::othello::{Board, Direction};
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -31,12 +31,7 @@ fn xy2sq(x: i32, y: i32) -> usize {
     (y * 8 + x) as usize
 }
 
-fn solve_by_kissat(
-    _index: usize,
-    vs: &Vec<Vec<i32>>,
-    _num_var: usize,
-    _comment: &HashMap<usize, String>,
-) -> bool {
+fn solve_by_kissat(vs: &Vec<Vec<i32>>, _num_var: usize, _comment: &HashMap<usize, String>) -> bool {
     let mut solver = rustsat_kissat::Kissat::default();
     let mut cnf = Cnf::new();
     for line in vs {
@@ -62,12 +57,12 @@ fn solve_by_kissat(
 
 #[allow(dead_code)]
 fn output_cnf(
-    index: usize,
+    filename: usize,
     vs: &Vec<Vec<i32>>,
     num_var: usize,
     comment: &HashMap<usize, String>,
 ) -> Result<(), Error> {
-    let filename = format!("{}.cnf", index);
+    let filename = format!("{}.cnf", filename);
     let mut file = File::create(&filename)?;
     for (i, line) in comment.iter() {
         writeln!(file, "c Var_{}, {}", i, line)?;
@@ -100,14 +95,11 @@ fn output_cnf(
     Err(Error::new(ErrorKind::Other, "one cnf file only"))
 }
 
-pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
-    let cs: Vec<char> = line.chars().collect();
-    if cs.len() != 64 {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "length is not 64 format error",
-        ));
+pub fn is_sat_ok(player: u64, opponent: u64, verbose: bool) -> Result<bool, Error> {
+    if player & opponent != 0 {
+        return Err(Error::new(ErrorKind::Other, "player and opponent overlap"));
     }
+    let occupied = player | opponent;
     let mut sqi: Vec<usize> = vec![];
     let mut sqo: Vec<usize> = vec![];
     let mut sqall: Vec<usize> = vec![];
@@ -116,7 +108,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     for y in 0..8 {
         for x in 0..8 {
             let sq = xy2sq(x, y);
-            if cs[sq] != '-' {
+            if occupied & (1u64 << sq) != 0 {
                 sqall.push(sq);
                 if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
                     sqi.push(sq);
@@ -205,7 +197,12 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
                 let mut x1 = x + dx;
                 let mut y1 = y + dy;
                 let mut samedir: Vec<i32> = vec![];
-                while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && cs[xy2sq(x1, y1)] != '-' {
+                while 0 <= x1
+                    && x1 < 8
+                    && 0 <= y1
+                    && y1 < 8
+                    && (occupied & (1u64 << xy2sq(x1, y1))) != 0
+                {
                     rl += 1;
                     let sq1 = xy2sq(x1, y1);
                     if rl >= 3 {
@@ -252,7 +249,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
     // Last
     // let mut Last: HashMap<(usize, (usize, usize, usize, usize)), i32> = HashMap::new();
     for &sq in &sqall {
-        let last_c = if cs[sq] == 'X' { 1 } else { 0 };
+        let last_c = if (player & (1u64 << sq)) != 0 { 1 } else { 0 };
         let mut vs = vec![];
         for &t in &set[sq][last_c] {
             let v = *f.get(&t).unwrap();
@@ -320,7 +317,7 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
         s.push(vec![-v, *f.get(&t2).unwrap()]);
     }
     for &sq in &sqo {
-        // let last_c = if cs[sq] == 'X' {1} else {0};
+        // let last_c = if (player & (1u64 << sq)) != 0 { 1 } else { 0 };
         for col in 0..2 {
             for &t1 in &flip[sq][1 - col] {
                 let mut vs: Vec<i32> = vec![-*f.get(&t1).unwrap()];
@@ -344,15 +341,18 @@ pub fn is_sat_ok(index: usize, line: &String) -> Result<bool, Error> {
             }
         }
     }
-    // output_cnf(index, &s, vm.count(), &comment);
-    let ans = solve_by_kissat(index, &s, vm.count(), &comment);
-    println!(
-        "index={}, ans={}, vars={}, clauses={}",
-        index,
-        ans,
-        vm.count(),
-        s.len()
-    );
 
+    // output_cnf(index, &s, vm.count(), &comment);
+    let ans = solve_by_kissat(&s, vm.count(), &comment);
+    if verbose {
+        let board = Board::new(player, opponent).to_string();
+        println!(
+            "board={}, ans={}, vars={}, clauses={}",
+            board,
+            if ans { "SAT" } else { "UNSAT" },
+            vm.count(),
+            s.len()
+        );
+    }
     Ok(ans)
 }

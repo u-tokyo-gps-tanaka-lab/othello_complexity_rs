@@ -113,10 +113,6 @@ pub fn retrospective_search_move_ordering(
     if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
         return SearchResult::NotFound;
     }
-    // let line = board.to_string();
-    // if !is_sat_ok(0, &line).unwrap() {
-    //     return false;
-    // }
 
     // パスの処理
     // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定

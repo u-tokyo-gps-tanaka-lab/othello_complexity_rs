@@ -165,15 +165,13 @@ fn process_sat_file(path: &Path, out_dir: &Path) -> io::Result<()> {
     let mut okfile = File::create(out_dir.join("sat_OK.txt"))?;
     let mut ngfile = File::create(out_dir.join("sat_NG.txt"))?;
 
-    for (index, board) in boards.iter().enumerate() {
+    for (_index, board) in boards.iter().enumerate() {
         let line = board.to_string();
-        match is_sat_ok(index, &line) {
+        match is_sat_ok(board.player, board.opponent, true) {
             Ok(true) => {
-                println!("SAT: {}", line);
                 writeln!(okfile, "{}", line)?;
             }
             Ok(false) => {
-                println!("UNSAT: {}", line);
                 writeln!(ngfile, "{}", line)?;
             }
             Err(e) => {
