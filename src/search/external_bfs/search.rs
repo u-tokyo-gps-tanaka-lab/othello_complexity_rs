@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io::Result;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -8,16 +7,12 @@ use crate::search::core::SearchResult;
 
 use super::config::Cfg;
 use super::expand::{expand_layer_blocked, expand_layer_blocked_seq, expand_layer_inplace};
-use super::io::{check_leafnode_match, write_given_board};
+use super::io::{check_leafnode_match, write_given_board, write_target_board};
 
 /// システムで利用可能な並列度(論理コア数)を取得
 ///
 /// # 戻り値
 /// 利用可能なスレッド数。取得失敗時はフォールバックとして1を返す。
-///
-/// # 実装詳細
-/// - `std::thread::available_parallelism()`を使用
-/// - NonZeroUsizeをusizeに変換
 fn available_threads() -> usize {
     std::thread::available_parallelism()
         .map(NonZeroUsize::get)
@@ -30,7 +25,7 @@ fn available_threads() -> usize {
 /// - `cfg`: 探索設定(スレッド数、一時ディレクトリなど)
 /// - `num_disc`: 現在の石数(再開開始点)
 /// - `discs`: 目標石数(前進探索との合流点)
-/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+/// - `leafnode`: 前進探索で生成された到達可能盤面のソート済みVec
 ///
 /// # 戻り値
 /// - `SearchResult::Found`: リーフノードとの合流に成功
@@ -49,7 +44,7 @@ pub fn parallel_retrospective_bfs_resume(
     cfg: &Cfg,
     num_disc: i32,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &Vec<[u64; 2]>,
 ) -> Result<SearchResult> {
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
     let mut jobs = cfg.jobs;
@@ -72,7 +67,7 @@ pub fn parallel_retrospective_bfs_resume(
 /// - `cfg`: 探索設定
 /// - `board`: 探索開始盤面
 /// - `discs`: 目標石数(前進探索との合流点)
-/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+/// - `leafnode`: 前進探索で生成された到達可能盤面のソート済みVec
 ///
 /// # 戻り値
 /// - `SearchResult::Found`: 合流成功、盤面は到達可能
@@ -91,14 +86,14 @@ pub fn parallel_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &Vec<[u64; 2]>,
 ) -> Result<SearchResult> {
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
 
     if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
+        return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
             println!("unique player = {}", uni[0]);
             println!("unique opponent = {}", uni[1]);
@@ -109,6 +104,7 @@ pub fn parallel_retrospective_bfs(
             Ok(SearchResult::NotFound)
         };
     }
+    write_target_board(tmp_dir, board)?;
     write_given_board(tmp_dir, board, num_disc)?;
     parallel_retrospective_bfs_resume(cfg, num_disc as i32, discs, leafnode)
 }
@@ -119,7 +115,7 @@ pub fn parallel_retrospective_bfs(
 /// - `cfg`: 探索設定(block_sizeを使用)
 /// - `board`: 探索開始盤面
 /// - `discs`: 目標石数
-/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+/// - `leafnode`: 前進探索で生成された到達可能盤面のソート済みVec
 ///
 /// # 戻り値
 /// 並列版と同様
@@ -134,7 +130,7 @@ pub fn sequential_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &Vec<[u64; 2]>,
 ) -> Result<SearchResult> {
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
@@ -142,7 +138,7 @@ pub fn sequential_retrospective_bfs(
     let block_size = cfg.block_size;
 
     if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
+        return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
             println!("unique player = {}", uni[0]);
             println!("unique opponent = {}", uni[1]);
@@ -169,7 +165,7 @@ pub fn sequential_retrospective_bfs(
 /// - `cfg`: 探索設定
 /// - `board`: 探索開始盤面
 /// - `discs`: 目標石数
-/// - `leafnode`: 前進探索で生成された到達可能盤面集合
+/// - `leafnode`: 前進探索で生成された到達可能盤面のソート済みVec
 ///
 /// # 戻り値
 /// 並列版と同様
@@ -185,14 +181,14 @@ pub fn unblocked_retrospective_bfs(
     cfg: &Cfg,
     board: &Board,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &Vec<[u64; 2]>,
 ) -> Result<SearchResult> {
     let uni = board.unique();
     let num_disc = board.popcount() as usize;
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
 
     if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
+        return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
             println!("unique player = {}", uni[0]);
             println!("unique opponent = {}", uni[1]);

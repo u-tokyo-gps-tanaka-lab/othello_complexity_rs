@@ -8,8 +8,8 @@ use crate::othello::validate_board;
 use crate::search::{
     dfs::retrospective_search,
     external_bfs::{
-        parallel_retrospective_bfs, parallel_retrospective_bfs_resume, unblocked_retrospective_bfs,
-        Cfg as BfsCfg,
+        parallel_retrospective_bfs, parallel_retrospective_bfs_resume, read_target_board,
+        unblocked_retrospective_bfs, Cfg as BfsCfg,
     },
     forward::make_fwd_table,
     inmemory_bfs::parallel_inmemory_retrospective_bfs,
@@ -248,14 +248,6 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
     let mut outputs = ensure_outputs(&cfg.out_dir)?;
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        cfg.discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
-
     for board in boards {
         let line = board.to_string();
 
@@ -264,7 +256,8 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = unblocked_retrospective_bfs(cfg, &board, discs, leaf_cache.leaf())?;
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let stat = unblocked_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(stat, &line)?;
         outputs.flush()?;
     }
@@ -282,13 +275,6 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
     let discs = cfg.discs as i32;
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        cfg.discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
 
     if cfg.resume {
         let input_path = &cfg.input;
@@ -314,7 +300,9 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
                 format!("failed to parse disc count from {}: {e}", last),
             )
         })?;
-        parallel_retrospective_bfs_resume(cfg, num_disc, discs, leaf_cache.leaf())?;
+        let target = read_target_board(&cfg.tmp_dir)?;
+        let leaf = make_fwd_table(&target, discs);
+        parallel_retrospective_bfs_resume(cfg, num_disc, discs, &leaf)?;
         return outputs.flush();
     }
 
@@ -334,7 +322,8 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = parallel_retrospective_bfs(cfg, &board, discs, leaf_cache.leaf())?;
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let stat = parallel_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(stat, &line)?;
         outputs.flush()?;
     }

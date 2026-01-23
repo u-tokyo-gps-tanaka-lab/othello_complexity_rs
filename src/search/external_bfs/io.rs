@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Result, Write};
 use std::path::PathBuf;
@@ -64,12 +63,56 @@ pub(in crate::search::external_bfs) fn write_given_board(
     Ok(())
 }
 
+/// 探索対象の盤面をファイルに書き出す(resume用)
+///
+/// # パラメータ
+/// - `tmp_dir`: 一時ディレクトリのパス
+/// - `board`: 書き出す盤面
+///
+/// # 戻り値
+/// 書き込み成功時は`Ok(())`、I/Oエラー時は`Err`
+///
+/// # アルゴリズム詳細
+/// - 盤面を[player, opponent]の形式で`target_board.bin`に保存
+/// - resume時に`read_target_board`で読み込み、`make_fwd_table`に渡す
+pub(in crate::search::external_bfs) fn write_target_board(
+    tmp_dir: &PathBuf,
+    board: &Board,
+) -> Result<()> {
+    let bytes: [u64; 2] = [board.player, board.opponent];
+    let file = File::create(&tmp_dir.join("target_board.bin"))?;
+    let mut w = BufWriter::new(file);
+    w.write_all(bytemuck::cast_slice(&bytes))?;
+    w.flush()
+}
+
+/// resume時に探索対象の盤面を読み込む
+///
+/// # パラメータ
+/// - `tmp_dir`: 一時ディレクトリのパス
+///
+/// # 戻り値
+/// 盤面の`[player, opponent]`配列、またはI/Oエラー
+///
+/// # アルゴリズム詳細
+/// - `write_target_board`で保存された`target_board.bin`を読み込む
+/// - ネイティブエンディアンで解釈
+pub fn read_target_board(tmp_dir: &PathBuf) -> Result<[u64; 2]> {
+    let file = File::open(&tmp_dir.join("target_board.bin"))?;
+    let mut r = BufReader::new(file);
+    let mut buf = [0u8; 16];
+    r.read_exact(&mut buf)?;
+    let p = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
+    let o = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
+    Ok([p, o])
+}
+
 /// 最終結果ファイルをリーフノードと照合
 ///
 /// # パラメータ
 /// - `tmp_dir`: 一時ディレクトリのパス
 /// - `discs`: 目標石数
-/// - `leafnode`: 前進探索で生成された到達可能盤面の集合
+/// - `leafnode`: 前進探索で生成された到達可能盤面のソート済みVec
 ///
 /// # 戻り値
 /// リーフノードに一致する盤面が見つかれば`SearchResult::Found`、
@@ -79,10 +122,11 @@ pub(in crate::search::external_bfs) fn write_given_board(
 /// - 後退探索の最終層(`r_{discs}.bin`)を読み込み
 /// - 各レコードをネイティブエンディアンで解釈し、リーフノードとの一致判定を行う
 /// - 一致した時点で即座に`Found`を返す(早期終了)
+/// - ソート済みVecに対してbinary_searchを使用
 pub(in crate::search::external_bfs) fn check_leafnode_match(
     tmp_dir: &PathBuf,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &Vec<[u64; 2]>,
 ) -> Result<SearchResult> {
     let rfilename = format!("r_{}.bin", discs);
     let file = File::open(&tmp_dir.join(rfilename))?;
@@ -98,7 +142,7 @@ pub(in crate::search::external_bfs) fn check_leafnode_match(
         let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
         let b = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
         let uni = [a, b];
-        if leafnode.contains(&uni) {
+        if leafnode.binary_search(&uni).is_ok() {
             return Ok(SearchResult::Found);
         }
     }
