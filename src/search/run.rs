@@ -332,7 +332,12 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
 }
 
 /// In-memory parallel BFS with DashSet visited tracking
-pub fn run_parallel_inmemory_bfs(input: &Path, out_dir: &Path, discs: i32) -> io::Result<()> {
+pub fn run_parallel_inmemory_bfs(
+    input: &Path,
+    out_dir: &Path,
+    discs: i32,
+    use_lp: bool,
+) -> io::Result<()> {
     let boards = parse_file_to_boards(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
@@ -355,7 +360,7 @@ pub fn run_parallel_inmemory_bfs(input: &Path, out_dir: &Path, discs: i32) -> io
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         println!("got leaf nodes");
 
-        let result = parallel_inmemory_retrospective_bfs(&board, discs, &leaf);
+        let result = parallel_inmemory_retrospective_bfs(&board, discs, &leaf, use_lp);
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }

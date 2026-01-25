@@ -167,7 +167,7 @@ fn check_feasibility(
     // model.set_option("write_model_file", "debug.lp");
     // model.set_option("write_model_to_file", true);
 
-    model.set_option("threads", 0);
+    model.set_option("threads", 1);
     model.set_option("presolve", "on");
 
     // model.set_option("time_limit", 5.0);    // 早期打切り

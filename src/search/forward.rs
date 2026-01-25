@@ -74,6 +74,8 @@ pub fn fwd_search(
     }
 }
 
+/// 色は考慮せず、occupied bitboardだけを見た確定石
+/// occupiedからt_occupiedまで遷移するとき、occupiedのうち裏返らない石を求める
 fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     let mut ans = 0;
     let mut b = occupied;
@@ -109,6 +111,8 @@ fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     ans
 }
 
+/// 局面bの確定石がtargetと矛盾しないか
+/// これでfalseなら、bからtargetには到達不能
 fn check_fwd_sub(b: &[u64; 2], target: &[u64; 2]) -> bool {
     let o1 = b[0] | b[1];
     let o2 = target[0] | target[1];
@@ -122,6 +126,7 @@ fn check_fwd_sub(b: &[u64; 2], target: &[u64; 2]) -> bool {
     b[0] & stable == target[1] & stable && b[1] & stable == target[0] & stable
 }
 
+/// targetの8対称についてcheck_fwd_subを計算する
 fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     for i in 0..8 {
         if check_fwd_sub(b, &target[i]) {
@@ -241,7 +246,9 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         ans = Arc::new(newans);
         // println!("after Arc::new(newans)");
     }
-    ans.to_vec()
+    let mut ans_vec = ans.to_vec();
+    ans_vec.sort_unstable();
+    ans_vec
 }
 
 pub fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {

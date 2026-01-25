@@ -155,16 +155,20 @@ pub struct InmemoryBfsOpts {
     /// Number of discs at which to stop the forward search
     #[arg(long, value_name = "N")]
     discs: Option<i32>,
+
+    /// Use LP-solver for pruning
+    #[arg(long)]
+    use_lp: bool,
 }
 
 impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32) {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool) {
         let input = self.input.clone().unwrap_or_else(default_input_path);
         let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
         let discs = self
             .discs
             .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        (input, out_dir, discs)
+        (input, out_dir, discs, self.use_lp)
     }
 }
 
@@ -245,8 +249,8 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             run_parallel_bfs(&cfg)
         }
         Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs) = opts.resolve();
-            run_parallel_inmemory_bfs(&input, &out_dir, discs)
+            let (input, out_dir, discs, use_lp) = opts.resolve();
+            run_parallel_inmemory_bfs(&input, &out_dir, discs, use_lp)
         }
     }
 }

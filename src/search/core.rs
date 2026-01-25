@@ -327,10 +327,14 @@ pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
 }
 
 // retroflipsを使い回すパターン
-pub fn prev_states_with_buffer(b: [u64; 2], retroflips: &mut [u64; 10_000]) -> Vec<[u64; 2]> {
+pub fn prev_states_with_buffer(
+    b: [u64; 2],
+    retroflips: &mut [u64; 10_000],
+    out: &mut Vec<[u64; 2]>,
+) {
+    out.clear();
     let board = Board::new(b[0], b[1]);
     let mut op = board.opponent & !CENTER_MASK;
-    let mut ans = vec![];
 
     while op != 0 {
         let index = op.trailing_zeros() as usize;
@@ -343,11 +347,10 @@ pub fn prev_states_with_buffer(b: [u64; 2], retroflips: &mut [u64; 10_000]) -> V
                 player: board.opponent ^ (flipped | (1u64 << index)),
                 opponent: board.player ^ flipped,
             };
-            ans.push([prev.player, prev.opponent]);
+            out.push([prev.player, prev.opponent]);
             if get_moves(prev.opponent, prev.player) == 0 {
-                ans.push([prev.opponent, prev.player]);
+                out.push([prev.opponent, prev.player]);
             }
         }
     }
-    ans
 }
