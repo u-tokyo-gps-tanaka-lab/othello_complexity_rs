@@ -1,12 +1,14 @@
-use dashmap::DashSet;
-use rayon::ThreadPoolBuilder;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
+
+use dashmap::DashSet;
+use rayon::{prelude::*, ThreadPoolBuilder};
 
 use crate::othello::{get_moves, Board};
 use crate::prunings::impossible_edges::check_edge_patterns;
+use crate::prunings::kissat::is_sat_ok;
 use crate::prunings::linear_programming::check_lp;
 use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
@@ -23,6 +25,7 @@ use crate::search::forward::is_leaf;
 /// - `discs`: Target disc count for meeting forward search leaf nodes
 /// - `leafnode`: Sorted vector of canonical leaf nodes from forward search
 /// - `use_lp`: Enable LP-solver pruning
+/// - `time_limit`: Per-board time limit (None = no limit)
 ///
 /// # Returns
 /// - `SearchResult::Found`: A path exists from initial state to goal
@@ -32,33 +35,35 @@ pub fn parallel_inmemory_retrospective_bfs(
     discs: i32,
     leafnode: &Vec<[u64; 2]>,
     use_lp: bool,
+    use_sat: bool,
+    _time_limit: Option<Duration>,
 ) -> SearchResult {
     let initial_disc_count = board.popcount() as i32;
+    println!("target_discs={}", initial_disc_count);
 
     // transposition table
     let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+    let found: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     // 早期return
     if initial_disc_count <= discs {
         let unique = board.unique();
-        let mut current_layer = vec![unique];
-        visited.insert(unique);
-        expand_pass_nodes(&mut current_layer, &visited, use_lp);
-        for state in &current_layer {
-            if is_leaf(*state, leafnode, discs) {
-                return SearchResult::Found;
-            }
+        if is_leaf(unique, leafnode, discs) {
+            return SearchResult::Found;
         }
         return SearchResult::NotFound;
     }
 
     // 初期ノードを登録
-    let mut starts = vec![[board.player, board.opponent]];
-    if get_moves(board.opponent, board.player) == 0 {
-        starts.push([board.opponent, board.player]);
-    }
-
-    let mut current_layer: Vec<[u64; 2]> = vec![];
+    let mut current_layer = vec![];
+    let starts = if get_moves(board.opponent, board.player) == 0 {
+        vec![
+            [board.player, board.opponent],
+            [board.opponent, board.player],
+        ]
+    } else {
+        vec![[board.player, board.opponent]]
+    };
     for s in starts {
         let unique = Board::new(s[0], s[1]).unique();
         if visited.insert(unique) {
@@ -81,137 +86,183 @@ pub fn parallel_inmemory_retrospective_bfs(
             return SearchResult::NotFound;
         }
 
-        // 直前手がパスだった場合の対応
-        expand_pass_nodes(&mut current_layer, &visited, use_lp);
-
-        let next_layer: Arc<Mutex<Vec<[u64; 2]>>> = Arc::new(Mutex::new(Vec::new()));
-        let found: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-
-        // Parallel expansion of current layer
-        pool.scope(|scope| {
-            let chunk_size = (current_layer.len() / num_threads).max(1);
-
-            for chunk in current_layer.chunks(chunk_size) {
-                let visited = Arc::clone(&visited);
-                let next_layer = Arc::clone(&next_layer);
-                let found = Arc::clone(&found);
-
-                scope.spawn(move |_| {
-                    let mut local_next: Vec<[u64; 2]> = Vec::with_capacity(chunk.len() * 8);
-                    expand_nodes(
-                        chunk,
+        // Parallel expansion with thread-local aggregation
+        let next_layer = pool.install(|| {
+            current_layer
+                .par_iter()
+                .fold(ThreadLocal::new, |mut tls, &node| {
+                    if found.load(Ordering::Relaxed) {
+                        return tls;
+                    }
+                    expand_node(
+                        node,
                         &visited,
-                        &mut local_next,
+                        &mut tls.next,
+                        &mut *tls.retroflips,
+                        &mut tls.prev_buf,
                         &found,
                         discs,
                         leafnode,
                         use_lp,
+                        use_sat,
                     );
-                    if !local_next.is_empty() {
-                        next_layer.lock().unwrap().extend(local_next);
-                    }
-                });
-            }
+                    tls
+                })
+                .reduce(ThreadLocal::new, |mut a, mut b| {
+                    a.next.append(&mut b.next);
+                    a
+                })
+                .next
         });
 
-        println!("layer={} : {}", i, current_layer.len());
+        println!("layer={} : {}", i, next_layer.len());
 
         if found.load(Ordering::Acquire) {
             return SearchResult::Found;
         }
 
-        current_layer = std::mem::take(&mut *next_layer.lock().unwrap());
+        current_layer = next_layer;
     }
-
-    expand_pass_nodes(&mut current_layer, &visited, use_lp);
 
     for state in &current_layer {
         if is_leaf(*state, leafnode, discs) {
             return SearchResult::Found;
+        }
+        if get_moves(state[1], state[0]) == 0 {
+            let pass = Board::new(state[1], state[0]).unique();
+            if is_leaf(pass, leafnode, discs) {
+                return SearchResult::Found;
+            }
         }
     }
 
     SearchResult::NotFound
 }
 
-/// Expand a chunk of states in parallel
-fn expand_nodes(
-    chunk: &[[u64; 2]],
-    visited: &DashSet<[u64; 2]>,
-    next_layer: &mut Vec<[u64; 2]>,
-    found: &AtomicBool,
-    final_target_disc: i32,
-    leafnode: &Vec<[u64; 2]>,
-    use_lp: bool,
-) {
-    // Thread-local buffer for retrospective_flip results
-    let mut retroflips = [0u64; 10_000];
-    let mut prev_buf: Vec<[u64; 2]> = Vec::with_capacity(256);
+struct ThreadLocal {
+    next: Vec<[u64; 2]>,
+    retroflips: Box<[u64; 10_000]>,
+    prev_buf: Vec<[u64; 2]>,
+}
 
-    for &node in chunk {
-        if found.load(Ordering::Relaxed) {
-            return;
-        }
-
-        prev_states_with_buffer(node, &mut retroflips, &mut prev_buf);
-        for prev in prev_buf.iter().copied() {
-            if found.load(Ordering::Relaxed) {
-                return;
-            }
-            // 枝刈り
-            if !check_edge_patterns(prev[0], prev[1])
-                || !check_occupancy(prev[0] | prev[1])
-                || !check_seg3_more(prev[0], prev[1])
-                || (use_lp && !check_lp(prev[0], prev[1], false))
-            {
-                continue;
-            }
-
-            let unique = Board::new(prev[0], prev[1]).unique();
-
-            if !visited.insert(unique) {
-                continue; // Already visited
-            }
-
-            // 目標判定
-            let disc_count = (unique[0] | unique[1]).count_ones() as i32;
-            if disc_count == final_target_disc {
-                if is_leaf(unique, leafnode, final_target_disc) {
-                    found.store(true, Ordering::Release);
-                    return;
-                }
-                // Don't add to next_layer if at final target disc count but not a match
-                continue;
-            }
-
-            // Add to next layer for further expansion
-            next_layer.push(unique);
+impl ThreadLocal {
+    fn new() -> Self {
+        Self {
+            next: Vec::new(),
+            retroflips: Box::new([0u64; 10_000]),
+            prev_buf: Vec::with_capacity(256),
         }
     }
 }
 
-/// 直前手がパスだった場合の対応
-fn expand_pass_nodes(layer: &mut Vec<[u64; 2]>, visited: &DashSet<[u64; 2]>, use_lp: bool) {
-    let mut idx = 0;
-    while idx < layer.len() {
-        let node = layer[idx];
-        // 前局面がパスなら、盤面は同じで手番だけ入れ替わる
-        if get_moves(node[1], node[0]) == 0 {
-            let swapped = [node[1], node[0]];
-            if !check_edge_patterns(swapped[0], swapped[1])
-                || !check_occupancy(swapped[0] | swapped[1])
-                || !check_seg3_more(swapped[0], swapped[1])
-                || (use_lp && !check_lp(swapped[0], swapped[1], false))
-            {
-                idx += 1;
-                continue;
-            }
+/// 1手前のノードを展開する
+fn expand_node(
+    node: [u64; 2],
+    visited: &DashSet<[u64; 2]>,
+    next_layer: &mut Vec<[u64; 2]>,
+    retroflips: &mut [u64; 10_000],
+    prev_buf: &mut Vec<[u64; 2]>,
+    found: &AtomicBool,
+    final_target_disc: i32,
+    leafnode: &Vec<[u64; 2]>,
+    use_lp: bool,
+    use_sat: bool,
+) {
+    if found.load(Ordering::Relaxed) {
+        return;
+    }
 
-            let pass = Board::new(swapped[0], swapped[1]).unique();
-            if visited.insert(pass) {
-                layer.push(pass);
-            }
+    expand_prev_states(
+        node,
+        visited,
+        next_layer,
+        retroflips,
+        prev_buf,
+        found,
+        final_target_disc,
+        leafnode,
+        use_lp,
+        use_sat,
+    );
+
+    if found.load(Ordering::Relaxed) {
+        return;
+    }
+
+    // 直前手がパスだった場合は、そのまま同じ石数で展開する
+    if get_moves(node[1], node[0]) == 0 {
+        let pass = Board::new(node[1], node[0]).unique();
+        if !visited.insert(pass) {
+            return;
         }
-        idx += 1;
+
+        let disc_count = (pass[0] | pass[1]).count_ones() as i32;
+        if disc_count == final_target_disc {
+            if is_leaf(pass, leafnode, final_target_disc) {
+                found.store(true, Ordering::Release);
+            }
+            return;
+        }
+
+        expand_prev_states(
+            pass,
+            visited,
+            next_layer,
+            retroflips,
+            prev_buf,
+            found,
+            final_target_disc,
+            leafnode,
+            use_lp,
+            use_sat,
+        );
+    }
+}
+
+fn expand_prev_states(
+    node: [u64; 2],
+    visited: &DashSet<[u64; 2]>,
+    next_layer: &mut Vec<[u64; 2]>,
+    retroflips: &mut [u64; 10_000],
+    prev_buf: &mut Vec<[u64; 2]>,
+    found: &AtomicBool,
+    final_target_disc: i32,
+    leafnode: &Vec<[u64; 2]>,
+    use_lp: bool,
+    use_sat: bool,
+) {
+    prev_states_with_buffer(node, retroflips, prev_buf);
+    for prev in prev_buf.iter().copied() {
+        if found.load(Ordering::Relaxed) {
+            return;
+        }
+
+        // 枝刈り
+        if !check_edge_patterns(prev[0], prev[1])
+            || !check_occupancy(prev[0] | prev[1])
+            || !check_seg3_more(prev[0], prev[1])
+            || (use_lp && !check_lp(prev[0], prev[1], false))
+            || (use_sat && !is_sat_ok(prev[0], prev[1], false).unwrap_or(true))
+        {
+            continue;
+        }
+
+        let unique = Board::new(prev[0], prev[1]).unique();
+
+        if !visited.insert(unique) {
+            continue; // Already visited
+        }
+
+        // 目標判定
+        let disc_count = (unique[0] | unique[1]).count_ones() as i32;
+        if disc_count == final_target_disc {
+            if is_leaf(unique, leafnode, final_target_disc) {
+                found.store(true, Ordering::Release);
+                return;
+            }
+            continue;
+        }
+
+        next_layer.push(unique);
     }
 }

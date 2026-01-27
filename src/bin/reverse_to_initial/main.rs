@@ -1,5 +1,6 @@
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -159,16 +160,32 @@ pub struct InmemoryBfsOpts {
     /// Use LP-solver for pruning
     #[arg(long)]
     use_lp: bool,
+
+    /// Use SAT-solver for pruning
+    #[arg(long)]
+    use_sat: bool,
+
+    /// Time limit per board in milliseconds (0 = no limit)
+    #[arg(long = "time-limit-ms", value_name = "MS")]
+    time_limit_ms: Option<u64>,
 }
 
 impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool) {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool, bool, Option<Duration>) {
         let input = self.input.clone().unwrap_or_else(default_input_path);
         let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
         let discs = self
             .discs
             .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        (input, out_dir, discs, self.use_lp)
+        let time_limit_ms = self
+            .time_limit_ms
+            .unwrap_or_else(|| read_env_with_default("TIME_LIMIT_MS", 0u64));
+        let time_limit = if time_limit_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(time_limit_ms))
+        };
+        (input, out_dir, discs, self.use_lp, self.use_sat, time_limit)
     }
 }
 
@@ -249,8 +266,8 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             run_parallel_bfs(&cfg)
         }
         Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs, use_lp) = opts.resolve();
-            run_parallel_inmemory_bfs(&input, &out_dir, discs, use_lp)
+            let (input, out_dir, discs, use_lp, use_sat, time_limit) = opts.resolve();
+            run_parallel_inmemory_bfs(&input, &out_dir, discs, use_lp, use_sat, time_limit)
         }
     }
 }

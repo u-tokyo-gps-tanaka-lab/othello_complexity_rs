@@ -337,6 +337,8 @@ pub fn run_parallel_inmemory_bfs(
     out_dir: &Path,
     discs: i32,
     use_lp: bool,
+    use_sat: bool,
+    time_limit: Option<Duration>,
 ) -> io::Result<()> {
     let boards = parse_file_to_boards(&input.to_string_lossy())?;
     let total_input = boards.len();
@@ -349,6 +351,10 @@ pub fn run_parallel_inmemory_bfs(
     let mut outputs = ensure_outputs(out_dir)?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
+    if let Some(val) = time_limit {
+        println!("time limit per board = {:#?}", val)
+    }
+
     for board in boards {
         let line = board.to_string();
 
@@ -360,7 +366,8 @@ pub fn run_parallel_inmemory_bfs(
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         println!("got leaf nodes");
 
-        let result = parallel_inmemory_retrospective_bfs(&board, discs, &leaf, use_lp);
+        let result =
+            parallel_inmemory_retrospective_bfs(&board, discs, &leaf, use_lp, use_sat, time_limit);
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }
