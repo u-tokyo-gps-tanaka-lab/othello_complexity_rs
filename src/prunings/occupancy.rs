@@ -1,6 +1,7 @@
 use crate::othello::{backshift, Direction, CENTER_MASK};
-// 前提：A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63。
-//       方向は N=+8, S=-8, E=+1, W=-1, NE=+9, NW=+7, SE=-7, SW=-9。
+use dashmap::DashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 pub fn occupied_to_string(o: u64) -> String {
     let mut s = String::new();
@@ -21,6 +22,8 @@ pub fn occupied_to_string(o: u64) -> String {
 ///
 /// # 前提条件
 /// - 中央2x2 (D4, E4, D5, E5) は常に占有されている必要がある
+/// - A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63
+//  - 方向は N=+8, S=-8, E=+1, W=-1, NE=+9, NW=+7, SE=-7, SW=-9
 ///
 /// # 戻り値
 /// 中央4マスから到達可能なマス目を表すビットマスク
@@ -102,4 +105,62 @@ pub fn occupancy_order(occupied: u64) -> [u64; 64] {
         b = newb;
     }
     ans
+}
+
+static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64]>> = OnceLock::new();
+static OCCUPANCY_ORDER_TT_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+static OCCUPANCY_ORDER_TT_HITS: AtomicU64 = AtomicU64::new(0);
+
+fn occupancy_order_tt() -> &'static DashMap<u64, [u64; 64]> {
+    OCCUPANCY_ORDER_TT.get_or_init(DashMap::new)
+}
+
+/// Clear the occupancy order transposition table (optional).
+pub fn clear_occupancy_cache() {
+    if let Some(tt) = OCCUPANCY_ORDER_TT.get() {
+        tt.clear();
+    }
+}
+
+pub fn occupancy_order_cached(occupied: u64) -> [u64; 64] {
+    let tt = occupancy_order_tt();
+    OCCUPANCY_ORDER_TT_LOOKUPS.fetch_add(1, Ordering::Relaxed);
+    if let Some(hit) = tt.get(&occupied) {
+        OCCUPANCY_ORDER_TT_HITS.fetch_add(1, Ordering::Relaxed);
+        return *hit;
+    }
+
+    let result = occupancy_order(occupied);
+    tt.insert(occupied, result);
+    result
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct OccupancyOrderCacheStats {
+    pub lookups: u64,
+    pub hits: u64,
+    pub entries: usize,
+}
+
+impl OccupancyOrderCacheStats {
+    pub fn misses(&self) -> u64 {
+        self.lookups.saturating_sub(self.hits)
+    }
+
+    pub fn hit_rate(&self) -> f64 {
+        if self.lookups == 0 {
+            0.0
+        } else {
+            (self.hits as f64) / (self.lookups as f64)
+        }
+    }
+}
+
+pub fn occupancy_order_cache_stats() -> OccupancyOrderCacheStats {
+    let entries = OCCUPANCY_ORDER_TT.get().map_or(0, |tt| tt.len());
+    OccupancyOrderCacheStats {
+        lookups: OCCUPANCY_ORDER_TT_LOOKUPS.load(Ordering::Relaxed),
+        hits: OCCUPANCY_ORDER_TT_HITS.load(Ordering::Relaxed),
+        entries,
+    }
 }

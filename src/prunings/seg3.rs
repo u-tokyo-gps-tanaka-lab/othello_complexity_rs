@@ -1,6 +1,6 @@
 use crate::{
     othello::{Board, Direction},
-    prunings::occupancy::occupancy_order,
+    prunings::occupancy::occupancy_order_cached,
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
@@ -143,7 +143,7 @@ pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
     //}
 
     let occupied = player | opponent;
-    let order = occupancy_order(occupied);
+    let order = occupancy_order_cached(occupied);
     let (canput, canflip) = can_put_flip(occupied, &order);
     let ps = [player, opponent];
     for i in 0..2 {

@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use crate::othello::{Board, Direction, CENTER_MASK};
-use crate::prunings::occupancy::occupancy_order;
+use crate::prunings::occupancy::occupancy_order_cached;
 use highs::{HighsModelStatus, RowProblem, Sense};
 use std::ffi::CString;
 use std::fs::File;
@@ -203,7 +203,7 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool) -> bool {
     //let b = Board::new(player, opponent);
     //println!("b={}", b.to_string());
     let occupied = player | opponent;
-    let order: [u64; 64] = occupancy_order(occupied);
+    let order: [u64; 64] = occupancy_order_cached(occupied);
     let mut vm = VarMaker::new();
     let mut constraints = vec![];
     // First[sq][col] : sqにcolの石を置いたかを表す論理変数

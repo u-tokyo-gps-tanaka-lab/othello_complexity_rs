@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
@@ -331,7 +332,7 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
     outputs.flush()
 }
 
-/// In-memory parallel BFS with DashSet visited tracking
+/// In-memory parallel BFS
 pub fn run_parallel_inmemory_bfs(
     input: &Path,
     out_dir: &Path,
@@ -366,8 +367,7 @@ pub fn run_parallel_inmemory_bfs(
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         println!("got leaf nodes");
 
-        let result =
-            parallel_inmemory_retrospective_bfs(&board, discs, &leaf, use_lp, use_sat, time_limit);
+        let result = parallel_inmemory_retrospective_bfs(&board, discs, &leaf, use_lp, use_sat);
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }

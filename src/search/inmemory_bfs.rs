@@ -10,7 +10,7 @@ use crate::othello::{get_moves, Board};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::kissat::is_sat_ok;
 use crate::prunings::linear_programming::check_lp;
-use crate::prunings::occupancy::check_occupancy;
+use crate::prunings::occupancy::{check_occupancy, occupancy_order_cache_stats};
 use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{prev_states_with_buffer, SearchResult};
 use crate::search::forward::is_leaf;
@@ -36,13 +36,10 @@ pub fn parallel_inmemory_retrospective_bfs(
     leafnode: &Vec<[u64; 2]>,
     use_lp: bool,
     use_sat: bool,
-    _time_limit: Option<Duration>,
 ) -> SearchResult {
     let initial_disc_count = board.popcount() as i32;
     println!("target_discs={}", initial_disc_count);
 
-    // transposition table
-    let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
     let found: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     // 早期return
@@ -56,6 +53,7 @@ pub fn parallel_inmemory_retrospective_bfs(
 
     // 初期ノードを登録
     let mut current_layer = vec![];
+    let start_seen = DashSet::new();
     let starts = if get_moves(board.opponent, board.player) == 0 {
         vec![
             [board.player, board.opponent],
@@ -66,7 +64,7 @@ pub fn parallel_inmemory_retrospective_bfs(
     };
     for s in starts {
         let unique = Board::new(s[0], s[1]).unique();
-        if visited.insert(unique) {
+        if start_seen.insert(unique) {
             current_layer.push(unique);
         }
     }
@@ -86,6 +84,9 @@ pub fn parallel_inmemory_retrospective_bfs(
             return SearchResult::NotFound;
         }
 
+        // Per-layer seen set to deduplicate this expansion only
+        let layer_seen: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+
         // Parallel expansion with thread-local aggregation
         let next_layer = pool.install(|| {
             current_layer
@@ -96,7 +97,7 @@ pub fn parallel_inmemory_retrospective_bfs(
                     }
                     expand_node(
                         node,
-                        &visited,
+                        &layer_seen,
                         &mut tls.next,
                         &mut *tls.retroflips,
                         &mut tls.prev_buf,
@@ -114,6 +115,16 @@ pub fn parallel_inmemory_retrospective_bfs(
                 })
                 .next
         });
+
+        let order_stats = occupancy_order_cache_stats();
+        eprintln!(
+            "occupancy_order TT hit rate: {:.2}% (hits={}, lookups={}, misses={}, entries={})",
+            order_stats.hit_rate() * 100.0,
+            order_stats.hits,
+            order_stats.lookups,
+            order_stats.misses(),
+            order_stats.entries,
+        );
 
         println!("layer={} : {}", i, next_layer.len());
 
@@ -158,7 +169,7 @@ impl ThreadLocal {
 /// 1手前のノードを展開する
 fn expand_node(
     node: [u64; 2],
-    visited: &DashSet<[u64; 2]>,
+    layer_seen: &DashSet<[u64; 2]>,
     next_layer: &mut Vec<[u64; 2]>,
     retroflips: &mut [u64; 10_000],
     prev_buf: &mut Vec<[u64; 2]>,
@@ -174,7 +185,7 @@ fn expand_node(
 
     expand_prev_states(
         node,
-        visited,
+        layer_seen,
         next_layer,
         retroflips,
         prev_buf,
@@ -192,7 +203,7 @@ fn expand_node(
     // 直前手がパスだった場合は、そのまま同じ石数で展開する
     if get_moves(node[1], node[0]) == 0 {
         let pass = Board::new(node[1], node[0]).unique();
-        if !visited.insert(pass) {
+        if !layer_seen.insert(pass) {
             return;
         }
 
@@ -206,7 +217,7 @@ fn expand_node(
 
         expand_prev_states(
             pass,
-            visited,
+            layer_seen,
             next_layer,
             retroflips,
             prev_buf,
@@ -221,7 +232,7 @@ fn expand_node(
 
 fn expand_prev_states(
     node: [u64; 2],
-    visited: &DashSet<[u64; 2]>,
+    layer_seen: &DashSet<[u64; 2]>,
     next_layer: &mut Vec<[u64; 2]>,
     retroflips: &mut [u64; 10_000],
     prev_buf: &mut Vec<[u64; 2]>,
@@ -249,8 +260,8 @@ fn expand_prev_states(
 
         let unique = Board::new(prev[0], prev[1]).unique();
 
-        if !visited.insert(unique) {
-            continue; // Already visited
+        if !layer_seen.insert(unique) {
+            continue; // Already seen in this layer
         }
 
         // 目標判定
