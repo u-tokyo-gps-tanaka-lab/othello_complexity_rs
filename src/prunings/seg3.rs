@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use crate::{
     othello::{Board, Direction, CENTER_MASK},
-    prunings::occupancy::occupancy_order,
+    prunings::occupancy::{occupancy_order, occupancy_order_cached},
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
@@ -167,13 +167,17 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
 }
 
 /// 反転整合性のチェック
-pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
+pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) -> bool {
     //if !check_seg3_more(player, opponent) {
     //    return false;
     //}
 
     let occupied = player | opponent;
-    let order = occupancy_order(occupied);
+    let order = if use_occupancy_cache {
+        occupancy_order_cached(occupied)
+    } else {
+        occupancy_order(occupied)
+    };
     let (canput, canflip) = can_put_flip(occupied, &order);
     let ps = [player, opponent];
     for i in 0..2 {

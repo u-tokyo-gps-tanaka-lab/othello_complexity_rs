@@ -193,7 +193,7 @@ fn worker_loop(
         }
 
         // LP枝刈り
-        if use_lp && !check_lp(node[0], node[1], false) {
+        if use_lp && !check_lp(node[0], node[1], false, false) {
             inflight.fetch_sub(1, Ordering::AcqRel);
             continue;
         }
@@ -222,7 +222,7 @@ fn expand_node(
         // 枝刈りチェック
         let oc = prev[0] | prev[1];
         if !check_occupancy(oc)
-            || !check_seg3_more(prev[0], prev[1])
+            || !check_seg3_more(prev[0], prev[1], false)
             || !check_edge_patterns(prev[0], prev[1])
         {
             continue;

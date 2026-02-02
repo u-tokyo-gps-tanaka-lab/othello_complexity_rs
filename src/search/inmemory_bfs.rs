@@ -35,6 +35,7 @@ pub fn parallel_inmemory_retrospective_bfs(
     leafnode: &Vec<[u64; 2]>,
     use_lp: bool,
     use_sat: bool,
+    use_occupancy_cache: bool,
 ) -> SearchResult {
     let initial_disc_count = board.popcount() as i32;
     println!("target_discs={}", initial_disc_count);
@@ -105,6 +106,7 @@ pub fn parallel_inmemory_retrospective_bfs(
                         leafnode,
                         use_lp,
                         use_sat,
+                        use_occupancy_cache,
                     );
                     tls
                 })
@@ -177,6 +179,7 @@ fn expand_node(
     leafnode: &Vec<[u64; 2]>,
     use_lp: bool,
     use_sat: bool,
+    use_occupancy_cache: bool,
 ) {
     if found.load(Ordering::Relaxed) {
         return;
@@ -193,6 +196,7 @@ fn expand_node(
         leafnode,
         use_lp,
         use_sat,
+        use_occupancy_cache,
     );
 
     if found.load(Ordering::Relaxed) {
@@ -225,6 +229,7 @@ fn expand_node(
             leafnode,
             use_lp,
             use_sat,
+            use_occupancy_cache,
         );
     }
 }
@@ -240,6 +245,7 @@ fn expand_prev_states(
     leafnode: &Vec<[u64; 2]>,
     use_lp: bool,
     use_sat: bool,
+    use_occupancy_cache: bool,
 ) {
     prev_states_with_buffer(node, retroflips, prev_buf);
     for prev in prev_buf.iter().copied() {
@@ -250,8 +256,8 @@ fn expand_prev_states(
         // 枝刈り
         if !check_edge_patterns(prev[0], prev[1])
             || !check_occupancy(prev[0] | prev[1])
-            || !check_seg3_more(prev[0], prev[1])
-            || (use_lp && !check_lp(prev[0], prev[1], false))
+            || !check_seg3_more(prev[0], prev[1], use_occupancy_cache)
+            || (use_lp && !check_lp(prev[0], prev[1], false, use_occupancy_cache))
             || (use_sat && !is_sat_ok(prev[0], prev[1], false).unwrap_or(true))
         {
             continue;

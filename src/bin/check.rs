@@ -111,7 +111,7 @@ fn process_lp_file(path: &Path, out_dir: &Path, by_ip_solver: bool) -> io::Resul
 
     for board in boards {
         let line = board.to_string();
-        if check_lp(board.player, board.opponent, by_ip_solver) {
+        if check_lp(board.player, board.opponent, by_ip_solver, false) {
             writeln!(okfile, "{}", line)?;
         } else {
             writeln!(ngfile, "{}", line)?;
@@ -150,7 +150,7 @@ fn process_seg3more_file(path: &Path, out_dir: &Path) -> io::Result<()> {
 
     for board in boards {
         let line = board.to_string();
-        if check_seg3_more(board.player, board.opponent) {
+        if check_seg3_more(board.player, board.opponent, false) {
             writeln!(okfile, "{}", line)?;
         } else {
             writeln!(ngfile, "{}", line)?;

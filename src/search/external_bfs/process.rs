@@ -7,7 +7,6 @@ use bytemuck;
 
 use crate::othello::{get_moves, Board, CENTER_MASK};
 use crate::prunings::impossible_edges::check_edge_patterns;
-use crate::prunings::kissat::is_sat_ok;
 use crate::prunings::linear_programming::check_lp;
 use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
 use crate::search::core::retrospective_flip;
@@ -57,10 +56,9 @@ pub(in crate::search::external_bfs) fn process_board(
             };
             let occupied = prev.player | prev.opponent;
             if !check_occupancy(occupied)
-                || !check_seg3_more(prev.player, prev.opponent)
+                || !check_seg3_more(prev.player, prev.opponent, false)
                 || !check_edge_patterns(prev.player, prev.opponent)
-                // || !is_sat_ok(prev.player, prev.opponent, false).unwrap_or(true)
-                || !check_lp(prev.player, prev.opponent, false)
+                || !check_lp(prev.player, prev.opponent, false, false)
             {
                 continue;
             }

@@ -147,7 +147,7 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // 形状フィルタ
     let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
+    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent, false) {
         // !is_connected(occupied) || !check_seg3(occupied)
         return SearchResult::NotFound;
     }

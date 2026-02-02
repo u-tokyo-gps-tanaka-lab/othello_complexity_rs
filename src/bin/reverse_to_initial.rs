@@ -168,10 +168,14 @@ pub struct InmemoryBfsOpts {
     /// Time limit per board in milliseconds (0 = no limit)
     #[arg(long = "time-limit-ms", value_name = "MS")]
     time_limit_ms: Option<u64>,
+
+    /// Use cached occupancy order computation
+    #[arg(long)]
+    use_occupancy_cache: bool,
 }
 
 impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool, bool, Option<Duration>) {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool, bool, Option<Duration>, bool) {
         let input = self.input.clone().unwrap_or_else(default_input_path);
         let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
         let discs = self
@@ -185,7 +189,15 @@ impl InmemoryBfsOpts {
         } else {
             Some(Duration::from_millis(time_limit_ms))
         };
-        (input, out_dir, discs, self.use_lp, self.use_sat, time_limit)
+        (
+            input,
+            out_dir,
+            discs,
+            self.use_lp,
+            self.use_sat,
+            time_limit,
+            self.use_occupancy_cache,
+        )
     }
 }
 
@@ -266,8 +278,17 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             run_parallel_bfs(&cfg)
         }
         Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs, use_lp, use_sat, time_limit) = opts.resolve();
-            run_parallel_inmemory_bfs(&input, &out_dir, discs, use_lp, use_sat, time_limit)
+            let (input, out_dir, discs, use_lp, use_sat, time_limit, use_occupancy_cache) =
+                opts.resolve();
+            run_parallel_inmemory_bfs(
+                &input,
+                &out_dir,
+                discs,
+                use_lp,
+                use_sat,
+                time_limit,
+                use_occupancy_cache,
+            )
         }
     }
 }

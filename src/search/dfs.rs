@@ -74,7 +74,7 @@ pub fn retrospective_search(
     //}
 
     let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
+    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent, false) {
         return SearchResult::NotFound;
     }
 
