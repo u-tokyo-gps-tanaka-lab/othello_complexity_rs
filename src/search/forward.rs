@@ -239,7 +239,7 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         // println!("after collect()");
         newans.sort();
 
-        println!("i={}, newans.len() = {}", i, newans.len());
+        println!("i={}, newans.len() = {}", i + 1, newans.len());
         //for j in 0..newans.len() {
         //    println!("{}", Board::new(newans[j][0], newans[j][1]).to_string());
         //}

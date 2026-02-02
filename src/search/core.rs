@@ -1,4 +1,4 @@
-use crate::othello::{flip, get_moves, Board, CENTER_MASK};
+use crate::othello::{flip, get_last_moves, get_moves, Board};
 
 use std::{cmp::min, env, path::PathBuf, str::FromStr};
 
@@ -302,10 +302,11 @@ pub fn retrospective_flip(
 
 // retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
 pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
-    let board = Board::new(b[0], b[1]);
-    let mut retroflips = [0u64; 10000];
-    let mut op = board.opponent & !CENTER_MASK;
+    let mut retroflips: [u64; 10000] = [0u64; 10000];
     let mut ans = vec![];
+
+    let board = Board::new(b[0], b[1]);
+    let mut op = get_last_moves(board.opponent, board.player);
 
     while op != 0 {
         let index = op.trailing_zeros() as usize;
@@ -334,7 +335,7 @@ pub fn prev_states_with_buffer(
 ) {
     out.clear();
     let board = Board::new(b[0], b[1]);
-    let mut op = board.opponent & !CENTER_MASK;
+    let mut op = get_last_moves(board.opponent, board.player);
 
     while op != 0 {
         let index = op.trailing_zeros() as usize;

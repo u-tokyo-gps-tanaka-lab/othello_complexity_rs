@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 use dashmap::DashSet;
 use rayon::{prelude::*, ThreadPoolBuilder};
@@ -10,7 +9,7 @@ use crate::othello::{get_moves, Board};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::kissat::is_sat_ok;
 use crate::prunings::linear_programming::check_lp;
-use crate::prunings::occupancy::{check_occupancy, occupancy_order_cache_stats};
+use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{prev_states_with_buffer, SearchResult};
 use crate::search::forward::is_leaf;
@@ -116,15 +115,15 @@ pub fn parallel_inmemory_retrospective_bfs(
                 .next
         });
 
-        let order_stats = occupancy_order_cache_stats();
-        eprintln!(
-            "occupancy_order TT hit rate: {:.2}% (hits={}, lookups={}, misses={}, entries={})",
-            order_stats.hit_rate() * 100.0,
-            order_stats.hits,
-            order_stats.lookups,
-            order_stats.misses(),
-            order_stats.entries,
-        );
+        // let order_stats = crate::prunings::occupancy::occupancy_order_cache_stats();
+        // eprintln!(
+        //     "occupancy_order TT hit rate: {:.2}% (hits={}, lookups={}, misses={}, entries={})",
+        //     order_stats.hit_rate() * 100.0,
+        //     order_stats.hits,
+        //     order_stats.lookups,
+        //     order_stats.misses(),
+        //     order_stats.entries,
+        // );
 
         println!("layer={} : {}", i, next_layer.len());
 

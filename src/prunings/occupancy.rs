@@ -3,21 +3,6 @@ use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-pub fn occupied_to_string(o: u64) -> String {
-    let mut s = String::new();
-    for y in 0..8 {
-        for x in 0..8 {
-            let i = y * 8 + x;
-            if o & (1u64 << i) != 0 {
-                s.push('G');
-            } else {
-                s.push('-');
-            }
-        }
-    }
-    return s;
-}
-
 /// 中央4マスから到達可能なoccupied bitboardを計算
 ///
 /// # 前提条件
@@ -76,15 +61,6 @@ pub fn check_occupancy(occupied: u64) -> bool {
     return result == occupied;
 }
 
-pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
-    if (occupied & CENTER_MASK) != CENTER_MASK {
-        return (false, occupied_to_string(occupied));
-    }
-    let result = reachable_occupancy(occupied);
-    let line = occupied_to_string(result);
-    return (result == occupied, line);
-}
-
 /// 下記の考え方に基づいて、各石の置かれた順序を計算
 /// 1. マスAの石を取り除いたら、マスBが説明不可能になった
 /// → マスBは、マスAを経由して初めて中心と接続できた
@@ -105,6 +81,30 @@ pub fn occupancy_order(occupied: u64) -> [u64; 64] {
         b = newb;
     }
     ans
+}
+
+pub fn occupied_to_string(o: u64) -> String {
+    let mut s = String::new();
+    for y in 0..8 {
+        for x in 0..8 {
+            let i = y * 8 + x;
+            if o & (1u64 << i) != 0 {
+                s.push('G');
+            } else {
+                s.push('-');
+            }
+        }
+    }
+    return s;
+}
+
+pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
+    if (occupied & CENTER_MASK) != CENTER_MASK {
+        return (false, occupied_to_string(occupied));
+    }
+    let result = reachable_occupancy(occupied);
+    let line = occupied_to_string(result);
+    return (result == occupied, line);
 }
 
 static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64]>> = OnceLock::new();
