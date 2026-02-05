@@ -61,6 +61,7 @@ pub fn parallel_retrospective_greedy_best_first_search(
     leafnode: &Vec<[u64; 2]>,
     node_limit: usize,
     use_lp: bool,
+    num_threads: usize,
 ) -> SearchResult {
     // 共有データ構造
     let open: Arc<SkipSet<(NotNan<f64>, [u64; 2])>> = Arc::new(SkipSet::new());
@@ -88,9 +89,7 @@ pub fn parallel_retrospective_greedy_best_first_search(
     }
 
     // スレッドプール構築
-    let num_threads = thread::available_parallelism()
-        .map(|n| n.get().min(64))
-        .unwrap_or(1);
+    let num_threads = if num_threads == 0 { 1 } else { num_threads };
     let pool = ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(|i| format!("gbfs-worker-{i}"))

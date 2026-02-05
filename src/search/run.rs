@@ -210,8 +210,13 @@ pub fn run_parallel_gbfs(
     //    leaf_cache.leaf_count()
     //);
 
-    init_rayon(rayon_threads);
-
+    let rayon_threads = match rayon_threads {
+        Some(n) if n > 0 => n,
+        Some(_) => 1,
+        None => std::thread::available_parallelism()
+            .map(|n| n.get().min(64))
+            .unwrap_or(1),
+    };
     for board in boards {
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         let line = board.to_string();
@@ -222,7 +227,12 @@ pub fn run_parallel_gbfs(
         }
 
         let result = parallel_retrospective_greedy_best_first_search(
-            &board, discs, &leaf, node_limit, use_lp,
+            &board,
+            discs,
+            &leaf,
+            node_limit,
+            use_lp,
+            rayon_threads,
         );
         outputs.write_result(result, &line)?;
         outputs.flush()?;
