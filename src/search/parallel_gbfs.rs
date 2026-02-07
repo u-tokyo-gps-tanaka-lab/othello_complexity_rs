@@ -12,7 +12,7 @@ use crate::othello::{get_moves, Board, CENTER_MASK};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::seg3::check_seg3_more;
 use crate::prunings::{linear_programming::check_lp, occupancy::check_occupancy};
-use crate::search::core::{prev_states, retrospective_flip, SearchResult};
+use crate::search::core::{prev_states_with_buffer, retrospective_flip, SearchResult};
 use crate::search::forward::is_leaf;
 
 // 探索の終了状態
@@ -23,6 +23,8 @@ const STATE_LIMIT_REACHED: u8 = 3;
 
 thread_local! {
     static RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
+    static PREV_RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
+    static PREV_STATES_BUF: RefCell<Vec<[u64; 2]>> = RefCell::new(Vec::new());
 }
 
 fn heuristic_function(x: [u64; 2]) -> f64 {
@@ -213,40 +215,48 @@ fn expand_node(
     state: &AtomicU8,
     node_limit: usize,
 ) {
-    for prev in prev_states(node) {
-        if state.load(Ordering::Acquire) != STATE_RUNNING {
-            break;
-        }
+    PREV_RETROFLIPS_BUF.with(|retroflips| {
+        PREV_STATES_BUF.with(|prev_buf| {
+            let mut retroflips = retroflips.borrow_mut();
+            let mut prev_buf = prev_buf.borrow_mut();
+            prev_states_with_buffer(node, &mut *retroflips, &mut *prev_buf);
 
-        // 枝刈りチェック
-        let oc = prev[0] | prev[1];
-        if !check_occupancy(oc)
-            || !check_seg3_more(prev[0], prev[1], false)
-            || !check_edge_patterns(prev[0], prev[1])
-        {
-            continue;
-        }
+            for prev in prev_buf.iter().copied() {
+                if state.load(Ordering::Acquire) != STATE_RUNNING {
+                    break;
+                }
 
-        // 正規化して重複チェック
-        let unique = Board::new(prev[0], prev[1]).unique();
-        let child = [unique[0], unique[1]];
+                // 枝刈りチェック
+                let oc = prev[0] | prev[1];
+                if !check_occupancy(oc)
+                    || !check_seg3_more(prev[0], prev[1], false)
+                    || !check_edge_patterns(prev[0], prev[1])
+                {
+                    continue;
+                }
 
-        if visited.insert(child) {
-            let new_count = visited_count.fetch_add(1, Ordering::Relaxed) + 1;
-            if new_count > node_limit {
-                let _ = state.compare_exchange(
-                    STATE_RUNNING,
-                    STATE_LIMIT_REACHED,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                );
-                break;
+                // 正規化して重複チェック
+                let unique = Board::new(prev[0], prev[1]).unique();
+                let child = [unique[0], unique[1]];
+
+                if visited.insert(child) {
+                    let new_count = visited_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    if new_count > node_limit {
+                        let _ = state.compare_exchange(
+                            STATE_RUNNING,
+                            STATE_LIMIT_REACHED,
+                            Ordering::AcqRel,
+                            Ordering::Relaxed,
+                        );
+                        break;
+                    }
+                    if let Ok(h) = NotNan::new(heuristic_function(child)) {
+                        open.insert((h, child));
+                    }
+                }
             }
-            if let Ok(h) = NotNan::new(heuristic_function(child)) {
-                open.insert((h, child));
-            }
-        }
-    }
+        });
+    });
 }
 
 /// 探索が枯渇したか判定（キューが空かつ処理中ノードがない）
