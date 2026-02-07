@@ -346,8 +346,8 @@ pub fn run_parallel_inmemory_bfs(
     input: &Path,
     out_dir: &Path,
     discs: i32,
+    node_limit: usize,
     use_lp: bool,
-    use_sat: bool,
     use_occupancy_cache: bool,
 ) -> io::Result<()> {
     let boards = parse_file_to_boards(&input.to_string_lossy())?;
@@ -376,8 +376,8 @@ pub fn run_parallel_inmemory_bfs(
             &board,
             discs,
             &leaf,
+            node_limit,
             use_lp,
-            use_sat,
             use_occupancy_cache,
         );
         outputs.write_result(result, &line)?;

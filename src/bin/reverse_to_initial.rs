@@ -156,7 +156,7 @@ pub struct InmemoryBfsOpts {
     #[arg(long, value_name = "N")]
     discs: Option<i32>,
 
-    /// Maximum number of expanded nodes per BFS layer
+    /// Maximum estimated in-memory nodes for in-memory BFS (omitted = unlimited)
     #[arg(long = "max-nodes", value_name = "N")]
     max_nodes: Option<usize>,
 
@@ -164,25 +164,19 @@ pub struct InmemoryBfsOpts {
     #[arg(long)]
     use_lp: bool,
 
-    /// Use SAT-solver for pruning
-    #[arg(long)]
-    use_sat: bool,
-
     /// Use cached occupancy order computation
     #[arg(long)]
     use_occupancy_cache: bool,
 }
 
 impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, bool, bool) {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, bool) {
         let input = self.input.clone().unwrap_or_else(default_input_path);
         let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
         let discs = self
             .discs
             .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        let max_nodes = self
-            .max_nodes
-            .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
+        let max_nodes = self.max_nodes.unwrap_or(usize::MAX);
 
         (
             input,
@@ -190,7 +184,6 @@ impl InmemoryBfsOpts {
             discs,
             max_nodes,
             self.use_lp,
-            self.use_sat,
             self.use_occupancy_cache,
         )
     }
@@ -273,14 +266,13 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             run_parallel_bfs(&cfg)
         }
         Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs, max_nodes, use_lp, use_sat, use_occupancy_cache) =
-                opts.resolve();
+            let (input, out_dir, discs, max_nodes, use_lp, use_occupancy_cache) = opts.resolve();
             run_parallel_inmemory_bfs(
                 &input,
                 &out_dir,
                 discs,
+                max_nodes,
                 use_lp,
-                use_sat,
                 use_occupancy_cache,
             )
         }

@@ -8,12 +8,35 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 
 use crate::othello::{get_moves, Board};
 use crate::prunings::impossible_edges::check_edge_patterns;
-use crate::prunings::kissat::is_sat_ok;
 use crate::prunings::linear_programming::check_lp;
 use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{prev_states_with_buffer, SearchResult};
 use crate::search::forward::is_leaf;
+
+/// 探索全体で共有される不変パラメータ
+struct SearchContext<'a> {
+    closed: &'a DashSet<[u64; 2], CustomHash>,
+    found: &'a AtomicBool,
+    goal_disc_count: i32,
+    leafnode: &'a Vec<[u64; 2]>,
+    use_lp: bool,
+    use_occupancy_cache: bool,
+}
+
+impl SearchContext<'_> {
+    /// 目標石数に到達していれば true を返す。leafnode に一致する場合は found フラグを立てる。
+    fn check_goal(&self, state: [u64; 2]) -> bool {
+        let disc_count = (state[0] | state[1]).count_ones() as i32;
+        if disc_count == self.goal_disc_count {
+            if is_leaf(state, self.leafnode, self.goal_disc_count) {
+                self.found.store(true, Ordering::Release);
+            }
+            return true;
+        }
+        false
+    }
+}
 
 /// Parallel in-memory retrospective BFS search
 ///
@@ -33,8 +56,8 @@ pub fn parallel_inmemory_retrospective_bfs(
     board: &Board,
     discs: i32,
     leafnode: &Vec<[u64; 2]>,
+    _node_limit: usize,
     use_lp: bool,
-    use_sat: bool,
     use_occupancy_cache: bool,
 ) -> SearchResult {
     let initial_disc_count = board.popcount() as i32;
@@ -52,22 +75,19 @@ pub fn parallel_inmemory_retrospective_bfs(
     }
 
     // 初期ノードを登録
-    let mut current_layer = vec![];
-    let start_seen = DashSet::new();
-    let starts = if get_moves(board.opponent, board.player) == 0 {
-        vec![
-            [board.player, board.opponent],
-            [board.opponent, board.player],
-        ]
-    } else {
-        vec![[board.player, board.opponent]]
-    };
-    for s in starts {
-        let unique = Board::new(s[0], s[1]).unique();
-        if start_seen.insert(unique) {
-            current_layer.push(unique);
+    let mut current_layer = {
+        let u1 = board.unique();
+        if get_moves(board.opponent, board.player) == 0 {
+            let u2 = Board::new(board.opponent, board.player).unique();
+            if u1 == u2 {
+                vec![u1]
+            } else {
+                vec![u1, u2]
+            }
+        } else {
+            vec![u1]
         }
-    }
+    };
 
     // スレッドプール構築
     let num_threads = thread::available_parallelism()
@@ -79,16 +99,26 @@ pub fn parallel_inmemory_retrospective_bfs(
         .build()
         .expect("failed to build thread pool");
 
+    // 石数ごとにlayerを作る
     for i in (discs..initial_disc_count).rev() {
         if current_layer.is_empty() {
             return SearchResult::NotFound;
         }
 
-        // Per-layer seen set to deduplicate this expansion only
-        let layer_seen: Arc<DashSet<[u64; 2], CustomHash>> =
+        // 重複排除のチェック用の変数
+        // sort + dedupによる重複排除は重いのでチェック専用のDashSetを使う
+        let closed: Arc<DashSet<[u64; 2], CustomHash>> =
             Arc::new(DashSet::with_hasher(CustomHash::default()));
 
-        // Parallel expansion with thread-local aggregation
+        let ctx = SearchContext {
+            closed: &closed,
+            found: &found,
+            goal_disc_count: discs,
+            leafnode,
+            use_lp,
+            use_occupancy_cache,
+        };
+
         let next_layer = pool.install(|| {
             current_layer
                 .par_iter()
@@ -96,19 +126,7 @@ pub fn parallel_inmemory_retrospective_bfs(
                     if found.load(Ordering::Relaxed) {
                         return tls;
                     }
-                    expand_node(
-                        node,
-                        &layer_seen,
-                        &mut tls.next,
-                        &mut *tls.retroflips,
-                        &mut tls.prev_buf,
-                        &found,
-                        discs,
-                        leafnode,
-                        use_lp,
-                        use_sat,
-                        use_occupancy_cache,
-                    );
+                    tls.expand_next_layer(node, &ctx);
                     tls
                 })
                 .reduce(ThreadLocal::new, |mut a, mut b| {
@@ -137,6 +155,7 @@ pub fn parallel_inmemory_retrospective_bfs(
         current_layer = next_layer;
     }
 
+    // 目標判定
     for state in &current_layer {
         if is_leaf(*state, leafnode, discs) {
             return SearchResult::Found;
@@ -166,120 +185,67 @@ impl ThreadLocal {
             prev_buf: Vec::with_capacity(256),
         }
     }
-}
 
-/// 1手前のノードを展開する
-fn expand_node(
-    node: [u64; 2],
-    layer_seen: &DashSet<[u64; 2], CustomHash>,
-    next_layer: &mut Vec<[u64; 2]>,
-    retroflips: &mut [u64; 10_000],
-    prev_buf: &mut Vec<[u64; 2]>,
-    found: &AtomicBool,
-    final_target_disc: i32,
-    leafnode: &Vec<[u64; 2]>,
-    use_lp: bool,
-    use_sat: bool,
-    use_occupancy_cache: bool,
-) {
-    if found.load(Ordering::Relaxed) {
-        return;
-    }
-
-    expand_prev_states(
-        node,
-        layer_seen,
-        next_layer,
-        retroflips,
-        prev_buf,
-        found,
-        final_target_disc,
-        leafnode,
-        use_lp,
-        use_sat,
-        use_occupancy_cache,
-    );
-
-    if found.load(Ordering::Relaxed) {
-        return;
-    }
-
-    // 直前手がパスだった場合は、そのまま同じ石数で展開する
-    if get_moves(node[1], node[0]) == 0 {
-        let pass = Board::new(node[1], node[0]).unique();
-        if !layer_seen.insert(pass) {
+    /// 入力したノードを処理して1手前を展開する
+    fn expand_next_layer(&mut self, node: [u64; 2], ctx: &SearchContext) {
+        if ctx.found.load(Ordering::Relaxed) {
             return;
         }
 
-        let disc_count = (pass[0] | pass[1]).count_ones() as i32;
-        if disc_count == final_target_disc {
-            if is_leaf(pass, leafnode, final_target_disc) {
-                found.store(true, Ordering::Release);
-            }
+        self.generate_predecessors(node, ctx);
+
+        if ctx.found.load(Ordering::Relaxed) {
             return;
         }
 
-        expand_prev_states(
-            pass,
-            layer_seen,
-            next_layer,
-            retroflips,
-            prev_buf,
-            found,
-            final_target_disc,
-            leafnode,
-            use_lp,
-            use_sat,
-            use_occupancy_cache,
-        );
-    }
-}
+        // 直前手がパスだった場合は石数が変わらないので同じlayerに加える
+        if get_moves(node[1], node[0]) == 0 {
+            let pass = Board::new(node[1], node[0]).unique();
 
-fn expand_prev_states(
-    node: [u64; 2],
-    layer_seen: &DashSet<[u64; 2], CustomHash>,
-    next_layer: &mut Vec<[u64; 2]>,
-    retroflips: &mut [u64; 10_000],
-    prev_buf: &mut Vec<[u64; 2]>,
-    found: &AtomicBool,
-    final_target_disc: i32,
-    leafnode: &Vec<[u64; 2]>,
-    use_lp: bool,
-    use_sat: bool,
-    use_occupancy_cache: bool,
-) {
-    prev_states_with_buffer(node, retroflips, prev_buf);
-    for prev in prev_buf.iter().copied() {
-        if found.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // 枝刈り
-        if !check_edge_patterns(prev[0], prev[1])
-            || !check_occupancy(prev[0] | prev[1])
-            || !check_seg3_more(prev[0], prev[1], use_occupancy_cache)
-            || (use_lp && !check_lp(prev[0], prev[1], false, use_occupancy_cache))
-            || (use_sat && !is_sat_ok(prev[0], prev[1], false).unwrap_or(true))
-        {
-            continue;
-        }
-
-        let unique = Board::new(prev[0], prev[1]).unique();
-
-        if !layer_seen.insert(unique) {
-            continue; // Already seen in this layer
-        }
-
-        // 目標判定
-        let disc_count = (unique[0] | unique[1]).count_ones() as i32;
-        if disc_count == final_target_disc {
-            if is_leaf(unique, leafnode, final_target_disc) {
-                found.store(true, Ordering::Release);
+            // 重複回避
+            if !ctx.closed.insert(pass) {
                 return;
             }
-            continue;
-        }
 
-        next_layer.push(unique);
+            // 目標判定
+            if ctx.check_goal(pass) {
+                return;
+            }
+
+            self.generate_predecessors(pass, ctx);
+        }
+    }
+
+    /// 1手前のノードを生成する
+    fn generate_predecessors(&mut self, node: [u64; 2], ctx: &SearchContext) {
+        prev_states_with_buffer(node, &mut *self.retroflips, &mut self.prev_buf);
+        for prev in self.prev_buf.iter().copied() {
+            if ctx.found.load(Ordering::Relaxed) {
+                return;
+            }
+
+            // 枝刈り
+            if !check_edge_patterns(prev[0], prev[1])
+                || !check_occupancy(prev[0] | prev[1])
+                || !check_seg3_more(prev[0], prev[1], ctx.use_occupancy_cache)
+                || (ctx.use_lp && !check_lp(prev[0], prev[1], false, ctx.use_occupancy_cache))
+            {
+                continue;
+            }
+
+            let unique = Board::new(prev[0], prev[1]).unique();
+
+            // 重複回避
+            if !ctx.closed.insert(unique) {
+                continue;
+            }
+
+            // 目標判定
+            if ctx.check_goal(unique) {
+                continue;
+            }
+
+            self.next.push(unique);
+        }
     }
 }
