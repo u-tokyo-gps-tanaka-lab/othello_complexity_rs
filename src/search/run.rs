@@ -1,7 +1,6 @@
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::time::Duration;
 
 use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
@@ -349,7 +348,6 @@ pub fn run_parallel_inmemory_bfs(
     discs: i32,
     use_lp: bool,
     use_sat: bool,
-    time_limit: Option<Duration>,
     use_occupancy_cache: bool,
 ) -> io::Result<()> {
     let boards = parse_file_to_boards(&input.to_string_lossy())?;
@@ -362,10 +360,6 @@ pub fn run_parallel_inmemory_bfs(
 
     let mut outputs = ensure_outputs(out_dir)?;
     println!("info: writing outputs under '{}'", out_dir.display());
-
-    if let Some(val) = time_limit {
-        println!("time limit per board = {:#?}", val)
-    }
 
     for board in boards {
         let line = board.to_string();

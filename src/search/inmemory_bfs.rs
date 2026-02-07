@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
+use crate::hash::CustomHash;
 use dashmap::DashSet;
 use rayon::{prelude::*, ThreadPoolBuilder};
 
@@ -24,7 +25,6 @@ use crate::search::forward::is_leaf;
 /// - `discs`: Target disc count for meeting forward search leaf nodes
 /// - `leafnode`: Sorted vector of canonical leaf nodes from forward search
 /// - `use_lp`: Enable LP-solver pruning
-/// - `time_limit`: Per-board time limit (None = no limit)
 ///
 /// # Returns
 /// - `SearchResult::Found`: A path exists from initial state to goal
@@ -85,7 +85,8 @@ pub fn parallel_inmemory_retrospective_bfs(
         }
 
         // Per-layer seen set to deduplicate this expansion only
-        let layer_seen: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+        let layer_seen: Arc<DashSet<[u64; 2], CustomHash>> =
+            Arc::new(DashSet::with_hasher(CustomHash::default()));
 
         // Parallel expansion with thread-local aggregation
         let next_layer = pool.install(|| {
@@ -170,7 +171,7 @@ impl ThreadLocal {
 /// 1手前のノードを展開する
 fn expand_node(
     node: [u64; 2],
-    layer_seen: &DashSet<[u64; 2]>,
+    layer_seen: &DashSet<[u64; 2], CustomHash>,
     next_layer: &mut Vec<[u64; 2]>,
     retroflips: &mut [u64; 10_000],
     prev_buf: &mut Vec<[u64; 2]>,
@@ -236,7 +237,7 @@ fn expand_node(
 
 fn expand_prev_states(
     node: [u64; 2],
-    layer_seen: &DashSet<[u64; 2]>,
+    layer_seen: &DashSet<[u64; 2], CustomHash>,
     next_layer: &mut Vec<[u64; 2]>,
     retroflips: &mut [u64; 10_000],
     prev_buf: &mut Vec<[u64; 2]>,

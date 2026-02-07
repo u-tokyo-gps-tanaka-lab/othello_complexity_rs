@@ -1,6 +1,5 @@
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -157,6 +156,10 @@ pub struct InmemoryBfsOpts {
     #[arg(long, value_name = "N")]
     discs: Option<i32>,
 
+    /// Maximum number of expanded nodes per BFS layer
+    #[arg(long = "max-nodes", value_name = "N")]
+    max_nodes: Option<usize>,
+
     /// Use LP-solver for pruning
     #[arg(long)]
     use_lp: bool,
@@ -165,37 +168,29 @@ pub struct InmemoryBfsOpts {
     #[arg(long)]
     use_sat: bool,
 
-    /// Time limit per board in milliseconds (0 = no limit)
-    #[arg(long = "time-limit-ms", value_name = "MS")]
-    time_limit_ms: Option<u64>,
-
     /// Use cached occupancy order computation
     #[arg(long)]
     use_occupancy_cache: bool,
 }
 
 impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, bool, bool, Option<Duration>, bool) {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, bool, bool) {
         let input = self.input.clone().unwrap_or_else(default_input_path);
         let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
         let discs = self
             .discs
             .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        let time_limit_ms = self
-            .time_limit_ms
-            .unwrap_or_else(|| read_env_with_default("TIME_LIMIT_MS", 0u64));
-        let time_limit = if time_limit_ms == 0 {
-            None
-        } else {
-            Some(Duration::from_millis(time_limit_ms))
-        };
+        let max_nodes = self
+            .max_nodes
+            .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
+
         (
             input,
             out_dir,
             discs,
+            max_nodes,
             self.use_lp,
             self.use_sat,
-            time_limit,
             self.use_occupancy_cache,
         )
     }
@@ -278,7 +273,7 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             run_parallel_bfs(&cfg)
         }
         Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs, use_lp, use_sat, time_limit, use_occupancy_cache) =
+            let (input, out_dir, discs, max_nodes, use_lp, use_sat, use_occupancy_cache) =
                 opts.resolve();
             run_parallel_inmemory_bfs(
                 &input,
@@ -286,7 +281,6 @@ fn dispatch(cli: Cli) -> io::Result<()> {
                 discs,
                 use_lp,
                 use_sat,
-                time_limit,
                 use_occupancy_cache,
             )
         }

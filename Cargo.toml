@@ -21,6 +21,9 @@ crossbeam-skiplist = "0.1"
 crossbeam = "0.8"
 ordered-float = "4"
 flurry = "0.5"
+rapidhash = "4.2.2"
+foldhash = "0.2.0"
+ahash = "0.8.12"
 
 [[bin]]
 name = "reverse_to_initial"

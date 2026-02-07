@@ -1,3 +1,4 @@
+use crate::hash::CustomHash;
 use crate::othello::{backshift, Direction, CENTER_MASK};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -107,12 +108,12 @@ pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
     return (result == occupied, line);
 }
 
-static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64]>> = OnceLock::new();
+static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64], CustomHash>> = OnceLock::new();
 static OCCUPANCY_ORDER_TT_LOOKUPS: AtomicU64 = AtomicU64::new(0);
 static OCCUPANCY_ORDER_TT_HITS: AtomicU64 = AtomicU64::new(0);
 
-fn occupancy_order_tt() -> &'static DashMap<u64, [u64; 64]> {
-    OCCUPANCY_ORDER_TT.get_or_init(DashMap::new)
+fn occupancy_order_tt() -> &'static DashMap<u64, [u64; 64], CustomHash> {
+    OCCUPANCY_ORDER_TT.get_or_init(|| DashMap::with_hasher(CustomHash::default()))
 }
 
 /// Clear the occupancy order transposition table (optional).
