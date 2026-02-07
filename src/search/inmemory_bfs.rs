@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -18,6 +18,10 @@ use crate::search::forward::is_leaf;
 struct SearchContext<'a> {
     closed: &'a DashSet<[u64; 2], CustomHash>,
     found: &'a AtomicBool,
+    exceeded: &'a AtomicBool,
+    next_count: &'a AtomicUsize,
+    current_layer_count: usize,
+    node_limit: usize,
     goal_disc_count: i32,
     leafnode: &'a Vec<[u64; 2]>,
     use_lp: bool,
@@ -25,6 +29,25 @@ struct SearchContext<'a> {
 }
 
 impl SearchContext<'_> {
+    #[inline]
+    fn should_stop(&self) -> bool {
+        self.found.load(Ordering::Relaxed) || self.exceeded.load(Ordering::Relaxed)
+    }
+
+    /// `closed` への新規登録後に呼び、同時保持ノード上限を超える場合は停止フラグを立てる。
+    #[inline]
+    fn reserve_slot_after_insert(&self) -> bool {
+        if self.should_stop() {
+            return false;
+        }
+        let next = self.next_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if self.current_layer_count.saturating_add(next) > self.node_limit {
+            self.exceeded.store(true, Ordering::Release);
+            return false;
+        }
+        true
+    }
+
     /// 目標石数に到達していれば true を返す。leafnode に一致する場合は found フラグを立てる。
     fn check_goal(&self, state: [u64; 2]) -> bool {
         let disc_count = (state[0] | state[1]).count_ones() as i32;
@@ -47,16 +70,18 @@ impl SearchContext<'_> {
 /// - `board`: The start node
 /// - `discs`: Target disc count for meeting forward search leaf nodes
 /// - `leafnode`: Sorted vector of canonical leaf nodes from forward search
+/// - `node_limit`: Maximum number of simultaneously held in-memory nodes
 /// - `use_lp`: Enable LP-solver pruning
 ///
 /// # Returns
 /// - `SearchResult::Found`: A path exists from initial state to goal
 /// - `SearchResult::NotFound`: No path exists (search exhausted or tree unexpandable)
+/// - `SearchResult::Unknown`: Resource limit reached before completion
 pub fn parallel_inmemory_retrospective_bfs(
     board: &Board,
     discs: i32,
     leafnode: &Vec<[u64; 2]>,
-    _node_limit: usize,
+    node_limit: usize,
     use_lp: bool,
     use_occupancy_cache: bool,
 ) -> SearchResult {
@@ -64,6 +89,7 @@ pub fn parallel_inmemory_retrospective_bfs(
     println!("target_discs={}", initial_disc_count);
 
     let found: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let exceeded: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     // 早期return
     if initial_disc_count <= discs {
@@ -88,6 +114,9 @@ pub fn parallel_inmemory_retrospective_bfs(
             vec![u1]
         }
     };
+    if current_layer.len() > node_limit {
+        return SearchResult::Unknown;
+    }
 
     // スレッドプール構築
     let num_threads = thread::available_parallelism()
@@ -101,6 +130,12 @@ pub fn parallel_inmemory_retrospective_bfs(
 
     // 石数ごとにlayerを作る
     for i in (discs..initial_disc_count).rev() {
+        if found.load(Ordering::Acquire) {
+            return SearchResult::Found;
+        }
+        if exceeded.load(Ordering::Acquire) {
+            return SearchResult::Unknown;
+        }
         if current_layer.is_empty() {
             return SearchResult::NotFound;
         }
@@ -109,10 +144,15 @@ pub fn parallel_inmemory_retrospective_bfs(
         // sort + dedupによる重複排除は重いのでチェック専用のDashSetを使う
         let closed: Arc<DashSet<[u64; 2], CustomHash>> =
             Arc::new(DashSet::with_hasher(CustomHash::default()));
+        let next_count = AtomicUsize::new(0);
 
         let ctx = SearchContext {
             closed: &closed,
             found: &found,
+            exceeded: &exceeded,
+            next_count: &next_count,
+            current_layer_count: current_layer.len(),
+            node_limit,
             goal_disc_count: discs,
             leafnode,
             use_lp,
@@ -123,7 +163,7 @@ pub fn parallel_inmemory_retrospective_bfs(
             current_layer
                 .par_iter()
                 .fold(ThreadLocal::new, |mut tls, &node| {
-                    if found.load(Ordering::Relaxed) {
+                    if ctx.should_stop() {
                         return tls;
                     }
                     tls.expand_next_layer(node, &ctx);
@@ -150,6 +190,9 @@ pub fn parallel_inmemory_retrospective_bfs(
 
         if found.load(Ordering::Acquire) {
             return SearchResult::Found;
+        }
+        if exceeded.load(Ordering::Acquire) {
+            return SearchResult::Unknown;
         }
 
         current_layer = next_layer;
@@ -188,13 +231,13 @@ impl ThreadLocal {
 
     /// 入力したノードを処理して1手前を展開する
     fn expand_next_layer(&mut self, node: [u64; 2], ctx: &SearchContext) {
-        if ctx.found.load(Ordering::Relaxed) {
+        if ctx.should_stop() {
             return;
         }
 
         self.generate_predecessors(node, ctx);
 
-        if ctx.found.load(Ordering::Relaxed) {
+        if ctx.should_stop() {
             return;
         }
 
@@ -204,6 +247,12 @@ impl ThreadLocal {
 
             // 重複回避
             if !ctx.closed.insert(pass) {
+                return;
+            }
+
+            if !ctx.reserve_slot_after_insert() {
+                // 上限超過と同時に解発見が起きた場合は Found を優先
+                let _ = ctx.check_goal(pass);
                 return;
             }
 
@@ -220,7 +269,7 @@ impl ThreadLocal {
     fn generate_predecessors(&mut self, node: [u64; 2], ctx: &SearchContext) {
         prev_states_with_buffer(node, &mut *self.retroflips, &mut self.prev_buf);
         for prev in self.prev_buf.iter().copied() {
-            if ctx.found.load(Ordering::Relaxed) {
+            if ctx.should_stop() {
                 return;
             }
 
@@ -238,6 +287,12 @@ impl ThreadLocal {
             // 重複回避
             if !ctx.closed.insert(unique) {
                 continue;
+            }
+
+            if !ctx.reserve_slot_after_insert() {
+                // 上限超過と同時に解発見が起きた場合は Found を優先
+                let _ = ctx.check_goal(unique);
+                return;
             }
 
             // 目標判定

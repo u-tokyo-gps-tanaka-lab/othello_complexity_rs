@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
 
+use crate::search::core::SearchResult;
 use crate::search::{
     dfs::retrospective_search,
     external_bfs::{
@@ -380,6 +381,9 @@ pub fn run_parallel_inmemory_bfs(
             use_lp,
             use_occupancy_cache,
         );
+        if result == SearchResult::Unknown {
+            println!("info: node limit ({}) exceeded", node_limit)
+        }
         outputs.write_result(result, &line)?;
         outputs.flush()?;
     }
