@@ -105,6 +105,44 @@ fn occupancy_deps() -> &'static ([[(u8, u8); 8]; 64], [u8; 64]) {
     })
 }
 
+/// 64x64ビット行列（row-major, 1行=1u64）を転置する。
+/// - 入力 rows[r] の bit c を、出力 out[c] の bit r に移す
+/// - bit 0 は LSB（rows[r] >> 0 が列0）という前提
+/// ref: https://lukas-prokop.at/articles/2021-07-23-transpose
+#[inline(always)]
+fn transpose_bit_matrix_64(mut rows: [u64; 64]) -> [u64; 64] {
+    const MASK: [[u64; 2]; 6] = [
+        [0x5555_5555_5555_5555u64, 0xAAAA_AAAA_AAAA_AAAAu64],
+        [0x3333_3333_3333_3333u64, 0xCCCC_CCCC_CCCC_CCCCu64],
+        [0x0F0F_0F0F_0F0F_0F0Fu64, 0xF0F0_F0F0_F0F0_F0F0u64],
+        [0x00FF_00FF_00FF_00FFu64, 0xFF00_FF00_FF00_FF00u64],
+        [0x0000_FFFF_0000_FFFFu64, 0xFFFF_0000_FFFF_0000u64],
+        [0x0000_0000_FFFF_FFFFu64, 0xFFFF_FFFF_0000_0000u64],
+    ];
+
+    for j in (0..6).rev() {
+        let s: usize = 1usize << j; // 32,16,8,4,2,1
+        let sh: u32 = s as u32;
+
+        for p in 0..(32 / s) {
+            for i in 0..s {
+                let idx0 = p * 2 * s + i;
+                let idx1 = idx0 + s;
+
+                let a = rows[idx0];
+                let b = rows[idx1];
+
+                let x = (a & MASK[j][0]) | ((b & MASK[j][0]) << sh);
+                let y = ((a & MASK[j][1]) >> sh) | (b & MASK[j][1]);
+
+                rows[idx0] = x;
+                rows[idx1] = y;
+            }
+        }
+    }
+    rows
+}
+
 /// 下記の考え方に基づいて、各石の置かれた順序を計算
 /// 1. マスAの石を取り除いたら、マスBが説明不可能になった
 /// → マスBは、マスAを経由して初めて中心と接続できた
@@ -153,26 +191,16 @@ pub fn occupancy_order(occupied: u64) -> [u64; 64] {
     }
 
     // ans[r] の bit w:「石 r を除いた局面で石 w が説明可能か」を表す
-    let mut ans = [0; 64];
+    let mut ans = [0u64; 64];
 
-    // ansにおいてr == wの場合の処理
-    let mut r = occupied;
-    while r != 0 {
-        let sq = r.trailing_zeros() as usize;
-        r &= r - 1;
-        ans[sq] = 1u64 << sq; // 石sqのbitは立てておく
-    }
-
-    // alive[w][sq] = true を ans[sq][w] = true に変換する
-    // alive[w] の bit sq は「もしsqを除去したらwが説明可能」という意味だったことに注意すると、
-    // w を固定して alive[w] 中の立っている bit sq を列挙し、ans[sq]のbit wを立てれば良い
-    for w in 0..64 {
-        let mut scenarios = occupied & alive[w];
-        while scenarios != 0 {
-            let sq = scenarios.trailing_zeros() as usize;
-            scenarios &= scenarios - 1;
-            ans[sq] |= 1u64 << w;
-        }
+    // alive[w] の bit r を ans[r] の bit w に転置する
+    // ただしnaive実装と同様に、occupiedに含まれないrについては0を返す。
+    let transposed = transpose_bit_matrix_64(alive);
+    let mut occ = occupied;
+    while occ != 0 {
+        let sq = occ.trailing_zeros() as usize;
+        occ &= occ - 1;
+        ans[sq] = transposed[sq] | (1u64 << sq); // 石sqのbitを立てる
     }
     ans
 }
@@ -281,7 +309,7 @@ mod tests {
     #[test]
     fn occupancy_order_matches_naive_random() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x0ccu64);
-        for _ in 0..10000 {
+        for _ in 0..100000 {
             let occupied = rng.random::<u64>();
             assert_eq!(
                 occupancy_order(occupied),
@@ -295,7 +323,7 @@ mod tests {
     #[test]
     fn occupancy_order_matches_naive_random_with_center() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x0cc5eedu64);
-        for _ in 0..10000 {
+        for _ in 0..100000 {
             let occupied = rng.random::<u64>() | CENTER_MASK;
             assert_eq!(
                 occupancy_order(occupied),
