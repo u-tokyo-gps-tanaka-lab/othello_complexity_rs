@@ -62,6 +62,49 @@ pub fn check_occupancy(occupied: u64) -> bool {
     return result == occupied;
 }
 
+#[inline(always)]
+fn is_center4(sq: usize) -> bool {
+    (CENTER_MASK & (1u64 << sq)) != 0
+}
+
+static OCCUPANCY_DEPS: OnceLock<([[(u8, u8); 8]; 64], [u8; 64])> = OnceLock::new();
+
+/// 各マスが説明可能になるための局所依存先ペア一覧を前計算する
+/// - deps[sq][d] = (a, b) : a=sq+d, b=sq+2dが説明可能ならば、sqも説明可能
+/// - dep_len[sq] : 有効なdの総数。すなわち、sqに対応する(a,b)の総数
+fn occupancy_deps() -> &'static ([[(u8, u8); 8]; 64], [u8; 64]) {
+    OCCUPANCY_DEPS.get_or_init(|| {
+        let dirs = Direction::all();
+        let mut deps = [[(0u8, 0u8); 8]; 64];
+        let mut dep_len = [0u8; 64];
+
+        for sq in 0..64 {
+            let x = (sq & 7) as i32;
+            let y = (sq >> 3) as i32;
+            let mut len = 0usize;
+            for dir in dirs.iter() {
+                let (dx, dy) = dir.to_offset();
+                let x1 = x + dx;
+                let y1 = y + dy;
+                let x2 = x1 + dx;
+                let y2 = y1 + dy;
+                if (0..8).contains(&x1)
+                    && (0..8).contains(&y1)
+                    && (0..8).contains(&x2)
+                    && (0..8).contains(&y2)
+                {
+                    let a = (y1 * 8 + x1) as u8;
+                    let b = (y2 * 8 + x2) as u8;
+                    deps[sq][len] = (a, b);
+                    len += 1;
+                }
+            }
+            dep_len[sq] = len as u8;
+        }
+        (deps, dep_len)
+    })
+}
+
 /// 下記の考え方に基づいて、各石の置かれた順序を計算
 /// 1. マスAの石を取り除いたら、マスBが説明不可能になった
 /// → マスBは、マスAを経由して初めて中心と接続できた
@@ -70,16 +113,66 @@ pub fn check_occupancy(occupied: u64) -> bool {
 /// → マスCは、マスAに依存せずに中心と接続できている
 /// → つまり、マスCはマスAと同時またはそれ以前に置かれた石
 pub fn occupancy_order(occupied: u64) -> [u64; 64] {
+    let (deps, dep_len) = occupancy_deps();
+
+    // alive[w] の bit r:「石 r を除いた局面で石 w が説明可能か」を表す
+    // ansとaliveは転置の関係にある
+    let mut alive = [0u64; 64];
+    for sq in 0..64 {
+        if is_center4(sq) {
+            // 中央4マスは occupied に含まれなくても常に説明可能
+            alive[sq] = u64::MAX;
+        }
+    }
+
+    // alive[sq] = !(1<<sq) AND (OR over deps (alive[a] AND alive[b])) を計算
+    // - 石sqが説明可能であるためには、方向dに対してdeps[dq][d]=(a,b)が説明可能である必要がある
+    // - 石sqを除去した場合はbit sqを落とす
+    loop {
+        let mut changed = false;
+        let mut occ = occupied & !CENTER_MASK;
+        while occ != 0 {
+            let sq = occ.trailing_zeros() as usize;
+            occ &= occ - 1;
+
+            let mut support = 0u64;
+            for i in 0..dep_len[sq] as usize {
+                let (a, b) = deps[sq][i];
+                support |= alive[a as usize] & alive[b as usize];
+            }
+
+            let next = support & !(1u64 << sq);
+            if next != alive[sq] {
+                alive[sq] = next;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // ans[r] の bit w:「石 r を除いた局面で石 w が説明可能か」を表す
     let mut ans = [0; 64];
-    let mut b = occupied;
-    while b != 0 {
-        let sq = b.trailing_zeros() as usize; // 0..=63
-        let newb = b & (b - 1);
-        // bからマスsqの石を取り除いた盤面
-        let b_one = b ^ newb;
-        // マスsqと同時またはそれ以前に置かれた石の集合
-        ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one;
-        b = newb;
+
+    // ansにおいてr == wの場合の処理
+    let mut r = occupied;
+    while r != 0 {
+        let sq = r.trailing_zeros() as usize;
+        r &= r - 1;
+        ans[sq] = 1u64 << sq; // 石sqのbitは立てておく
+    }
+
+    // alive[w][sq] = true を ans[sq][w] = true に変換する
+    // alive[w] の bit sq は「もしsqを除去したらwが説明可能」という意味だったことに注意すると、
+    // w を固定して alive[w] 中の立っている bit sq を列挙し、ans[sq]のbit wを立てれば良い
+    for w in 0..64 {
+        let mut scenarios = occupied & alive[w];
+        while scenarios != 0 {
+            let sq = scenarios.trailing_zeros() as usize;
+            scenarios &= scenarios - 1;
+            ans[sq] |= 1u64 << w;
+        }
     }
     ans
 }
@@ -163,5 +256,53 @@ pub fn occupancy_order_cache_stats() -> OccupancyOrderCacheStats {
         lookups: OCCUPANCY_ORDER_TT_LOOKUPS.load(Ordering::Relaxed),
         hits: OCCUPANCY_ORDER_TT_HITS.load(Ordering::Relaxed),
         entries,
+    }
+}
+
+// ナイーブな実装 (盤上の石全てにreachable_occupancyを呼ぶ)
+pub fn occupancy_order_naive(occupied: u64) -> [u64; 64] {
+    let mut ans = [0; 64];
+    let mut b = occupied;
+    while b != 0 {
+        let sq = b.trailing_zeros() as usize;
+        let newb = b & (b - 1);
+        let b_one = b ^ newb; // bからマスsqの石を取り除いた盤面
+        ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one; // マスsqと同時またはそれ以前に置かれた石の集合
+        b = newb;
+    }
+    ans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{occupancy_order, occupancy_order_naive, CENTER_MASK};
+    use rand::{Rng, SeedableRng};
+
+    #[test]
+    fn occupancy_order_matches_naive_random() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x0ccu64);
+        for _ in 0..10000 {
+            let occupied = rng.random::<u64>();
+            assert_eq!(
+                occupancy_order(occupied),
+                occupancy_order_naive(occupied),
+                "occupied={:#018x}",
+                occupied
+            );
+        }
+    }
+
+    #[test]
+    fn occupancy_order_matches_naive_random_with_center() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x0cc5eedu64);
+        for _ in 0..10000 {
+            let occupied = rng.random::<u64>() | CENTER_MASK;
+            assert_eq!(
+                occupancy_order(occupied),
+                occupancy_order_naive(occupied),
+                "occupied={:#018x}",
+                occupied
+            );
+        }
     }
 }
