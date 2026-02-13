@@ -4,54 +4,69 @@ use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-/// 中央4マスから到達可能なoccupied bitboardを計算
+/// `occupied` のうち、中央4マスから占有到達可能なマスの集合を返す。
+///
+/// # 占有到達可能の定義
+/// マス `s` が占有到達可能であるとは、ある方向 `d` に対して、
+/// `s` から `d` 方向に連続する2マス（`s+d`, `s+2d`）がすでに到達可能であること。
+/// 中央4マス (D4, E4, D5, E5) は無条件で到達可能とする。
+/// (石を置くには、ある方向に既存の石が2つ以上連続している必要がある)
+///
+/// # アルゴリズム
+/// 中央4マスを初期集合として、8方向それぞれについて
+/// 「方向 d に沿って占有到達済みマスが2つ連続する箇所の、-d 側に連なる占有マスの列」を
+/// 新たに占有到達可能と認定し、集合を拡大していく。
+/// 新規追加がなくなるか、`occupied` の全マスが占有到達済みになるまで繰り返す。
 ///
 /// # 前提条件
-/// - 中央2x2 (D4, E4, D5, E5) は常に占有されている必要がある
 /// - A1 が LSB(bit 0)、H1 が bit 7、A8 が bit 56、H8 が bit 63
-//  - 方向は N=+8, S=-8, E=+1, W=-1, NE=+9, NW=+7, SE=-7, SW=-9
-///
-/// # 戻り値
-/// 中央4マスから到達可能なマス目を表すビットマスク
 pub fn reachable_occupancy(occupied: u64) -> u64 {
     let dirs = Direction::all();
 
-    // 中央4マスから到達可能であることが確認済みのマスの集合（初期値は中央4マス）
-    let mut explained: u64 = CENTER_MASK;
+    // 説明可能なマスの集合 (中央4マスで初期化)
+    let mut explainable: u64 = CENTER_MASK;
 
+    // 各反復で最低1マスが追加されるため、中央4マスを除く最大60マス分で十分
     for _ in 0..60 {
-        let mut add_all: u64 = 0;
+        let mut newly_found: u64 = 0;
+
         for &d in &dirs {
-            // 方向dにおいて、既に到達可能な2マスが隣接しているペアを検出
-            let w1 = backshift(d, explained) & explained;
-            // そのペアからさらに1マス逆方向（合計距離2）にある占有マスを検出開始点とする
-            let mut scanning_pos = backshift(d, w1) & occupied;
+            // アンカー探索:
+            // 方向 d に沿って2マス連続で到達済みになっている箇所を見つける。
+            // anchor = { s | s ∈ explainable かつ s+d ∈ explainable }
+            let anchor = backshift(d, explainable) & explainable;
 
-            // 方向dにおいて、既存の到達可能領域から連続する占有マスで新たに到達可能なマス
-            let mut r_d = scanning_pos;
+            // 起点決定:
+            // アンカーの逆方向（-d）1マス先にある occupied マスを、拡張の起点とする。
+            // scanning = { t | t ∈ occupied かつ t+d ∈ anchor }
+            //          = { t | t ∈ occupied かつ t+d, t+2d ∈ explainable }
+            let mut scanning = backshift(d, anchor) & occupied;
 
-            // 連続する占有マスの鎖を空マス（非占有）に当たるまで逆方向に辿る
-            while scanning_pos != 0 {
-                scanning_pos = backshift(d, scanning_pos) & occupied; // 距離3,4,... と伸ばす
-                r_d |= scanning_pos;
+            // この方向で新たに到達可能となる候補
+            let mut candidates = scanning;
+
+            // 起点からさらに -d 方向へ、occupied が続く限り同一直線上のマスを候補に加える
+            while scanning != 0 {
+                scanning = backshift(d, scanning) & occupied;
+                candidates |= scanning;
             }
 
-            add_all |= r_d;
+            newly_found |= candidates;
         }
 
-        // 今回の反復で新たに到達可能と判明したマス（未追跡分のみ）
-        let add = add_all & !explained;
-        if add == 0 {
-            break; // 新規追加なし → 収束
+        // まだ到達済みでないマスだけを取り出す
+        let added = newly_found & !explainable;
+        if added == 0 {
+            break;
         }
-        explained |= add;
+        explainable |= added;
 
-        // 全ての占有マスが到達可能になった場合は早期終了
-        if explained == occupied {
-            return explained;
+        // occupied の全マスが到達済みなら早期終了
+        if explainable == occupied {
+            return explainable;
         }
     }
-    explained
+    explainable
 }
 
 pub fn check_occupancy(occupied: u64) -> bool {
