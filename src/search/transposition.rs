@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use crate::othello::Board;
-use crate::search::core::search;
+use crate::{othello::Board, search::forward::fwd_search};
 
 /// table for forward leaf nodes
 pub struct LeafCache {
@@ -14,7 +13,7 @@ impl LeafCache {
         let mut searched: HashSet<[u64; 2]> = HashSet::new();
         let mut leafnode: HashSet<[u64; 2]> = HashSet::new();
         let initial = Board::initial();
-        search(&initial, &mut searched, &mut leafnode, discs);
+        fwd_search(&initial, &mut searched, &mut leafnode, discs);
         for i in 4..9 {
             let mut ans = vec![];
             for s in &searched {

@@ -1,10 +1,6 @@
-use crate::othello::{flip, get_moves, Board};
-use crate::prunings::occupancy::check_occupancy;
-use crate::prunings::seg3::check_seg3_more;
-use crate::search::transposition::Btable;
+use crate::othello::{flip, get_last_moves, get_moves, Board};
 
-use std::cmp::min;
-use std::collections::HashSet;
+use std::{cmp::min, env, path::PathBuf, str::FromStr};
 
 /// Tri-state result for limited search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +8,24 @@ pub enum SearchResult {
     Found,
     NotFound,
     Unknown, // node limit exceeded or resource constraint
+}
+
+pub fn default_input_path() -> PathBuf {
+    PathBuf::from("board.txt")
+}
+
+pub fn default_out_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result")
+}
+
+pub fn read_env_with_default<T>(key: &str, default: T) -> T
+where
+    T: FromStr,
+{
+    env::var(key)
+        .ok()
+        .and_then(|s| s.parse::<T>().ok())
+        .unwrap_or(default)
 }
 
 #[allow(dead_code)]
@@ -31,70 +45,6 @@ fn mask_to_moves(m: u64) -> String {
 #[inline(always)]
 pub fn onebit(x: u8) -> bool {
     x & (x - 1) == 0
-}
-
-// translated with ChatGPT 4o
-/**
- * retrospective-dfs-reversi
- *
- * https://github.com/eukaryo/retrospective-dfs-reversi
- *
- * @date 2020
- * @author Hiroki Takizawa
- */
-pub fn search(
-    board: &Board,
-    searched: &mut HashSet<[u64; 2]>,
-    leafnode: &mut HashSet<[u64; 2]>,
-    discs: i32,
-) {
-    let uni = board.unique();
-
-    if board.popcount() >= discs as u32 {
-        if get_moves(board.player, board.opponent) != 0 {
-            leafnode.insert(uni);
-            return;
-        } else if get_moves(board.opponent, board.player) != 0 {
-            let next = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
-            search(&next, searched, leafnode, discs);
-        }
-        return;
-    }
-
-    if !searched.insert(uni) {
-        return;
-    }
-
-    let mut moves = get_moves(board.player, board.opponent);
-    if moves == 0 {
-        if get_moves(board.opponent, board.player) != 0 {
-            let next = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
-            search(&next, searched, leafnode, discs);
-        }
-        return;
-    }
-    // println!("{}", board.show());
-    // println!("moves={}", mask_to_moves(moves));
-    while moves != 0 {
-        let idx = moves.trailing_zeros();
-        moves &= moves - 1;
-
-        let flipped = flip(idx as usize, board.player, board.opponent);
-        if flipped == 0 {
-            continue;
-        }
-        let next = Board {
-            player: board.opponent ^ flipped,
-            opponent: board.player ^ (flipped | (1u64 << idx)),
-        };
-        search(&next, searched, leafnode, discs);
-    }
 }
 
 /// pos は opponent が直前に置いた位置 (0..=63)。
@@ -350,163 +300,58 @@ pub fn retrospective_flip(
     answer
 }
 
-/// - `from_pass`: 直前にパスで1手分遡ったか否か
-/// - `discs`: 順方向探索の深さ（石数）
-/// - `leafnode`: 順方向探索で得たuniqueなleafnodeの集合（しきい値以上で合法手があるもの）
-/// - `retrospective_searched`: 既訪問ユニーク局面
-/// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
-///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
-pub fn retrospective_search(
-    board: &Board,
-    from_pass: bool,
-    discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
-    retrospective_searched: &mut Btable,
-    retroflips: &mut Vec<[u64; 10_000]>,
-    node_count: &mut usize,
-    node_limit: usize,
-) -> SearchResult {
-    let uni = board.unique();
-    let num_disc = board.popcount() as usize;
+// retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
+pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
+    let mut retroflips: [u64; 10000] = [0u64; 10000];
+    let mut ans = vec![];
 
-    // 順方向探索の leafnode に含まれているか確認
-    if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
-            println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
-            println!("board player = {}", board.player);
-            println!("board opponent = {}", board.opponent);
-            SearchResult::Found
-        } else {
-            SearchResult::NotFound
-        };
-    }
+    let board = Board::new(b[0], b[1]);
+    let mut op = get_last_moves(board.opponent, board.player);
 
-    // 再訪防止
-    if !retrospective_searched.insert(uni) {
-        return SearchResult::NotFound;
-    }
-    *node_count += 1;
-    if *node_count > node_limit {
-        return SearchResult::Unknown;
-    }
-    //if retrospective_searched.len() > node_limit {
-    //    return SearchResult::Unknown;
-    //}
-    //if retrospective_searched.len() > 0x20000000 {
-    //    eprintln!(
-    //        "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
-    //        retrospective_searched.len(),
-    //        node_limit,
-    //        num_disc,
-    //        from_pass
-    //    );
-    //    return SearchResult::Unknown;
-    //}
-
-    let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent) {
-        return SearchResult::NotFound;
-    }
-    // let line = board.to_string();
-    // if !is_sat_ok(0, &line).unwrap() {
-    //     return false;
-    // }
-
-    // パスの処理
-    // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
-    if !from_pass {
-        if get_moves(board.opponent, board.player) == 0 {
-            let prev = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
-            match retrospective_search(
-                &prev,
-                true,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_count,
-                node_limit,
-            ) {
-                SearchResult::Found => {
-                    println!("pass found");
-                    return SearchResult::Found;
-                }
-                SearchResult::Unknown => {
-                    println!("pass found");
-                    return SearchResult::Unknown;
-                }
-                SearchResult::NotFound => {}
-            }
-        }
-    }
-
-    // 相手石（中央4マス以外）を候補として走査
-    let mut b = board.opponent & !0x0000_0018_1800_0000u64;
-    if b == 0 {
-        return SearchResult::NotFound;
-    }
-
-    // retroflips[num_disc] を使うので、足りなければ拡張
-    if retroflips.len() <= num_disc {
-        retroflips.resize(num_disc + 1, [0u64; 10_000]);
-    }
-
-    // （デバッグ用カウンタ：C++ と同様に保持するが使っていない）
-    let mut _searched: i32 = 0;
-
-    while b != 0 {
-        let index = b.trailing_zeros() as usize; // 0..=63
-        b &= b - 1;
-
-        // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(
-            index,
-            board.player,
-            board.opponent,
-            &mut retroflips[num_disc],
-        );
-        if num > 0 {
-            // result[0] は 0（便宜上）なので、-1 した数だけ “実 flips” を見た回数として数える
-            _searched += (num - 1) as i32;
-        }
-
+    while op != 0 {
+        let index = op.trailing_zeros() as usize;
+        op &= op - 1;
+        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
         for i in 1..num {
-            let flipped = retroflips[num_disc][i];
-            debug_assert!(flipped != 0);
-
+            let flipped = retroflips[i];
             let prev = Board {
-                // 直前に相手が index に置き、flipped が返ったと仮定した局面の 1 手前
                 player: board.opponent ^ (flipped | (1u64 << index)),
                 opponent: board.player ^ flipped,
             };
-
-            match retrospective_search(
-                &prev,
-                false,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_count,
-                node_limit,
-            ) {
-                SearchResult::Found => {
-                    // println!("{}", index);
-                    return SearchResult::Found;
-                }
-                SearchResult::Unknown => {
-                    // println!("{}", index);
-                    return SearchResult::Unknown;
-                }
-                SearchResult::NotFound => {}
+            ans.push([prev.player, prev.opponent]);
+            if get_moves(prev.opponent, prev.player) == 0 {
+                ans.push([prev.opponent, prev.player]);
             }
         }
     }
+    ans
+}
 
-    SearchResult::NotFound
+// retroflipsを使い回すパターン
+pub fn prev_states_with_buffer(
+    b: [u64; 2],
+    retroflips: &mut [u64; 10_000],
+    out: &mut Vec<[u64; 2]>,
+) {
+    out.clear();
+    let board = Board::new(b[0], b[1]);
+    let mut op = get_last_moves(board.opponent, board.player);
+
+    while op != 0 {
+        let index = op.trailing_zeros() as usize;
+        op &= op - 1;
+
+        let num = retrospective_flip(index, board.player, board.opponent, retroflips);
+        for i in 1..num {
+            let flipped = retroflips[i];
+            let prev = Board {
+                player: board.opponent ^ (flipped | (1u64 << index)),
+                opponent: board.player ^ flipped,
+            };
+            out.push([prev.player, prev.opponent]);
+            if get_moves(prev.opponent, prev.player) == 0 {
+                out.push([prev.opponent, prev.player]);
+            }
+        }
+    }
 }

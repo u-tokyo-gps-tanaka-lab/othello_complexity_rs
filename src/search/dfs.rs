@@ -1,66 +1,30 @@
 use std::collections::HashSet;
 
 use crate::{
-    othello::{get_moves, Board, Direction},
+    othello::{get_moves, Board},
     prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
-    search::core::{retrospective_flip, SearchResult},
-    search::transposition::Btable,
+    search::{
+        core::{retrospective_flip, SearchResult},
+        transposition::Btable,
+    },
 };
 
-/// in_sq : 内部のみのマスの数(8連結)
-/// in_edge : 内部同士のエッジの組の数
-/// sm_edge_all : 内部同士で同じ色のエッジの組の数(すべての色の合計)
-/// sm_edge_min : 内部同士で同じ色のエッジの組の数で，色ごとの最小の数
-fn features(b: &Board) -> (u16, u16, u16, u16) {
-    let (in_sq, mut in_edge) = (0, 0);
-    let mut sm_edges: [u16; 2] = [0; 2];
-    let occupied = b.player | b.opponent;
-    let ps: [u64; 2] = [b.player, b.opponent];
-    for p in 0..2 {
-        let mut p0 = ps[p];
-        while p0 != 0 {
-            let index = p0.trailing_zeros() as i32; // 0..=63
-            p0 &= p0 - 1;
-            let (x, y) = (index & 7, index >> 3);
-            for dir in Direction::all().iter() {
-                let (dx, dy) = dir.to_offset();
-                let x1 = x + dx;
-                let y1 = y + dy;
-                let i1 = y1 * 8 + x1;
-                if 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && occupied & (1 << i1) != 0 {
-                    in_edge += 1;
-                    if p0 & (1 << i1) != 0 {
-                        sm_edges[p] += 1;
-                    }
-                }
-            }
-        }
-    }
-    let sm_edges_all = (sm_edges[0] + sm_edges[1]) / 2;
-    let sm_edges_min = std::cmp::min(sm_edges[0], sm_edges[1]) / 2;
-    (in_sq, in_edge, sm_edges_all, sm_edges_min)
-}
-
-/// boardが到達可能かどうかを計算するヒューリスティック関数
-pub fn h_function(b: &Board) -> f64 {
-    let (in_sq, in_edge, sm_edge_sum, sm_edge_min) = features(b);
-    let mut ans = 0.0;
-    ans += 1.0 / (in_sq + 1) as f64;
-    ans += 1.0 / (in_edge + 1) as f64;
-    ans += 1.0 / (sm_edge_sum + 1) as f64;
-    ans += 1.0 / (sm_edge_min + 1) as f64;
-    let scount = (b.player | b.opponent).count_ones();
-    ans * 2_f64.powf(scount as f64)
-}
-
-/// retrospective_searchでmove orderingを実行するバージョン
+// translated with ChatGPT
+/**
+ * retrospective-dfs-reversi
+ *
+ * https://github.com/eukaryo/retrospective-dfs-reversi
+ *
+ * @date 2020
+ * @author Hiroki Takizawa
+ */
 /// - `from_pass`: 直前にパスで1手分遡ったか否か
 /// - `discs`: 順方向探索の深さ（石数）
 /// - `leafnode`: 順方向探索で得たuniqueなleafnodeの集合（しきい値以上で合法手があるもの）
 /// - `retrospective_searched`: 既訪問ユニーク局面
 /// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
 ///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
-pub fn retrospective_search_move_ordering(
+pub fn retrospective_search(
     board: &Board,
     from_pass: bool,
     discs: i32,
@@ -122,7 +86,7 @@ pub fn retrospective_search_move_ordering(
                 player: board.opponent,
                 opponent: board.player,
             };
-            match retrospective_search_move_ordering(
+            match retrospective_search(
                 &prev,
                 true,
                 discs,
@@ -159,7 +123,6 @@ pub fn retrospective_search_move_ordering(
     // （デバッグ用カウンタ：C++ と同様に保持するが使っていない）
     let mut _searched: i32 = 0;
 
-    let mut next_w_score: Vec<(f64, Board)> = vec![];
     while b != 0 {
         let index = b.trailing_zeros() as usize; // 0..=63
         b &= b - 1;
@@ -185,33 +148,29 @@ pub fn retrospective_search_move_ordering(
                 player: board.opponent ^ (flipped | (1u64 << index)),
                 opponent: board.player ^ flipped,
             };
-            next_w_score.push((h_function(&prev), prev));
-            // next_w_score.push((0.0, prev));
+
+            match retrospective_search(
+                &prev,
+                false,
+                discs,
+                leafnode,
+                retrospective_searched,
+                retroflips,
+                node_count,
+                node_limit,
+            ) {
+                SearchResult::Found => {
+                    // println!("{}", index);
+                    return SearchResult::Found;
+                }
+                SearchResult::Unknown => {
+                    // println!("{}", index);
+                    return SearchResult::Unknown;
+                }
+                SearchResult::NotFound => {}
+            }
         }
     }
-    next_w_score.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    for i in 0..next_w_score.len() {
-        let (_, prev) = next_w_score[i];
-        match retrospective_search_move_ordering(
-            &prev,
-            false,
-            discs,
-            leafnode,
-            retrospective_searched,
-            retroflips,
-            node_count,
-            node_limit,
-        ) {
-            SearchResult::Found => {
-                // println!("{}", index);
-                return SearchResult::Found;
-            }
-            SearchResult::Unknown => {
-                // println!("{}", index);
-                return SearchResult::Unknown;
-            }
-            SearchResult::NotFound => {}
-        }
-    }
+
     SearchResult::NotFound
 }

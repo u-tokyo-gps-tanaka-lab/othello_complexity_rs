@@ -1,42 +1,24 @@
-use std::env;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::path::Path;
 
 use crate::io::{ensure_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
 
+use crate::search::core::SearchResult;
 use crate::search::{
-    bfs::{
-        retrospective_search_bfs, retrospective_search_bfs_par,
-        retrospective_search_bfs_par_resume, Cfg as BfsCfg,
+    dfs::retrospective_search,
+    external_bfs::{
+        parallel_retrospective_bfs, parallel_retrospective_bfs_resume, read_target_board,
+        unblocked_retrospective_bfs, Cfg as BfsCfg,
     },
-    core::retrospective_search,
+    forward::make_fwd_table,
+    inmemory_bfs::parallel_inmemory_retrospective_bfs,
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::{init_rayon, retrospective_search_parallel},
-    parallel_forward::make_fwd_table,
     parallel_gbfs::parallel_retrospective_greedy_best_first_search,
     transposition::{Btable, LeafCache},
 };
-
-pub fn default_input_path() -> PathBuf {
-    PathBuf::from("board.txt")
-}
-
-pub fn default_out_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result")
-}
-
-pub fn read_env_with_default<T>(key: &str, default: T) -> T
-where
-    T: FromStr,
-{
-    env::var(key)
-        .ok()
-        .and_then(|s| s.parse::<T>().ok())
-        .unwrap_or(default)
-}
 
 /// pure dfs
 pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> io::Result<()> {
@@ -228,8 +210,13 @@ pub fn run_parallel_gbfs(
     //    leaf_cache.leaf_count()
     //);
 
-    init_rayon(rayon_threads);
-
+    let rayon_threads = match rayon_threads {
+        Some(n) if n > 0 => n,
+        Some(_) => 1,
+        None => std::thread::available_parallelism()
+            .map(|n| n.get().min(64))
+            .unwrap_or(1),
+    };
     for board in boards {
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         let line = board.to_string();
@@ -240,7 +227,12 @@ pub fn run_parallel_gbfs(
         }
 
         let result = parallel_retrospective_greedy_best_first_search(
-            &board, discs, &leaf, node_limit, use_lp,
+            &board,
+            discs,
+            &leaf,
+            node_limit,
+            use_lp,
+            rayon_threads,
         );
         outputs.write_result(result, &line)?;
         outputs.flush()?;
@@ -267,14 +259,6 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
     let mut outputs = ensure_outputs(&cfg.out_dir)?;
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        cfg.discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
-
     for board in boards {
         let line = board.to_string();
 
@@ -283,7 +267,8 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = retrospective_search_bfs(cfg, &board, discs, leaf_cache.leaf())?;
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let stat = unblocked_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(stat, &line)?;
         outputs.flush()?;
     }
@@ -301,13 +286,6 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
     let discs = cfg.discs as i32;
-    let leaf_cache = LeafCache::new(discs);
-    println!(
-        "info: discs = {}: internal = {}, leaf = {}",
-        cfg.discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
 
     if cfg.resume {
         let input_path = &cfg.input;
@@ -333,7 +311,9 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
                 format!("failed to parse disc count from {}: {e}", last),
             )
         })?;
-        retrospective_search_bfs_par_resume(cfg, num_disc, discs, leaf_cache.leaf())?;
+        let target = read_target_board(&cfg.tmp_dir)?;
+        let leaf = make_fwd_table(&target, discs);
+        parallel_retrospective_bfs_resume(cfg, num_disc, discs, &leaf)?;
         return outputs.flush();
     }
 
@@ -353,8 +333,58 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
             continue;
         }
 
-        let stat = retrospective_search_bfs_par(cfg, &board, discs, leaf_cache.leaf())?;
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let stat = parallel_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(stat, &line)?;
+        outputs.flush()?;
+    }
+
+    outputs.flush()
+}
+
+/// In-memory parallel BFS
+pub fn run_parallel_inmemory_bfs(
+    input: &Path,
+    out_dir: &Path,
+    discs: i32,
+    node_limit: usize,
+    use_lp: bool,
+    use_occupancy_cache: bool,
+) -> io::Result<()> {
+    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let total_input = boards.len();
+    println!(
+        "info: read {} board(s) from '{}'.",
+        total_input,
+        input.display()
+    );
+
+    let mut outputs = ensure_outputs(out_dir)?;
+    println!("info: writing outputs under '{}'", out_dir.display());
+
+    for board in boards {
+        let line = board.to_string();
+
+        if validate_board(&board).is_err() {
+            outputs.write_invalid(&line)?;
+            continue;
+        }
+
+        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        println!("got leaf nodes");
+
+        let result = parallel_inmemory_retrospective_bfs(
+            &board,
+            discs,
+            &leaf,
+            node_limit,
+            use_lp,
+            use_occupancy_cache,
+        );
+        if result == SearchResult::Unknown {
+            println!("info: node limit ({}) exceeded", node_limit)
+        }
+        outputs.write_result(result, &line)?;
         outputs.flush()?;
     }
 

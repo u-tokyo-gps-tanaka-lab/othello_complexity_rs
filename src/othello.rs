@@ -249,30 +249,6 @@ impl Ord for Board {
     }
 }
 
-/// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
-#[inline(always)]
-fn ray_flips<F>(move_bb: u64, player: u64, opponent: u64, step: F) -> u64
-where
-    F: Fn(u64) -> u64,
-{
-    // 直後の1マスへ進める
-    let mut x = step(move_bb);
-    let mut flips = 0u64;
-
-    // 連続する相手石を収集
-    while x != 0 && (x & opponent) != 0 {
-        flips |= x;
-        x = step(x);
-    }
-
-    // その先に自石があるなら挟めている→反転成立
-    if x & player != 0 {
-        flips
-    } else {
-        0
-    }
-}
-
 #[inline(always)]
 pub const fn not_a_file() -> u64 {
     0xFEFE_FEFE_FEFE_FEFE
@@ -332,6 +308,30 @@ pub fn moore_neighborhood(bb: u64) -> u64 {
     east(bb) | west(bb) | north(bb) | south(bb) | ne(bb) | nw(bb) | se(bb) | sw(bb)
 }
 
+/// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
+#[inline(always)]
+fn ray_flips<F>(move_bb: u64, player: u64, opponent: u64, step: F) -> u64
+where
+    F: Fn(u64) -> u64,
+{
+    // 直後の1マスへ進める
+    let mut x = step(move_bb);
+    let mut flips = 0u64;
+
+    // 連続する相手石を収集
+    while x != 0 && (x & opponent) != 0 {
+        flips |= x;
+        x = step(x);
+    }
+
+    // その先に自石があるなら挟めている→反転成立
+    if x & player != 0 {
+        flips
+    } else {
+        0
+    }
+}
+
 /// 与えられた pos に打ったときにひっくり返る相手石の集合を返す（打った石は含まない）
 pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
     debug_assert!(pos < 64);
@@ -352,17 +352,78 @@ pub fn flip(pos: usize, player: u64, opponent: u64) -> u64 {
         | ray_flips(move_bb, player, opponent, sw)
 }
 
+/// 特定の方向Fに対して、相手の石を挟んで打てる位置（合法手候補）を求める
+#[inline(always)]
+fn mobility_dir<F>(player: u64, opponent: u64, shift: F) -> u64
+where
+    F: Fn(u64) -> u64,
+{
+    let mut x = opponent & shift(player);
+    x |= opponent & shift(x);
+    x |= opponent & shift(x);
+    x |= opponent & shift(x);
+    x |= opponent & shift(x);
+    x |= opponent & shift(x);
+    shift(x)
+}
+
+/// 8方向すべてに mobility_dir を適用し、擬似合法手を返す
+/// 空きマスかどうかのチェック & !(player | opponent) をしていないため、実際には石がある位置も含まれる
+#[inline(always)]
+fn pseudo_mobility_bits(player: u64, opponent: u64) -> u64 {
+    mobility_dir(player, opponent, east)
+        | mobility_dir(player, opponent, west)
+        | mobility_dir(player, opponent, north)
+        | mobility_dir(player, opponent, south)
+        | mobility_dir(player, opponent, ne)
+        | mobility_dir(player, opponent, nw)
+        | mobility_dir(player, opponent, se)
+        | mobility_dir(player, opponent, sw)
+}
+
+/// 合法な着手可能位置のビット列を返す
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
-    let mut moves = 0u64;
-    for pos in 0..64 {
-        let bit = 1u64 << pos;
-        if bit & (player | opponent) == 0 {
-            if flip(pos, player, opponent) != 0 {
-                moves |= bit;
-            }
-        }
-    }
-    moves
+    let empty = !(player | opponent);
+    pseudo_mobility_bits(player, opponent) & empty
+}
+
+/// 特定の方向Fに3連続する石の端点を返す
+/// e.g. Input: A-B-C -> Output: C
+/// 4連続以上の場合は3個目以降の石を全て返す
+/// e.g. Input: A-B-C-D -> Output: C-D
+#[inline(always)]
+fn run3_dir<F>(stones: u64, shift: F) -> u64
+where
+    F: Fn(u64) -> u64,
+{
+    let s1 = shift(stones);
+    let s2 = shift(s1);
+    stones & s1 & s2
+}
+
+/// 8方向すべてに run3_dir を適用する
+#[inline(always)]
+fn run3_more_bits(stones: u64) -> u64 {
+    run3_dir(stones, east)
+        | run3_dir(stones, west)
+        | run3_dir(stones, north)
+        | run3_dir(stones, south)
+        | run3_dir(stones, ne)
+        | run3_dir(stones, nw)
+        | run3_dir(stones, se)
+        | run3_dir(stones, sw)
+}
+
+/// 直前に打った側(player)の「あり得る直前着手位置」のビット列を返す。
+/// last movesビット列は以下の条件を満たすと想定:
+/// 1) いずれかの方向に同じ色の石が3個以上連続している
+/// 2) その位置を空きと仮定しても合法手にならない
+pub fn get_last_moves(last_player: u64, last_opponent: u64) -> u64 {
+    let seg3 = run3_more_bits(last_player);
+    let pseudo = pseudo_mobility_bits(last_player, last_opponent);
+
+    // 初期配置4マスがlast movesになることはない
+    last_player & seg3 & !pseudo & !CENTER_MASK
 }
 
 /// ボード検証のエラー型

@@ -3,10 +3,13 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use othello_complexity_rs::search::bfs::Cfg as BfsCfg;
-use othello_complexity_rs::search::reverse_common::{
-    default_input_path, default_out_dir, read_env_with_default, run_bfs, run_dfs,
-    run_dfs_move_ordering, run_parallel_bfs, run_parallel_dfs, run_parallel_gbfs,
+use othello_complexity_rs::search::core::{
+    default_input_path, default_out_dir, read_env_with_default,
+};
+use othello_complexity_rs::search::external_bfs::Cfg as BfsCfg;
+use othello_complexity_rs::search::run::{
+    run_bfs, run_dfs, run_dfs_move_ordering, run_parallel_bfs, run_parallel_dfs, run_parallel_gbfs,
+    run_parallel_inmemory_bfs,
 };
 
 #[derive(Parser, Debug)]
@@ -30,15 +33,19 @@ pub enum Command {
     MoveOrdering(BasicOpts),
     /// Parallel reverse search using rayon workers
     #[command(name = "dfs-parallel")]
-    Parallel(ParallelOpts),
+    DfsPar(ParallelOpts),
     /// Parallel greedy best-first search with priority queue
     #[command(name = "gbfs-parallel")]
     GbfsPar(GbfsOpts),
     /// BFS-based meet-in-the-middle search
-    Bfs(BfsArgs),
+    #[command(name = "bfs-external")]
+    ExternalBfs(BfsArgs),
     /// Parallel BFS search with resume support
-    #[command(name = "bfs-parallel")]
-    BfsPar(BfsArgs),
+    #[command(name = "bfs-external-parallel")]
+    ExternalBfsPar(BfsArgs),
+    /// In-memory parallel BFS with DashSet visited tracking
+    #[command(name = "bfs-inmemory-parallel")]
+    InmemoryBfsPar(InmemoryBfsOpts),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -136,6 +143,53 @@ impl GbfsOpts {
 }
 
 #[derive(Args, Debug, Clone)]
+pub struct InmemoryBfsOpts {
+    /// Input file containing board positions
+    #[arg(value_name = "INPUT")]
+    input: Option<PathBuf>,
+
+    /// Output directory for result files
+    #[arg(short, long, value_name = "DIR")]
+    out_dir: Option<PathBuf>,
+
+    /// Number of discs at which to stop the forward search
+    #[arg(long, value_name = "N")]
+    discs: Option<i32>,
+
+    /// Maximum estimated in-memory nodes for in-memory BFS (omitted = unlimited)
+    #[arg(long = "max-nodes", value_name = "N")]
+    max_nodes: Option<usize>,
+
+    /// Use LP-solver for pruning
+    #[arg(long)]
+    use_lp: bool,
+
+    /// Use cached occupancy order computation
+    #[arg(long)]
+    use_occupancy_cache: bool,
+}
+
+impl InmemoryBfsOpts {
+    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, bool) {
+        let input = self.input.clone().unwrap_or_else(default_input_path);
+        let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
+        let discs = self
+            .discs
+            .unwrap_or_else(|| read_env_with_default("DISCS", 10));
+        let max_nodes = self.max_nodes.unwrap_or(usize::MAX);
+
+        (
+            input,
+            out_dir,
+            discs,
+            max_nodes,
+            self.use_lp,
+            self.use_occupancy_cache,
+        )
+    }
+}
+
+#[derive(Args, Debug, Clone)]
 pub struct BfsArgs {
     /// Input file containing board positions
     #[arg(value_name = "INPUT")]
@@ -195,7 +249,7 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             let (input, out_dir, discs, max_nodes) = opts.resolve();
             run_dfs_move_ordering(&input, &out_dir, discs, max_nodes)
         }
-        Command::Parallel(opts) => {
+        Command::DfsPar(opts) => {
             let (input, out_dir, discs, max_nodes, table_size, threads) = opts.resolve();
             run_parallel_dfs(&input, &out_dir, discs, max_nodes, table_size, threads)
         }
@@ -203,13 +257,24 @@ fn dispatch(cli: Cli) -> io::Result<()> {
             let (input, out_dir, discs, max_nodes, use_lp, threads) = opts.resolve();
             run_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
         }
-        Command::Bfs(args) => {
+        Command::ExternalBfs(args) => {
             let cfg: BfsCfg = args.into();
             run_bfs(&cfg)
         }
-        Command::BfsPar(args) => {
+        Command::ExternalBfsPar(args) => {
             let cfg: BfsCfg = args.into();
             run_parallel_bfs(&cfg)
+        }
+        Command::InmemoryBfsPar(opts) => {
+            let (input, out_dir, discs, max_nodes, use_lp, use_occupancy_cache) = opts.resolve();
+            run_parallel_inmemory_bfs(
+                &input,
+                &out_dir,
+                discs,
+                max_nodes,
+                use_lp,
+                use_occupancy_cache,
+            )
         }
     }
 }

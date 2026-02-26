@@ -1,6 +1,8 @@
+use std::sync::OnceLock;
+
 use crate::{
-    othello::{Board, Direction},
-    prunings::occupancy::occupancy_order,
+    othello::{Board, Direction, CENTER_MASK},
+    prunings::occupancy::{occupancy_order, occupancy_order_cached},
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
@@ -86,50 +88,78 @@ fn check_seg3(b: u64) -> bool {
     return no_cycle(g);
 }
 
-fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
-    let mut canput: [u8; 64] = [0; 64];
-    let mut canflip: [u8; 64] = [0; 64];
-    for y in 0..8 {
-        for x in 0..8 {
-            let i = y * 8 + x;
-            if occupied & (1 << i) == 0 {
-                continue;
-            }
-            let mut ls: [u8; 8] = [0; 8];
-            let mut ls1: [u8; 8] = [0; 8];
-            let o1 = order[i as usize];
-            for (d, dir) in Direction::all().iter().enumerate() {
+static STEPS: OnceLock<([[u64; 8]; 64], [[u64; 8]; 64])> = OnceLock::new();
+
+/// 近傍ビットマスクを事前計算する
+/// step1[i][d]:マスiから方向dに1歩進んだマスを立てたビットマスク（盤外なら 0）
+/// step2[i][d]:マスiから方向dに2歩進んだマスを立てたビットマスク（盤外なら 0）
+fn steps() -> &'static ([[u64; 8]; 64], [[u64; 8]; 64]) {
+    STEPS.get_or_init(|| {
+        let dirs = Direction::all();
+        let mut step1 = [[0u64; 8]; 64];
+        let mut step2 = [[0u64; 8]; 64];
+        for i in 0..64 {
+            let x = (i & 7) as i32;
+            let y = (i >> 3) as i32;
+            for (d, dir) in dirs.iter().enumerate() {
                 let (dx, dy) = dir.to_offset();
-                let mut l = 1;
-                let mut l1 = 1;
-                let mut x1 = x + dx;
-                let mut y1 = y + dy;
-                let mut i1 = y1 * 8 + x1;
-                let mut in_o1 = true;
-                while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && occupied & (1 << i1) != 0 {
-                    if in_o1 && o1 & (1 << i1) == 0 {
-                        in_o1 = false;
+                let x1 = x + dx;
+                let y1 = y + dy;
+                if (0..8).contains(&x1) && (0..8).contains(&y1) {
+                    let i1 = (y1 * 8 + x1) as usize;
+                    step1[i][d] = 1u64 << i1;
+                    let x2 = x1 + dx;
+                    let y2 = y1 + dy;
+                    if (0..8).contains(&x2) && (0..8).contains(&y2) {
+                        let i2 = (y2 * 8 + x2) as usize;
+                        step2[i][d] = 1u64 << i2;
                     }
-                    if in_o1 {
-                        l1 += 1;
-                    }
-                    l += 1;
-                    x1 += dx;
-                    y1 += dy;
-                    i1 = y1 * 8 + x1;
                 }
-                ls[d] = l;
-                ls1[d] = l1;
             }
+        }
+        (step1, step2)
+    })
+}
+
+// (3,3)=27, (4,3)=28, (3,4)=35, (4,4)=36 （i=y*8+x）
+#[inline(always)]
+fn is_center4(i: usize) -> bool {
+    (CENTER_MASK & (1u64 << i)) != 0
+}
+
+fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
+    let (step1, step2) = steps();
+    let mut canput = [0u8; 64];
+    let mut canflip = [0u8; 64];
+
+    // 石のあるマスだけを走査
+    let mut bb = occupied;
+    while bb != 0 {
+        let i = bb.trailing_zeros() as usize;
+        bb &= bb - 1;
+
+        let o1 = order[i];
+        let occ_o1 = occupied & o1;
+
+        // canput[i] == d : 石のあるマスiに石を置いたとき方向dへ反転が起きたはず
+        // dの各ビットが各方向を表す
+        // 「隣」と「その隣」が occ_o1 に両方入っているか（= ls1>=3）で判定
+        if !is_center4(i) {
             for d in 0..8 {
-                if ls1[d] >= 3 {
-                    if !(3 <= x && x <= 4 && 3 <= y && y <= 4) {
-                        canput[i as usize] |= 1u8 << d;
-                    }
+                let m = step1[i][d] | step2[i][d];
+                if step2[i][d] != 0 && (occ_o1 & m) == m {
+                    canput[i] |= 1u8 << d;
                 }
-                if d < 4 && ls[d] >= 2 && ls[d + 4] >= 2 {
-                    canflip[i as usize] |= 1u8 << d;
-                }
+            }
+        }
+
+        // canflip[i] == d : 各マスiの石が軸（縦・横・斜め）dに沿って後で反転されうる
+        // 各軸（d=0..3）で両隣が occupied か（= ls[d]>=2 && ls[d+4]>=2）で判定
+        for d in 0..4 {
+            let a = step1[i][d];
+            let b = step1[i][d + 4];
+            if a != 0 && b != 0 && (occupied & a) != 0 && (occupied & b) != 0 {
+                canflip[i] |= 1u8 << d;
             }
         }
     }
@@ -137,13 +167,17 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
 }
 
 /// 反転整合性のチェック
-pub fn check_seg3_more(player: u64, opponent: u64) -> bool {
+pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) -> bool {
     //if !check_seg3_more(player, opponent) {
     //    return false;
     //}
 
     let occupied = player | opponent;
-    let order = occupancy_order(occupied);
+    let order = if use_occupancy_cache {
+        occupancy_order_cached(occupied)
+    } else {
+        occupancy_order(occupied)
+    };
     let (canput, canflip) = can_put_flip(occupied, &order);
     let ps = [player, opponent];
     for i in 0..2 {

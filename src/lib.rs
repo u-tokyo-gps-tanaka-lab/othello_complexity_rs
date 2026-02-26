@@ -1,3 +1,4 @@
+pub mod hash;
 pub mod io;
 pub mod othello;
 pub mod prunings;
