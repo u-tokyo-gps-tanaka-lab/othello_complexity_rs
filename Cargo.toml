@@ -7,7 +7,7 @@ edition = "2021"
 proconio = "0.4.5"
 ac-library-rs = "0.1.1"
 rustsat-kissat = { version= "0.7", features = ["v4-0-4"] }
-rustsat = "0.7"
+rustsat = { version = "0.7", features = ["fxhash", "rand"] }
 rand = "0.9.2"
 rayon = "1.10"
 dashmap = "6"

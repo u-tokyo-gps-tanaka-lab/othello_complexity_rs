@@ -1,3 +1,4 @@
+use crate::io::{TriCategory, TriOutcome};
 use crate::othello::{flip, get_last_moves, get_moves, Board};
 
 use std::{cmp::min, env, path::PathBuf, str::FromStr};
@@ -8,6 +9,16 @@ pub enum SearchResult {
     Found,
     NotFound,
     Unknown, // node limit exceeded or resource constraint
+}
+
+impl TriOutcome for SearchResult {
+    fn category(&self) -> TriCategory {
+        match self {
+            SearchResult::Found => TriCategory::Ok,
+            SearchResult::NotFound => TriCategory::Ng,
+            SearchResult::Unknown => TriCategory::Unknown,
+        }
+    }
 }
 
 pub fn default_input_path() -> PathBuf {

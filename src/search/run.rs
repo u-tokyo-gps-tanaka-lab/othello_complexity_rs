@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::io::{ensure_outputs, parse_file_to_boards};
+use crate::io::{ensure_tri_outputs, parse_file_to_boards};
 use crate::othello::validate_board;
 
 use crate::search::core::SearchResult;
@@ -30,7 +30,7 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
         input.display()
     );
 
-    let mut outputs = ensure_outputs(out_dir)?;
+    let mut outputs = ensure_tri_outputs(out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
     let leaf_cache = LeafCache::new(discs);
@@ -48,7 +48,7 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
@@ -65,7 +65,7 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
             &mut node_count,
             node_limit,
         );
-        outputs.write_result(result, &line)?;
+        outputs.write_result(&result, &line)?;
         outputs.flush()?;
     }
 
@@ -87,7 +87,7 @@ pub fn run_dfs_move_ordering(
         input.display()
     );
 
-    let mut outputs = ensure_outputs(out_dir)?;
+    let mut outputs = ensure_tri_outputs(out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
     let leaf_cache = LeafCache::new(discs);
@@ -105,7 +105,7 @@ pub fn run_dfs_move_ordering(
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
@@ -122,7 +122,7 @@ pub fn run_dfs_move_ordering(
             &mut node_count,
             node_limit,
         );
-        outputs.write_result(result, &line)?;
+        outputs.write_result(&result, &line)?;
         outputs.flush()?;
     }
 
@@ -146,7 +146,7 @@ pub fn run_parallel_dfs(
         input.display()
     );
 
-    let mut outputs = ensure_outputs(out_dir)?;
+    let mut outputs = ensure_tri_outputs(out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
     let leaf_cache = LeafCache::new(discs);
@@ -163,7 +163,7 @@ pub fn run_parallel_dfs(
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
@@ -175,7 +175,7 @@ pub fn run_parallel_dfs(
             node_limit,
             table_limit,
         );
-        outputs.write_result(result, &line)?;
+        outputs.write_result(&result, &line)?;
         outputs.flush()?;
     }
 
@@ -199,7 +199,7 @@ pub fn run_parallel_gbfs(
         input.display()
     );
 
-    let mut outputs = ensure_outputs(out_dir)?;
+    let mut outputs = ensure_tri_outputs(out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
     //let leaf_cache = LeafCache::new(discs);
@@ -222,7 +222,7 @@ pub fn run_parallel_gbfs(
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
@@ -234,7 +234,7 @@ pub fn run_parallel_gbfs(
             use_lp,
             rayon_threads,
         );
-        outputs.write_result(result, &line)?;
+        outputs.write_result(&result, &line)?;
         outputs.flush()?;
     }
 
@@ -256,20 +256,20 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
     fs::create_dir_all(&cfg.out_dir)?;
     fs::create_dir_all(&cfg.tmp_dir)?;
 
-    let mut outputs = ensure_outputs(&cfg.out_dir)?;
+    let mut outputs = ensure_tri_outputs(&cfg.out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
     for board in boards {
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         let stat = unblocked_retrospective_bfs(cfg, &board, discs, &leaf)?;
-        outputs.write_result(stat, &line)?;
+        outputs.write_result(&stat, &line)?;
         outputs.flush()?;
     }
 
@@ -282,7 +282,7 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
 
     fs::create_dir_all(&cfg.out_dir)?;
     fs::create_dir_all(&cfg.tmp_dir)?;
-    let mut outputs = ensure_outputs(&cfg.out_dir)?;
+    let mut outputs = ensure_tri_outputs(&cfg.out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
     let discs = cfg.discs as i32;
@@ -329,13 +329,13 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
         let leaf = make_fwd_table(&[board.player, board.opponent], discs);
         let stat = parallel_retrospective_bfs(cfg, &board, discs, &leaf)?;
-        outputs.write_result(stat, &line)?;
+        outputs.write_result(&stat, &line)?;
         outputs.flush()?;
     }
 
@@ -359,14 +359,14 @@ pub fn run_parallel_inmemory_bfs(
         input.display()
     );
 
-    let mut outputs = ensure_outputs(out_dir)?;
+    let mut outputs = ensure_tri_outputs(out_dir, "reverse")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
     for board in boards {
         let line = board.to_string();
 
         if validate_board(&board).is_err() {
-            outputs.write_invalid(&line)?;
+            outputs.write_ng(&line)?;
             continue;
         }
 
@@ -384,7 +384,7 @@ pub fn run_parallel_inmemory_bfs(
         if result == SearchResult::Unknown {
             println!("info: node limit ({}) exceeded", node_limit)
         }
-        outputs.write_result(result, &line)?;
+        outputs.write_result(&result, &line)?;
         outputs.flush()?;
     }
 
