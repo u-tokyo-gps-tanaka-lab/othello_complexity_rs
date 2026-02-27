@@ -7,7 +7,7 @@ use clap::{Args, Parser, Subcommand};
 use othello_complexity_rs::io::parse_file_to_boards;
 use othello_complexity_rs::othello::Board;
 use othello_complexity_rs::prunings::{
-    connectivity::is_connected, kissat::is_sat_ok, linear_programming::check_lp,
+    connectivity::is_connected, flip_sat::is_sat_ok, linear_programming::check_lp,
     occupancy::check_occupancy_with_string, seg3::check_seg3_more,
 };
 
