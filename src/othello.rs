@@ -103,7 +103,7 @@ pub fn backshift(d: Direction, b: u64) -> u64 {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Board {
     pub player: u64,
     pub opponent: u64,
@@ -118,6 +118,13 @@ impl Board {
         Self {
             player: 0,
             opponent: 0,
+        }
+    }
+
+    pub fn initial() -> Self {
+        Self {
+            player: 0x0000000810000000,
+            opponent: 0x0000001008000000,
         }
     }
 
@@ -195,9 +202,6 @@ impl Board {
         answer
     }
 
-    pub fn initial() -> Self {
-        Self::new(0x0000000810000000, 0x0000001008000000)
-    }
     pub fn to_string(&self) -> String {
         let mut ans: Vec<char> = vec![];
         for y in 0..8 {
@@ -214,6 +218,7 @@ impl Board {
         }
         ans.into_iter().collect()
     }
+
     pub fn show(&self) -> String {
         let mut ans: Vec<char> = vec![];
         for y in 0..8 {
@@ -445,4 +450,13 @@ pub fn validate_board(board: &Board) -> Result<(), BoardValidation> {
         return Err(BoardValidation::MissingCenter);
     }
     Ok(())
+}
+
+pub fn board_with_symmetry(board: Board, sym: i32) -> Board {
+    if sym == 0 {
+        return board;
+    }
+    let mut transformed = [0_u64; 2];
+    board.board_symmetry(sym, &mut transformed);
+    Board::new(transformed[0], transformed[1])
 }

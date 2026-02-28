@@ -39,6 +39,10 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
+    /// Enable symmetry-aware goal expansion/deduplication
+    #[arg(long, default_value_t = false)]
+    check_symmetry: bool,
+
     /// Starting side to move
     #[arg(long, value_enum, default_value_t = Side::Black)]
     start_turn: Side,
@@ -110,6 +114,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
         RunOptions {
             start,
             goals,
+            check_symmetry: cli.check_symmetry,
             start_turn_black: cli.start_turn.is_black(),
             parallel_goals: cli.parallel_goals,
             show_coords: cli.show_coords,
@@ -156,6 +161,7 @@ fn print_config(cli: &Cli, start: &Board, goals: &[Board], cnf_dump_dir: Option<
     if goals.len() == 1 {
         println!("  goal: {}", goals[0].to_string());
     }
+    println!("  check_symmetry: {}", cli.check_symmetry);
     println!("  parallel_goals: {}", cli.parallel_goals);
     println!("  show_coords: {}", cli.show_coords);
     println!("  show_boards: {}", cli.show_boards);

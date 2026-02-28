@@ -1,11 +1,12 @@
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::Board;
+use crate::othello::{board_with_symmetry, Board};
 use rayon::prelude::*;
 use rustsat::{
     instances::Cnf,
     solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
     types::{Clause, Lit, TernaryVal},
 };
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -175,6 +176,7 @@ struct SatWitness {
 pub struct RunOptions {
     pub start: Board,
     pub goals: Vec<Board>,
+    pub check_symmetry: bool,
     pub start_turn_black: bool,
     pub parallel_goals: usize,
     pub show_coords: bool,
@@ -226,6 +228,7 @@ where
     let RunOptions {
         start,
         goals,
+        check_symmetry,
         start_turn_black,
         parallel_goals,
         show_coords,
@@ -273,6 +276,7 @@ where
                     start,
                     *goal,
                     *goal_index,
+                    check_symmetry,
                     start_turn_black,
                     verbose,
                     cnf_dump_dir.as_deref(),
@@ -324,6 +328,7 @@ fn check_sat_reachability(
     start: Board,
     goal: Board,
     goal_index: usize,
+    check_symmetry: bool,
     start_turn_black: bool,
     verbose: bool,
     cnf_dump_dir: Option<&Path>,
@@ -332,6 +337,11 @@ fn check_sat_reachability(
     rays: &Rays,
     flip_sources: &FlipSources,
 ) -> Result<GoalSolveResult, String> {
+    let (goals_to_solve, goal_symmetry_count) = if check_symmetry {
+        all_goals_to_solve(start, goal)
+    } else {
+        (vec![(0, goal)], 1)
+    };
     let min_plies = match min_required_plies(start, goal) {
         Some(v) => v,
         None => {
@@ -357,47 +367,86 @@ fn check_sat_reachability(
                 start.popcount(),
                 goal.popcount()
             );
-    }
-
-    for h in min_plies..=max_plies {
-        let vars = SatVars::new(h, rays, flip_sources);
-        let clauses = encode_problem(&vars, start, goal, start_turn_black, rays, flip_sources);
-        dump_dimacs_cnf(
-            cnf_dump_dir,
-            goal_index,
-            h,
-            vars.var_count as usize,
-            &clauses,
-        )?;
-
-        if verbose {
+        if check_symmetry {
             println!(
-                "[info][goal={}] depth={} vars={} clauses={}",
+                "[info][goal={}] this goal has {} symmetric candidate(s) (from all {} symmetries)",
                 goal_index,
-                h,
-                vars.var_count,
-                clauses.len()
+                goals_to_solve.len(),
+                goal_symmetry_count,
+            );
+        } else {
+            println!(
+                "[info][goal={}] symmetry check is disabled; solving only the original goal",
+                goal_index
             );
         }
+    }
 
-        if cnf_dump_only {
-            continue;
+    let mut is_unknown = false;
+    for (goal_symmetry, goal_board) in goals_to_solve {
+        if verbose && goal_symmetry != 0 {
+            println!(
+                "[info][goal={}] trying goal symmetry={}",
+                goal_index, goal_symmetry
+            );
         }
+        for h in min_plies..=max_plies {
+            let vars = SatVars::new(h, rays, flip_sources);
+            let clauses = encode_problem(
+                &vars,
+                start,
+                goal_board,
+                start_turn_black,
+                rays,
+                flip_sources,
+            );
+            dump_dimacs_cnf(
+                cnf_dump_dir,
+                goal_index,
+                goal_symmetry,
+                h,
+                vars.var_count as usize,
+                &clauses,
+            )?;
 
-        match solve_single_problem(&vars, &clauses, sat_timeout_per_depth)? {
-            GoalSolveResult::Sat(witness) => {
-                return Ok(GoalSolveResult::Sat(witness));
+            if verbose {
+                println!(
+                    "[info][goal={}] depth={} symmetry={} vars={} clauses={}",
+                    goal_index,
+                    h,
+                    goal_symmetry,
+                    vars.var_count,
+                    clauses.len()
+                );
             }
-            GoalSolveResult::Unsat => {}
-            GoalSolveResult::Unknown => return Ok(GoalSolveResult::Unknown),
+
+            if cnf_dump_only {
+                continue;
+            }
+
+            match solve_single_problem(&vars, &clauses, sat_timeout_per_depth)? {
+                GoalSolveResult::Sat(witness) => {
+                    return Ok(GoalSolveResult::Sat(witness));
+                }
+                GoalSolveResult::Unsat => {}
+                GoalSolveResult::Unknown => {
+                    is_unknown = true;
+                    break;
+                }
+            }
         }
     }
-    Ok(GoalSolveResult::Unsat)
+    if is_unknown {
+        Ok(GoalSolveResult::Unknown)
+    } else {
+        Ok(GoalSolveResult::Unsat)
+    }
 }
 
 fn dump_dimacs_cnf(
     cnf_dump_dir: Option<&Path>,
     goal_index: usize,
+    goal_symmetry: i32,
     h: usize,
     var_count: usize,
     clauses: &[Vec<i32>],
@@ -405,7 +454,10 @@ fn dump_dimacs_cnf(
     let Some(base_dir) = cnf_dump_dir else {
         return Ok(());
     };
-    let filename = format!("goal_{:04}_h_{:03}.cnf", goal_index, h);
+    let filename = format!(
+        "goal_{:04}_sym_{}_h_{:03}.cnf",
+        goal_index, goal_symmetry, h
+    );
     let path = base_dir.join(filename);
 
     let file = File::create(&path)
@@ -440,6 +492,52 @@ fn min_required_plies(start: Board, goal: Board) -> Option<usize> {
 fn max_plies_with_passes(min_plies: usize) -> usize {
     // Each non-pass move can be preceded by at most one forced pass.
     min_plies.saturating_mul(2)
+}
+
+/// 対称性を考慮し, かつ正規化を行ったgoalを計算する
+fn all_goals_to_solve(start: Board, goal: Board) -> (Vec<(i32, Board)>, usize) {
+    // goalと対称な最大8通りの盤面を列挙
+    let goal_symmtries = {
+        let mut out = Vec::with_capacity(8);
+        for sym in 0_i32..8_i32 {
+            let transformed = board_with_symmetry(goal, sym);
+            if out.iter().all(|(_, existing)| *existing != transformed) {
+                out.push((sym, transformed));
+            }
+        }
+        out
+    };
+
+    // s(start) = start となる対称変換 s を列挙
+    // 任意の対称変換 s について IsReachable(start, goal) と IsReachable(s(start), s(goal)) は同値なので,
+    // s(start) = start ならば s(goal) と goal を同一視して良い.
+    let start_invariants = {
+        let mut out = Vec::with_capacity(8);
+        for sym in 0_i32..8_i32 {
+            if board_with_symmetry(start, sym) == start {
+                out.push(sym);
+            }
+        }
+        out
+    };
+
+    let mut selected = Vec::new();
+    let mut all_canonicals = HashSet::new();
+
+    for &(g_sym, b) in &goal_symmtries {
+        let mut canonical = b;
+        for &inv in &start_invariants {
+            let tmp_canonical = board_with_symmetry(goal, inv);
+            if tmp_canonical < canonical {
+                canonical = tmp_canonical;
+            }
+        }
+        if all_canonicals.insert(canonical) {
+            selected.push((g_sym, b));
+        }
+    }
+
+    (selected, goal_symmtries.len())
 }
 
 fn encode_problem(
@@ -843,10 +941,10 @@ fn print_sat_result(witness: &SatWitness, goal_index: usize, show_coords: bool, 
             let side = if ply.turn_black { "Black" } else { "White" };
             match ply.action {
                 PlyAction::Pass => {
-                    println!("t={} {} PASS", ply_idx, side);
+                    println!("ply={} {} PASS", ply_idx, side);
                 }
                 PlyAction::Play(sq) => {
-                    println!("t={} {} {}", ply_idx, side, square_to_coord(sq));
+                    println!("ply={} {} {}", ply_idx, side, square_to_coord(sq));
                 }
             }
         }
@@ -854,7 +952,7 @@ fn print_sat_result(witness: &SatWitness, goal_index: usize, show_coords: bool, 
 
     if show_boards {
         for (layer_idx, board) in witness.boards.iter().enumerate() {
-            println!("board[{}] {}", layer_idx, board.to_string());
+            println!("layer[{}] {}", layer_idx, board.to_string());
         }
     }
 }
@@ -948,10 +1046,12 @@ fn precompute_flip_sources(rays: &Rays) -> FlipSources {
     sources
 }
 
+#[inline(always)]
 fn bit_is_set(bb: u64, sq: usize) -> bool {
     (bb >> sq) & 1 == 1
 }
 
+#[inline(always)]
 fn square_to_coord(sq: usize) -> String {
     let file = (b'A' + (sq % 8) as u8) as char;
     let rank = sq / 8 + 1;
