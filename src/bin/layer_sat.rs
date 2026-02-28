@@ -28,11 +28,11 @@ struct Cli {
     from_initial: bool,
 
     /// Start board as a 64-cell X/O/- string
-    #[arg(long, value_name = "BOARD")]
+    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
     start: Option<String>,
 
     /// Goal board as a 64-cell X/O/- string
-    #[arg(long, value_name = "BOARD")]
+    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
     goal: Option<String>,
 
     /// Input file containing one or more 64-cell X/O/- goal boards per line
@@ -55,7 +55,7 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     verbose: bool,
 
-    /// Number of goal boards solved in parallel per Rayon batch
+    /// Maximum number of goal boards solved concurrently
     #[arg(long, default_value_t = 1, value_parser = parse_positive_usize)]
     parallel_goals: usize,
 
@@ -105,6 +105,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
     let start = resolve_start_board(&cli)?;
     let goals = resolve_goal_boards(&cli)?;
     let cnf_dump_dir = resolve_cnf_dump_dir(&cli);
+    print_config(&cli, &start, &goals, cnf_dump_dir.as_deref());
     run_with_options(
         RunOptions {
             start,
@@ -139,6 +140,37 @@ fn run_cli(cli: Cli) -> Result<(), String> {
         return Ok(());
     }
     Ok(())
+}
+
+fn print_config(cli: &Cli, start: &Board, goals: &[Board], cnf_dump_dir: Option<&std::path::Path>) {
+    println!("layer-sat configuration:");
+    println!("  from_initial: {}", cli.from_initial);
+    println!("  start_turn: {:?}", cli.start_turn);
+    println!("  start: {}", start.to_string());
+    if let Some(path) = &cli.goal_file {
+        println!("  goal_source: --goal-file ({})", path.display());
+    } else {
+        println!("  goal_source: --goal");
+    }
+    println!("  goal_count: {}", goals.len());
+    if goals.len() == 1 {
+        println!("  goal: {}", goals[0].to_string());
+    }
+    println!("  parallel_goals: {}", cli.parallel_goals);
+    println!("  show_coords: {}", cli.show_coords);
+    println!("  show_boards: {}", cli.show_boards);
+    println!("  verbose: {}", cli.verbose);
+    println!("  out_dir: {}", cli.out_dir.display());
+    println!("  dump_dimacs_cnf: {}", cli.dump_dimacs_cnf);
+    println!("  cnf_dump_only: {}", cli.cnf_dump_only);
+    match cnf_dump_dir {
+        Some(dir) => println!("  cnf_dump_dir: {}", dir.display()),
+        None => println!("  cnf_dump_dir: disabled"),
+    }
+    match cli.sat_timeout_secs {
+        Some(secs) => println!("  sat_timeout_secs: {}", secs),
+        None => println!("  sat_timeout_secs: none"),
+    }
 }
 
 fn resolve_cnf_dump_dir(cli: &Cli) -> Option<PathBuf> {
@@ -238,5 +270,26 @@ mod tests {
     fn parse_positive_u64_rejects_zero() {
         assert_eq!(parse_positive_u64("5").unwrap(), 5);
         assert!(parse_positive_u64("0").is_err());
+    }
+
+    #[test]
+    fn cli_accepts_goal_value_starting_with_hyphen() {
+        let goal = "--------------------------XXX--O---XXXOO-O-O-O-O-OOOOOOO-O-O-O-O";
+        let cli = Cli::try_parse_from(["layer_sat", "--from-initial", "--goal", goal]).unwrap();
+        assert_eq!(cli.goal.as_deref(), Some(goal));
+    }
+
+    #[test]
+    fn cli_accepts_start_value_starting_with_hyphen() {
+        let start = "-----------------------------------------------------------OX------";
+        let cli = Cli::try_parse_from([
+            "layer_sat",
+            "--start",
+            start,
+            "--goal",
+            &Board::initial().to_string(),
+        ])
+        .unwrap();
+        assert_eq!(cli.start.as_deref(), Some(start));
     }
 }
