@@ -595,6 +595,8 @@ fn encode_problem(
         builder.add_clause(vec![vars.turn[layer + 1], vars.turn[layer]]);
         builder.add_clause(vec![-vars.turn[layer + 1], -vars.turn[layer]]);
     }
+    // goal は「次が黒番(X)」の局面として固定する
+    builder.add_unit(vars.turn[vars.h]);
 
     for ply in 0..vars.h {
         let layer = ply;
