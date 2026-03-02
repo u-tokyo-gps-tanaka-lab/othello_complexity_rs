@@ -550,6 +550,22 @@ fn encode_problem(
 ) -> Vec<Vec<i32>> {
     let mut builder = ClauseBuilder::default();
 
+    let start = if start_turn_black {
+        Board::new(start.player, start.opponent)
+    } else {
+        Board::new(start.opponent, start.player)
+    };
+    let goal_turn_black = if vars.h % 2 == 0 {
+        start_turn_black
+    } else {
+        !start_turn_black
+    };
+    let goal = if goal_turn_black {
+        Board::new(goal.player, goal.opponent)
+    } else {
+        Board::new(goal.opponent, goal.player)
+    };
+
     // (1) 開始層と終端層の石配置を固定し、同一マスの黒白重複を禁止する
     // b[0][s]=start.player[s], w[0][s]=start.opponent[s]
     // b[h][s]=goal.player[s], w[h][s]=goal.opponent[s]
@@ -595,8 +611,6 @@ fn encode_problem(
         builder.add_clause(vec![vars.turn[layer + 1], vars.turn[layer]]);
         builder.add_clause(vec![-vars.turn[layer + 1], -vars.turn[layer]]);
     }
-    // goal は「次が黒番(X)」の局面として固定する
-    builder.add_unit(vars.turn[vars.h]);
 
     for ply in 0..vars.h {
         let layer = ply;
