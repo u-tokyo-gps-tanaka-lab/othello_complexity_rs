@@ -540,6 +540,33 @@ fn all_goals_to_solve(start: Board, goal: Board) -> (Vec<(i32, Board)>, usize) {
     (selected, goal_symmtries.len())
 }
 
+// start_turn_black と手数 h の偶奇に応じて start/goal を絶対色へ戻す
+// 入力するgoalは「次手番が黒になるよう正規化された局面」として扱うため、この処理が必要
+#[inline(always)]
+fn canonicalize_board_turn(
+    start: Board,
+    goal: Board,
+    start_turn_black: bool,
+    h: usize,
+) -> (Board, Board) {
+    let start = if start_turn_black {
+        start
+    } else {
+        Board::new(start.opponent, start.player)
+    };
+    let goal_turn_black = if h % 2 == 0 {
+        start_turn_black
+    } else {
+        !start_turn_black
+    };
+    let goal = if goal_turn_black {
+        goal
+    } else {
+        Board::new(goal.opponent, goal.player)
+    };
+    (start, goal)
+}
+
 fn encode_problem(
     vars: &SatVars,
     start: Board,
@@ -550,21 +577,7 @@ fn encode_problem(
 ) -> Vec<Vec<i32>> {
     let mut builder = ClauseBuilder::default();
 
-    let start = if start_turn_black {
-        Board::new(start.player, start.opponent)
-    } else {
-        Board::new(start.opponent, start.player)
-    };
-    let goal_turn_black = if vars.h % 2 == 0 {
-        start_turn_black
-    } else {
-        !start_turn_black
-    };
-    let goal = if goal_turn_black {
-        Board::new(goal.player, goal.opponent)
-    } else {
-        Board::new(goal.opponent, goal.player)
-    };
+    let (start, goal) = canonicalize_board_turn(start, goal, start_turn_black, vars.h);
 
     // (1) 開始層と終端層の石配置を固定し、同一マスの黒白重複を禁止する
     // b[0][s]=start.player[s], w[0][s]=start.opponent[s]
@@ -1132,5 +1145,68 @@ mod tests {
             },
         ];
         assert_eq!(build_record_string(&plies), "D3C5");
+    }
+
+    #[test]
+    fn canonicalize_board_turn_respects_turn_parity() {
+        let start = Board::initial();
+        let goal_black_canonicalized = crate::io::parse_line_to_board(
+            "-------------------O-------OO------OX---------------------------",
+        )
+        .unwrap();
+        let goal_black_fixed = crate::io::parse_line_to_board(
+            "-------------------X-------XX------XO---------------------------",
+        )
+        .unwrap();
+
+        let (start_h0, goal_h0) = canonicalize_board_turn(start, goal_black_canonicalized, true, 0);
+        assert_eq!(start_h0, start);
+        assert_eq!(goal_h0, goal_black_canonicalized);
+
+        let (_start_h1, goal_h1) =
+            canonicalize_board_turn(start, goal_black_canonicalized, true, 1);
+        assert_eq!(goal_h1, goal_black_fixed);
+
+        let (start_white_h0, _goal_white_h0) =
+            canonicalize_board_turn(start, goal_black_canonicalized, false, 0);
+        assert_eq!(start_white_h0, Board::new(start.opponent, start.player));
+    }
+
+    #[test]
+    fn odd_h_interprets_canonical_goal() {
+        let rays = precompute_rays();
+        let flip_sources = precompute_flip_sources(&rays);
+        let start = Board::initial();
+
+        // H=1 では実際の手番は白になるため、黒番に正規化した入力を絶対色(黒白固定)へ戻すために黒白を反転する必要がある。
+        let goal_black_canonicalized = crate::io::parse_line_to_board(
+            "-------------------O-------OO------OX---------------------------",
+        )
+        .unwrap();
+        let goal_black_fixed = crate::io::parse_line_to_board(
+            "-------------------X-------XX------XO---------------------------",
+        )
+        .unwrap();
+
+        let vars = SatVars::new(1, &rays, &flip_sources);
+        let clauses = encode_problem(
+            &vars,
+            start,
+            goal_black_canonicalized,
+            true,
+            &rays,
+            &flip_sources,
+        );
+        assert!(matches!(
+            solve_single_problem(&vars, &clauses, None).unwrap(),
+            GoalSolveResult::Sat(_)
+        ));
+
+        let vars = SatVars::new(1, &rays, &flip_sources);
+        let clauses = encode_problem(&vars, start, goal_black_fixed, true, &rays, &flip_sources);
+        assert!(matches!(
+            solve_single_problem(&vars, &clauses, None).unwrap(),
+            GoalSolveResult::Unsat
+        ));
     }
 }
