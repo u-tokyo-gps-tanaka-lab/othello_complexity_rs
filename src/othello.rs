@@ -128,6 +128,13 @@ impl Board {
         }
     }
 
+    pub fn swapped(&self) -> Self {
+        Self {
+            player: self.opponent,
+            opponent: self.player,
+        }
+    }
+
     fn transpose(b: u64) -> u64 {
         let mut b = b;
         let mut t;

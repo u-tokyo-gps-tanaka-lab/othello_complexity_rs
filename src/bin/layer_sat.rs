@@ -27,15 +27,15 @@ struct Cli {
     #[arg(long)]
     from_initial: bool,
 
-    /// Start board as a 64-cell X/O/- string
+    /// Start board as a 64-cell X/O/- string (X = side to move, O = waiting side)
     #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
     start: Option<String>,
 
-    /// Goal board as a 64-cell X/O/- string
+    /// Goal board as a 64-cell X/O/- string normalized so the next side to move is black
     #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
     goal: Option<String>,
 
-    /// Input file containing one or more 64-cell X/O/- goal boards per line
+    /// Input file containing one or more goal boards normalized so the next side to move is black
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
@@ -43,7 +43,7 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     check_symmetry: bool,
 
-    /// Starting side to move
+    /// Absolute color of X on the start board; this also fixes the side to move
     #[arg(long, value_enum, default_value_t = Side::Black)]
     start_turn: Side,
 

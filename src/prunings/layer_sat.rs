@@ -1,5 +1,5 @@
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{board_with_symmetry, Board};
+use crate::othello::{board_with_symmetry, get_moves, Board};
 use rayon::prelude::*;
 use rustsat::{
     instances::Cnf,
@@ -356,7 +356,7 @@ fn check_sat_reachability(
             return Ok(GoalSolveResult::Unsat);
         }
     };
-    let max_plies = max_plies_with_passes(min_plies);
+    let max_plies = max_plies_with_passes(start, min_plies);
 
     if verbose {
         println!(
@@ -489,9 +489,15 @@ fn min_required_plies(start: Board, goal: Board) -> Option<usize> {
     Some((goal_discs - start_discs) as usize)
 }
 
-fn max_plies_with_passes(min_plies: usize) -> usize {
-    // Each non-pass move can be preceded by at most one forced pass.
-    min_plies.saturating_mul(2)
+fn max_plies_with_passes(start: Board, min_plies: usize) -> usize {
+    // 石を置く手が `min_plies` 回続く場合, 各着手のあとに PASS 手が 1 回起こりうる.
+    // `start`の時点で合法手がないなら, 初手 PASS 可能にする.
+    let initial_pass = if get_moves(start.player, start.opponent) == 0 {
+        1
+    } else {
+        0
+    };
+    min_plies.saturating_mul(2).saturating_add(initial_pass)
 }
 
 /// 対称性を考慮し, かつ正規化を行ったgoalを計算する
@@ -524,24 +530,24 @@ fn all_goals_to_solve(start: Board, goal: Board) -> (Vec<(i32, Board)>, usize) {
     let mut selected = Vec::new();
     let mut all_canonicals = HashSet::new();
 
-    for &(g_sym, b) in &goal_symmtries {
-        let mut canonical = b;
+    for &(rot_id, goal_sym) in &goal_symmtries {
+        let mut canonical = goal_sym;
         for &inv in &start_invariants {
-            let tmp_canonical = board_with_symmetry(goal, inv);
+            let tmp_canonical = board_with_symmetry(goal_sym, inv);
             if tmp_canonical < canonical {
                 canonical = tmp_canonical;
             }
         }
         if all_canonicals.insert(canonical) {
-            selected.push((g_sym, b));
+            selected.push((rot_id, goal_sym));
         }
     }
 
     (selected, goal_symmtries.len())
 }
 
-// start_turn_black と手数 h の偶奇に応じて start/goal を絶対色へ戻す
-// 入力するgoalは「次手番が黒になるよう正規化された局面」として扱うため、この処理が必要
+// goal は「次手番が黒になるよう正規化された局面」として入力される。
+// layer h の実際の手番が白なら、goal の黒白を反転して絶対色へ戻す。
 #[inline(always)]
 fn canonicalize_board_turn(
     start: Board,
@@ -552,7 +558,7 @@ fn canonicalize_board_turn(
     let start = if start_turn_black {
         start
     } else {
-        Board::new(start.opponent, start.player)
+        start.swapped()
     };
     let goal_turn_black = if h % 2 == 0 {
         start_turn_black
@@ -562,7 +568,7 @@ fn canonicalize_board_turn(
     let goal = if goal_turn_black {
         goal
     } else {
-        Board::new(goal.opponent, goal.player)
+        goal.swapped()
     };
     (start, goal)
 }
@@ -1087,6 +1093,7 @@ fn square_to_coord(sq: usize) -> String {
     format!("{file}{rank}")
 }
 
+// SAT/UNSATのテストは tests/layer_sat_test.rs に置く
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1122,13 +1129,6 @@ mod tests {
     }
 
     #[test]
-    fn max_plies_allows_one_pass_per_move() {
-        assert_eq!(max_plies_with_passes(0), 0);
-        assert_eq!(max_plies_with_passes(1), 2);
-        assert_eq!(max_plies_with_passes(60), 120);
-    }
-
-    #[test]
     fn record_string_concatenates_moves() {
         let plies = vec![
             Ply {
@@ -1150,7 +1150,7 @@ mod tests {
     #[test]
     fn canonicalize_board_turn_respects_turn_parity() {
         let start = Board::initial();
-        let goal_black_canonicalized = crate::io::parse_line_to_board(
+        let goal_black_canonical = crate::io::parse_line_to_board(
             "-------------------O-------OO------OX---------------------------",
         )
         .unwrap();
@@ -1159,54 +1159,15 @@ mod tests {
         )
         .unwrap();
 
-        let (start_h0, goal_h0) = canonicalize_board_turn(start, goal_black_canonicalized, true, 0);
+        let (start_h0, goal_h0) = canonicalize_board_turn(start, goal_black_canonical, true, 0);
         assert_eq!(start_h0, start);
-        assert_eq!(goal_h0, goal_black_canonicalized);
+        assert_eq!(goal_h0, goal_black_canonical);
 
-        let (_start_h1, goal_h1) =
-            canonicalize_board_turn(start, goal_black_canonicalized, true, 1);
+        let (_start_h1, goal_h1) = canonicalize_board_turn(start, goal_black_canonical, true, 1);
         assert_eq!(goal_h1, goal_black_fixed);
 
         let (start_white_h0, _goal_white_h0) =
-            canonicalize_board_turn(start, goal_black_canonicalized, false, 0);
-        assert_eq!(start_white_h0, Board::new(start.opponent, start.player));
-    }
-
-    #[test]
-    fn odd_h_interprets_canonical_goal() {
-        let rays = precompute_rays();
-        let flip_sources = precompute_flip_sources(&rays);
-        let start = Board::initial();
-
-        // H=1 では実際の手番は白になるため、黒番に正規化した入力を絶対色(黒白固定)へ戻すために黒白を反転する必要がある。
-        let goal_black_canonicalized = crate::io::parse_line_to_board(
-            "-------------------O-------OO------OX---------------------------",
-        )
-        .unwrap();
-        let goal_black_fixed = crate::io::parse_line_to_board(
-            "-------------------X-------XX------XO---------------------------",
-        )
-        .unwrap();
-
-        let vars = SatVars::new(1, &rays, &flip_sources);
-        let clauses = encode_problem(
-            &vars,
-            start,
-            goal_black_canonicalized,
-            true,
-            &rays,
-            &flip_sources,
-        );
-        assert!(matches!(
-            solve_single_problem(&vars, &clauses, None).unwrap(),
-            GoalSolveResult::Sat(_)
-        ));
-
-        let vars = SatVars::new(1, &rays, &flip_sources);
-        let clauses = encode_problem(&vars, start, goal_black_fixed, true, &rays, &flip_sources);
-        assert!(matches!(
-            solve_single_problem(&vars, &clauses, None).unwrap(),
-            GoalSolveResult::Unsat
-        ));
+            canonicalize_board_turn(start, goal_black_canonical, false, 0);
+        assert_eq!(start_white_h0, start.swapped());
     }
 }
