@@ -72,7 +72,7 @@ struct Cli {
     )]
     out_dir: PathBuf,
 
-    /// Emit DIMACS CNF files for each (goal, depth) instance
+    /// Emit DIMACS CNF files for each ranged-h instance
     #[arg(long, default_value_t = false)]
     dump_dimacs_cnf: bool,
 
@@ -80,7 +80,7 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     cnf_dump_only: bool,
 
-    /// Per-depth SAT solver timeout in seconds (applied to each h)
+    /// Per-instance SAT solver timeout in seconds
     #[arg(long, value_name = "SECS", value_parser = parse_positive_u64)]
     sat_timeout_secs: Option<u64>,
 }
@@ -122,7 +122,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             verbose: cli.verbose,
             cnf_dump_dir,
             cnf_dump_only: cli.cnf_dump_only,
-            sat_timeout_per_depth: cli.sat_timeout_secs.map(Duration::from_secs),
+            sat_timeout_per_instance: cli.sat_timeout_secs.map(Duration::from_secs),
         },
         |outcome| {
             if cli.cnf_dump_only {

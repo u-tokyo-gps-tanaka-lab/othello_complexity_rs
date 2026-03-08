@@ -80,14 +80,16 @@ impl ClauseBuilder {
     }
 }
 
-/// layer - 盤面の状態添字, 範囲は 0..=h（総数は h+1）
-/// ply - 1手ごとの状態遷移の添字, 範囲は 0..h（総数は h）
+/// layer - 盤面の状態添字, 範囲は 0..=max_h（総数は max_h+1）
+/// ply - 1手ごとの状態遷移の添字, 範囲は 0..max_h（総数は max_h）
 struct SatVars {
-    h: usize,                     // 所要手数 (plyの総数)
+    max_h: usize,                 // ありうる所要手数 (ply数) の最大値
     var_count: i32,               // これまでに割り当てた DIMACS 変数番号の最大値
-    b: Vec<Vec<i32>>,             // b[layer][sq]: マス sq は layer 0..=h で黒石になっている
-    w: Vec<Vec<i32>>,             // w[layer][sq]: マス sq は layer 0..=h で白石になっている
+    b: Vec<Vec<i32>>,             // b[layer][sq]: マス sq は layer 0..=max_h で黒石になっている
+    w: Vec<Vec<i32>>,             // w[layer][sq]: マス sq は layer 0..=max_h で白石になっている
     turn: Vec<i32>,               // turn[layer]: layer における手番 (true = black, false = white).
+    active: Vec<i32>,             // active[ply]: ply < h なら真
+    end: Vec<i32>,                // end[layer]: layer = h なら真
     pass: Vec<i32>,               // pass[ply]: ply がパス手か否か
     play: Vec<Vec<i32>>,          // play[ply][sq]: ply で sq に着手する
     legal: Vec<Vec<i32>>,         // legal[ply][sq]: sq が ply の合法手である
@@ -99,21 +101,23 @@ struct SatVars {
 }
 
 impl SatVars {
-    fn new(h: usize, rays: &Rays, flip_sources: &FlipSources) -> Self {
+    fn new(max_h: usize, rays: &Rays, flip_sources: &FlipSources) -> Self {
         let mut next = 0_i32;
 
-        let b = alloc_matrix(&mut next, h + 1, BOARD_SQUARES);
-        let w = alloc_matrix(&mut next, h + 1, BOARD_SQUARES);
-        let turn = alloc_vector(&mut next, h + 1);
-        let pass = alloc_vector(&mut next, h);
-        let play = alloc_matrix(&mut next, h, BOARD_SQUARES);
-        let legal = alloc_matrix(&mut next, h, BOARD_SQUARES);
-        let flip = alloc_matrix(&mut next, h, BOARD_SQUARES);
-        let cap = alloc_cap_tensor(&mut next, h, rays);
-        let reply_cap = alloc_cap_tensor(&mut next, h, rays);
+        let b = alloc_matrix(&mut next, max_h + 1, BOARD_SQUARES);
+        let w = alloc_matrix(&mut next, max_h + 1, BOARD_SQUARES);
+        let turn = alloc_vector(&mut next, max_h + 1);
+        let active = alloc_vector(&mut next, max_h);
+        let end = alloc_vector(&mut next, max_h + 1);
+        let pass = alloc_vector(&mut next, max_h);
+        let play = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
+        let legal = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
+        let flip = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
+        let cap = alloc_cap_tensor(&mut next, max_h, rays);
+        let reply_cap = alloc_cap_tensor(&mut next, max_h, rays);
 
-        let mut cause: Vec<Vec<Vec<i32>>> = vec![vec![Vec::new(); BOARD_SQUARES]; h];
-        for ply in 0..h {
+        let mut cause: Vec<Vec<Vec<i32>>> = vec![vec![Vec::new(); BOARD_SQUARES]; max_h];
+        for ply in 0..max_h {
             for (s, slot) in cause[ply].iter_mut().enumerate().take(BOARD_SQUARES) {
                 // One variable per precomputed source in flip_sources[s].
                 let mut vars = vec![0_i32; flip_sources[s].len()];
@@ -126,11 +130,13 @@ impl SatVars {
         }
 
         Self {
-            h,
+            max_h,
             var_count: next,
             b,
             w,
             turn,
+            active,
+            end,
             pass,
             play,
             legal,
@@ -172,7 +178,7 @@ pub struct RunOptions {
     pub verbose: bool,
     pub cnf_dump_dir: Option<PathBuf>,
     pub cnf_dump_only: bool,
-    pub sat_timeout_per_depth: Option<Duration>,
+    pub sat_timeout_per_instance: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -224,7 +230,7 @@ where
         verbose,
         cnf_dump_dir,
         cnf_dump_only,
-        sat_timeout_per_depth,
+        sat_timeout_per_instance,
     } = opts;
 
     if let Some(dir) = &cnf_dump_dir {
@@ -269,7 +275,7 @@ where
                     verbose,
                     cnf_dump_dir.as_deref(),
                     cnf_dump_only,
-                    sat_timeout_per_depth,
+                    sat_timeout_per_instance,
                     &rays,
                     &flip_sources,
                 )?;
@@ -321,7 +327,7 @@ fn check_sat_reachability(
     verbose: bool,
     cnf_dump_dir: Option<&Path>,
     cnf_dump_only: bool,
-    sat_timeout_per_depth: Option<Duration>,
+    sat_timeout_per_instance: Option<Duration>,
     rays: &Rays,
     flip_sources: &FlipSources,
 ) -> Result<GoalSolveResult, String> {
@@ -348,13 +354,13 @@ fn check_sat_reachability(
 
     if verbose {
         println!(
-                "[info][goal={}] start iterative deepening from min_plies={} to max_plies={} (start_discs={}, goal_discs={})",
-                goal_index,
-                min_plies,
-                max_plies,
-                start.popcount(),
-                goal.popcount()
-            );
+            "[info][goal={}] build single CNF with h=[{}..={}] (start_discs={}, goal_discs={})",
+            goal_index,
+            min_plies,
+            max_plies,
+            start.popcount(),
+            goal.popcount()
+        );
         if check_symmetry {
             println!(
                 "[info][goal={}] this goal has {} symmetric candidate(s) (from all {} symmetries)",
@@ -378,49 +384,49 @@ fn check_sat_reachability(
                 goal_index, goal_symmetry
             );
         }
-        for h in min_plies..=max_plies {
-            let vars = SatVars::new(h, rays, flip_sources);
-            let clauses = encode_problem(
-                &vars,
-                start,
-                goal_board,
-                start_turn_black,
-                rays,
-                flip_sources,
-            );
-            dump_dimacs_cnf(
-                cnf_dump_dir,
+        let vars = SatVars::new(max_plies, rays, flip_sources);
+        let clauses = encode_problem(
+            &vars,
+            start,
+            goal_board,
+            start_turn_black,
+            min_plies,
+            rays,
+            flip_sources,
+        );
+        dump_dimacs_cnf(
+            cnf_dump_dir,
+            goal_index,
+            goal_symmetry,
+            min_plies,
+            max_plies,
+            vars.var_count as usize,
+            &clauses,
+        )?;
+
+        if verbose {
+            println!(
+                "[info][goal={}] range={}..={} symmetry={} vars={} clauses={}",
                 goal_index,
+                min_plies,
+                max_plies,
                 goal_symmetry,
-                h,
-                vars.var_count as usize,
-                &clauses,
-            )?;
+                vars.var_count,
+                clauses.len()
+            );
+        }
 
-            if verbose {
-                println!(
-                    "[info][goal={}] depth={} symmetry={} vars={} clauses={}",
-                    goal_index,
-                    h,
-                    goal_symmetry,
-                    vars.var_count,
-                    clauses.len()
-                );
+        if cnf_dump_only {
+            continue;
+        }
+
+        match solve_single_problem(&vars, &clauses, sat_timeout_per_instance)? {
+            GoalSolveResult::Sat(witness) => {
+                return Ok(GoalSolveResult::Sat(witness));
             }
-
-            if cnf_dump_only {
-                continue;
-            }
-
-            match solve_single_problem(&vars, &clauses, sat_timeout_per_depth)? {
-                GoalSolveResult::Sat(witness) => {
-                    return Ok(GoalSolveResult::Sat(witness));
-                }
-                GoalSolveResult::Unsat => {}
-                GoalSolveResult::Unknown => {
-                    is_unknown = true;
-                    break;
-                }
+            GoalSolveResult::Unsat => {}
+            GoalSolveResult::Unknown => {
+                is_unknown = true;
             }
         }
     }
@@ -435,7 +441,8 @@ fn dump_dimacs_cnf(
     cnf_dump_dir: Option<&Path>,
     goal_index: usize,
     goal_symmetry: i32,
-    h: usize,
+    min_plies: usize,
+    max_plies: usize,
     var_count: usize,
     clauses: &[Vec<i32>],
 ) -> Result<(), String> {
@@ -443,8 +450,8 @@ fn dump_dimacs_cnf(
         return Ok(());
     };
     let filename = format!(
-        "goal_{:04}_sym_{}_h_{:03}.cnf",
-        goal_index, goal_symmetry, h
+        "goal_{:04}_sym_{}_h_{:03}_{:03}.cnf",
+        goal_index, goal_symmetry, min_plies, max_plies
     );
     let path = base_dir.join(filename);
 
@@ -534,31 +541,31 @@ fn all_goals_to_solve(start: Board, goal: Board) -> (Vec<(i32, Board)>, usize) {
     (selected, goal_symmtries.len())
 }
 
-// goal は「次手番が黒になるよう正規化された局面」として入力される。
-// layer h の実際の手番が白なら、goal の黒白を反転して絶対色へ戻す。
+// start は「X が現手番側」の相対色局面として入力される。
+// start_turn_black=false のときは、絶対色へ戻すために黒白を反転する。
 #[inline(always)]
-fn canonicalize_board_turn(
-    start: Board,
-    goal: Board,
-    start_turn_black: bool,
-    h: usize,
-) -> (Board, Board) {
-    let start = if start_turn_black {
+fn canonicalize_start_board(start: Board, start_turn_black: bool) -> Board {
+    if start_turn_black {
         start
     } else {
         start.swapped()
-    };
-    let goal_turn_black = if h % 2 == 0 {
+    }
+}
+
+// goal は「次手番が黒になるよう正規化された局面」として入力される。
+// layer の実際の次手番が白なら、goal の黒白を反転して絶対色へ戻す。
+#[inline(always)]
+fn goal_for_layer(goal: Board, start_turn_black: bool, layer: usize) -> Board {
+    let goal_turn_black = if layer % 2 == 0 {
         start_turn_black
     } else {
         !start_turn_black
     };
-    let goal = if goal_turn_black {
+    if goal_turn_black {
         goal
     } else {
         goal.swapped()
-    };
-    (start, goal)
+    }
 }
 
 fn encode_problem(
@@ -566,16 +573,19 @@ fn encode_problem(
     start: Board,
     goal: Board,
     start_turn_black: bool,
+    min_plies: usize,
     rays: &Rays,
     flip_sources: &FlipSources,
 ) -> Vec<Vec<i32>> {
     let mut builder = ClauseBuilder::default();
+    let start = canonicalize_start_board(start, start_turn_black);
 
-    let (start, goal) = canonicalize_board_turn(start, goal, start_turn_black, vars.h);
+    // h の範囲に関する制約を課す
+    add_range_selector_constraints(&mut builder, &vars.active, &vars.end, min_plies);
 
     // (1) 開始層と終端層の石配置を固定し、同一マスの黒白重複を禁止する
     // b[0][s]=start.player[s], w[0][s]=start.opponent[s]
-    // b[h][s]=goal.player[s], w[h][s]=goal.opponent[s]
+    // end[layer] が真なら b[layer][s], w[layer][s] を goal に固定する
     // forall layer,sq: not(b[layer][sq] and w[layer][sq])
     for s in 0..BOARD_SQUARES {
         builder.add_unit(if bit_is_set(start.player, s) {
@@ -588,51 +598,63 @@ fn encode_problem(
         } else {
             -vars.w[0][s]
         });
-        builder.add_unit(if bit_is_set(goal.player, s) {
-            vars.b[vars.h][s]
-        } else {
-            -vars.b[vars.h][s]
-        });
-        builder.add_unit(if bit_is_set(goal.opponent, s) {
-            vars.w[vars.h][s]
-        } else {
-            -vars.w[vars.h][s]
-        });
     }
-    for layer in 0..=vars.h {
+    for layer in 0..=vars.max_h {
+        let goal_at_layer = goal_for_layer(goal, start_turn_black, layer);
         for s in 0..BOARD_SQUARES {
+            builder.add_implication(
+                vars.end[layer],
+                if bit_is_set(goal_at_layer.player, s) {
+                    vars.b[layer][s]
+                } else {
+                    -vars.b[layer][s]
+                },
+            );
+            builder.add_implication(
+                vars.end[layer],
+                if bit_is_set(goal_at_layer.opponent, s) {
+                    vars.w[layer][s]
+                } else {
+                    -vars.w[layer][s]
+                },
+            );
             builder.add_clause(vec![-vars.b[layer][s], -vars.w[layer][s]]);
         }
     }
 
     // (2) 初期手番を固定し、各層で手番が必ず反転することを要求する
-    // turn[0] = start_turn_black かつ
-    // forall layer<h: turn[layer+1] <-> not turn[layer]
+    // turn[0] = start_turn_black かつ forall layer<max_h: turn[layer+1] <-> not turn[layer]
     builder.add_unit(if start_turn_black {
         vars.turn[0]
     } else {
         -vars.turn[0]
     });
-    for layer in 0..vars.h {
+    for layer in 0..vars.max_h {
         // turn[layer+1] と turn[layer] が否定関係にあることを表す
         builder.add_clause(vec![vars.turn[layer + 1], vars.turn[layer]]);
         builder.add_clause(vec![-vars.turn[layer + 1], -vars.turn[layer]]);
     }
 
-    for ply in 0..vars.h {
+    for ply in 0..vars.max_h {
         let layer = ply;
         let next_layer = layer + 1;
+        let active_ply = vars.active[ply];
         let pass_ply = vars.pass[ply];
         let turn_layer = vars.turn[layer];
 
         // (3) 各手で「パス」または「1マス着手」のいずれかのみを許可する
-        // forall ply: pass[ply] or (OR_sq play[ply][sq])
+        // active[ply] -> pass[ply] or (OR_sq play[ply][sq])
+        // forall ply: !active[ply] -> not pass[ply]
+        // forall ply,sq: !active[ply] -> not play[ply][sq]
         // forall ply,sq: pass[ply] -> not play[ply][sq]
         // forall ply, i!=j: (not pass[ply]) -> not(play[ply][i] and play[ply][j])
         let mut at_least_one_play = Vec::with_capacity(BOARD_SQUARES + 1);
+        at_least_one_play.push(-active_ply);
         at_least_one_play.push(pass_ply); // !pass[ply] のときにどこか1マスへの着手を必須にする
+        builder.add_implication(-active_ply, -pass_ply);
         for &play_sq in &vars.play[ply] {
             at_least_one_play.push(play_sq);
+            builder.add_implication(-active_ply, -play_sq);
             builder.add_clause(vec![-pass_ply, -play_sq]); // pass[ply] が真なら play[ply][sq] を偽にする
         }
         builder.add_clause(at_least_one_play);
@@ -663,9 +685,12 @@ fn encode_problem(
 
                     // cap[ply][sq][dir][k] が真なら legal[ply][sq] も真である
                     builder.add_implication(cap_ply_sq_dir_k, legal_ply_sq);
+                    // !active[ply] -> !cap[ply][sq][dir][k]
+                    builder.add_implication(-active_ply, -cap_ply_sq_dir_k);
 
                     // turn[layer]=black で黒側の挟み込み条件が成立したときに cap[ply][sq][dir][k] を真にする
                     let mut ants_black = Vec::with_capacity(k + 4);
+                    ants_black.push(active_ply);
                     ants_black.push(turn_layer);
                     ants_black.push(-b_layer_sq);
                     ants_black.push(-w_layer_sq);
@@ -677,6 +702,7 @@ fn encode_problem(
 
                     // turn[layer]=white で白側の挟み込み条件が成立したときに cap[ply][sq][dir][k] を真にする
                     let mut ants_white = Vec::with_capacity(k + 4);
+                    ants_white.push(active_ply);
                     ants_white.push(-turn_layer);
                     ants_white.push(-b_layer_sq);
                     ants_white.push(-w_layer_sq);
@@ -709,12 +735,13 @@ fn encode_problem(
 
         // (5) パス変数と合法手変数の関係を定義する
         // forall ply,sq: pass[ply] -> not legal[ply][sq]
-        // forall ply: not pass[ply] -> (OR_sq legal[ply][sq])
+        // active[ply] -> pass[ply] or (OR_sq legal[ply][sq])
         // forall ply,sq: play[ply][sq] -> legal[ply][sq]
         // pass[ply] -> OR_{sq,dir,k} reply_cap[ply][sq][dir][k]
         let mut not_pass_requires_legal = Vec::with_capacity(BOARD_SQUARES + 1);
         let mut pass_requires_reply = Vec::new();
         pass_requires_reply.push(-pass_ply);
+        not_pass_requires_legal.push(-active_ply);
         not_pass_requires_legal.push(pass_ply); // !pass[ply] のときに少なくとも1つの合法手を要求する
         for sq in 0..BOARD_SQUARES {
             let legal_ply_sq = vars.legal[ply][sq];
@@ -729,11 +756,14 @@ fn encode_problem(
                 let ray = &rays[sq][dir];
                 let max_k = ray.len().saturating_sub(1);
                 for k in 1..=max_k {
+                    // not active[ply] -> not reply_cap[ply][sq][dir][k]
                     let reply_cap_ply_sq_dir_k = vars.reply_cap[ply][sq][dir][k];
                     pass_requires_reply.push(reply_cap_ply_sq_dir_k);
+                    builder.add_implication(-active_ply, -reply_cap_ply_sq_dir_k);
 
                     // turn[layer]=black のとき、pass 後は white が手番になる。
                     let mut reply_when_current_black = Vec::with_capacity(k + 4);
+                    reply_when_current_black.push(active_ply);
                     reply_when_current_black.push(turn_layer);
                     reply_when_current_black.push(-b_layer_sq);
                     reply_when_current_black.push(-w_layer_sq);
@@ -748,6 +778,7 @@ fn encode_problem(
 
                     // turn[layer]=white のとき、pass 後は black が手番になる。
                     let mut reply_when_current_white = Vec::with_capacity(k + 4);
+                    reply_when_current_white.push(active_ply);
                     reply_when_current_white.push(-turn_layer);
                     reply_when_current_white.push(-b_layer_sq);
                     reply_when_current_white.push(-w_layer_sq);
@@ -882,6 +913,57 @@ fn encode_problem(
     builder.into_clauses()
 }
 
+// h の範囲に関する制約を課す
+//
+// 1. ∀ ply < min_plies: active[ply]
+// 2. ∀ ply < max_h - 1: active[ply + 1] -> active[ply]
+// 3. end[0] <-> ¬active[0]
+// 4. ∀ 1 <= layer < max_h:
+//      end[layer] <-> (active[layer - 1] ∧ ¬active[layer])
+// 5. end[max_h] <-> active[max_h - 1]
+//
+// 1により min_plies <= h が保証される。
+// 2により active = (true, ..., true, false, ..., false) という形に限られる。
+// 3-5 により、ある layer で end[layer] が真であることと h = layer は同値になる。
+//
+// ex1) h = 2, max_h = 5 のとき
+//   active = [T, T, F, F, F]
+//   end    = [F, F, T, F, F, F]
+// ex2) h = max_h = 5 のとき
+//   active = [T, T, T, T, T]
+//   end    = [F, F, F, F, F, T]
+fn add_range_selector_constraints(
+    builder: &mut ClauseBuilder,
+    active: &[i32],
+    end: &[i32],
+    min_plies: usize,
+) {
+    // max_h=0 -> end[0]
+    if active.is_empty() {
+        builder.add_unit(end[0]);
+        return;
+    }
+
+    for (ply, &active_ply) in active.iter().enumerate() {
+        if ply < min_plies {
+            builder.add_unit(active_ply);
+        }
+        if ply + 1 < active.len() {
+            builder.add_implication(active[ply + 1], active_ply);
+        }
+    }
+
+    builder.add_clause(vec![-end[0], -active[0]]);
+    builder.add_clause(vec![active[0], end[0]]);
+    for layer in 1..active.len() {
+        builder.add_implication(end[layer], active[layer - 1]);
+        builder.add_clause(vec![-end[layer], -active[layer]]);
+        builder.add_clause(vec![-active[layer - 1], active[layer], end[layer]]);
+    }
+    builder.add_implication(end[active.len()], active[active.len() - 1]);
+    builder.add_implication(active[active.len() - 1], end[active.len()]);
+}
+
 fn solve_single_problem(
     vars: &SatVars,
     clauses: &[Vec<i32>],
@@ -940,8 +1022,10 @@ fn decode_witness(
     vars: &SatVars,
     solver: &rustsat_kissat::Kissat<'_>,
 ) -> Result<SatWitness, String> {
-    let mut boards = Vec::with_capacity(vars.h + 1);
-    for layer in 0..=vars.h {
+    let h = decode_selected_h(vars, solver)?;
+
+    let mut boards = Vec::with_capacity(h + 1);
+    for layer in 0..=h {
         let mut black = 0_u64;
         let mut white = 0_u64;
         for s in 0..BOARD_SQUARES {
@@ -955,8 +1039,8 @@ fn decode_witness(
         boards.push(Board::new(black, white));
     }
 
-    let mut plies = Vec::with_capacity(vars.h);
-    for ply in 0..vars.h {
+    let mut plies = Vec::with_capacity(h);
+    for ply in 0..h {
         let turn_black = value_of(solver, vars.turn[ply])?;
         let pass = value_of(solver, vars.pass[ply])?;
         if pass {
@@ -987,11 +1071,25 @@ fn decode_witness(
         });
     }
 
-    Ok(SatWitness {
-        h: vars.h,
-        plies,
-        boards,
-    })
+    Ok(SatWitness { h, plies, boards })
+}
+
+// 変数の割当から end[layer] <-> (layer = h) が真になる h を取得する
+fn decode_selected_h(vars: &SatVars, solver: &rustsat_kissat::Kissat<'_>) -> Result<usize, String> {
+    let mut selected = None;
+    for layer in 0..=vars.max_h {
+        if value_of(solver, vars.end[layer])? {
+            if selected.is_some() {
+                return Err(format!(
+                    "model decoding error: multiple end layers selected (at least {} and {})",
+                    selected.unwrap(),
+                    layer
+                ));
+            }
+            selected = Some(layer);
+        }
+    }
+    selected.ok_or_else(|| "model decoding error: no end layer selected".to_string())
 }
 
 fn print_sat_result(witness: &SatWitness, goal_index: usize, show_coords: bool, show_boards: bool) {
@@ -1195,29 +1293,5 @@ mod tests {
             },
         ];
         assert_eq!(build_record_string(&plies), "D3C5");
-    }
-
-    #[test]
-    fn canonicalize_board_turn_respects_turn_parity() {
-        let start = Board::initial();
-        let goal_black_canonical = crate::io::parse_line_to_board(
-            "-------------------O-------OO------OX---------------------------",
-        )
-        .unwrap();
-        let goal_black_fixed = crate::io::parse_line_to_board(
-            "-------------------X-------XX------XO---------------------------",
-        )
-        .unwrap();
-
-        let (start_h0, goal_h0) = canonicalize_board_turn(start, goal_black_canonical, true, 0);
-        assert_eq!(start_h0, start);
-        assert_eq!(goal_h0, goal_black_canonical);
-
-        let (_start_h1, goal_h1) = canonicalize_board_turn(start, goal_black_canonical, true, 1);
-        assert_eq!(goal_h1, goal_black_fixed);
-
-        let (start_white_h0, _goal_white_h0) =
-            canonicalize_board_turn(start, goal_black_canonical, false, 0);
-        assert_eq!(start_white_h0, start.swapped());
     }
 }

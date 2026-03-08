@@ -24,7 +24,7 @@ fn classify_single_goal(
             verbose: false,
             cnf_dump_dir: None,
             cnf_dump_only: false,
-            sat_timeout_per_depth: None,
+            sat_timeout_per_instance: None,
         },
         |_| Ok(()),
     )
