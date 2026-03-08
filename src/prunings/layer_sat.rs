@@ -94,6 +94,8 @@ struct SatVars {
     flip: Vec<Vec<i32>>,          // flip[ply][sq]: sq が ply で反転する
     cap: Vec<Vec<Vec<Vec<i32>>>>, // cap[ply][sq][dir][k]: sq への着手が方向 dir で k 枚を挟む
     cause: Vec<Vec<Vec<i32>>>,    // cause[ply][sq][i]: ply 手目で sq が反転する原因 i が成立する
+    reply_cap: Vec<Vec<Vec<Vec<i32>>>>,
+    // reply_cap[ply][sq][dir][k]: 現手番が ply で pass するとき、相手が sq に着手し dir 方向に k 枚挟める
 }
 
 impl SatVars {
@@ -107,23 +109,8 @@ impl SatVars {
         let play = alloc_matrix(&mut next, h, BOARD_SQUARES);
         let legal = alloc_matrix(&mut next, h, BOARD_SQUARES);
         let flip = alloc_matrix(&mut next, h, BOARD_SQUARES);
-
-        let mut cap: Vec<Vec<Vec<Vec<i32>>>> =
-            vec![vec![vec![Vec::new(); DIRS.len()]; BOARD_SQUARES]; h];
-        for ply in 0..h {
-            for s in 0..BOARD_SQUARES {
-                for d in 0..DIRS.len() {
-                    let max_k = rays[s][d].len().saturating_sub(1);
-                    // k = 0 is a dummy slot. Real capture variables are k >= 1 only.
-                    let mut ks = vec![0_i32; max_k + 1];
-                    for slot in ks.iter_mut().take(max_k + 1).skip(1) {
-                        next += 1;
-                        *slot = next;
-                    }
-                    cap[ply][s][d] = ks;
-                }
-            }
-        }
+        let cap = alloc_cap_tensor(&mut next, h, rays);
+        let reply_cap = alloc_cap_tensor(&mut next, h, rays);
 
         let mut cause: Vec<Vec<Vec<i32>>> = vec![vec![Vec::new(); BOARD_SQUARES]; h];
         for ply in 0..h {
@@ -149,6 +136,7 @@ impl SatVars {
             legal,
             flip,
             cap,
+            reply_cap,
             cause,
         }
     }
@@ -723,7 +711,10 @@ fn encode_problem(
         // forall ply,sq: pass[ply] -> not legal[ply][sq]
         // forall ply: not pass[ply] -> (OR_sq legal[ply][sq])
         // forall ply,sq: play[ply][sq] -> legal[ply][sq]
+        // pass[ply] -> OR_{sq,dir,k} reply_cap[ply][sq][dir][k]
         let mut not_pass_requires_legal = Vec::with_capacity(BOARD_SQUARES + 1);
+        let mut pass_requires_reply = Vec::new();
+        pass_requires_reply.push(-pass_ply);
         not_pass_requires_legal.push(pass_ply); // !pass[ply] のときに少なくとも1つの合法手を要求する
         for sq in 0..BOARD_SQUARES {
             let legal_ply_sq = vars.legal[ply][sq];
@@ -731,8 +722,48 @@ fn encode_problem(
             builder.add_clause(vec![-pass_ply, -legal_ply_sq]); // pass[ply] が真なら legal[ply][sq] を偽にする
             builder.add_clause(vec![-legal_ply_sq, -pass_ply]); // legal[ply][sq] が真なら pass[ply] を偽にする
             builder.add_clause(vec![-vars.play[ply][sq], legal_ply_sq]); // play[ply][sq] が真なら legal[ply][sq] を真にする
+
+            let b_layer_sq = vars.b[layer][sq];
+            let w_layer_sq = vars.w[layer][sq];
+            for dir in 0..DIRS.len() {
+                let ray = &rays[sq][dir];
+                let max_k = ray.len().saturating_sub(1);
+                for k in 1..=max_k {
+                    let reply_cap_ply_sq_dir_k = vars.reply_cap[ply][sq][dir][k];
+                    pass_requires_reply.push(reply_cap_ply_sq_dir_k);
+
+                    // turn[layer]=black のとき、pass 後は white が手番になる。
+                    let mut reply_when_current_black = Vec::with_capacity(k + 4);
+                    reply_when_current_black.push(turn_layer);
+                    reply_when_current_black.push(-b_layer_sq);
+                    reply_when_current_black.push(-w_layer_sq);
+                    for idx in ray.iter().take(k) {
+                        reply_when_current_black.push(vars.b[layer][*idx]);
+                    }
+                    reply_when_current_black.push(vars.w[layer][ray[k]]);
+                    builder.add_implication_many(&reply_when_current_black, reply_cap_ply_sq_dir_k);
+                    for cond in reply_when_current_black.iter().skip(1) {
+                        builder.add_implication_many(&[reply_cap_ply_sq_dir_k, turn_layer], *cond);
+                    }
+
+                    // turn[layer]=white のとき、pass 後は black が手番になる。
+                    let mut reply_when_current_white = Vec::with_capacity(k + 4);
+                    reply_when_current_white.push(-turn_layer);
+                    reply_when_current_white.push(-b_layer_sq);
+                    reply_when_current_white.push(-w_layer_sq);
+                    for idx in ray.iter().take(k) {
+                        reply_when_current_white.push(vars.w[layer][*idx]);
+                    }
+                    reply_when_current_white.push(vars.b[layer][ray[k]]);
+                    builder.add_implication_many(&reply_when_current_white, reply_cap_ply_sq_dir_k);
+                    for cond in reply_when_current_white.iter().skip(1) {
+                        builder.add_implication_many(&[reply_cap_ply_sq_dir_k, -turn_layer], *cond);
+                    }
+                }
+            }
         }
         builder.add_clause(not_pass_requires_legal);
+        builder.add_clause(pass_requires_reply);
 
         // (6) 反転原因変数と反転変数の意味を定義する
         // 各 i について、cause[ply][sq][i] は play[ply][p_i] と cap[ply][p_i][dir_i][k_i] の同時成立と同値である
@@ -1044,6 +1075,25 @@ fn alloc_matrix(next: &mut i32, rows: usize, cols: usize) -> Vec<Vec<i32>> {
         }
     }
     out
+}
+
+fn alloc_cap_tensor(next: &mut i32, h: usize, rays: &Rays) -> Vec<Vec<Vec<Vec<i32>>>> {
+    let mut cap = vec![vec![vec![Vec::new(); DIRS.len()]; BOARD_SQUARES]; h];
+    for ply in 0..h {
+        for s in 0..BOARD_SQUARES {
+            for d in 0..DIRS.len() {
+                let max_k = rays[s][d].len().saturating_sub(1);
+                // k = 0 is a dummy slot. Real capture variables are k >= 1 only.
+                let mut ks = vec![0_i32; max_k + 1];
+                for slot in ks.iter_mut().take(max_k + 1).skip(1) {
+                    *next += 1;
+                    *slot = *next;
+                }
+                cap[ply][s][d] = ks;
+            }
+        }
+    }
+    cap
 }
 
 // Precomputes ordered ray squares for every start square and direction.

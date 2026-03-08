@@ -93,6 +93,21 @@ fn test_single_pass() {
 }
 
 #[test]
+fn test_terminal_pass_is_rejected() {
+    let start = Board::new(u64::MAX, 0);
+    let goal = start.swapped();
+
+    assert!(matches!(
+        classify_single_goal(start, goal, false, true),
+        GoalClassification::Unreachable { .. }
+    ));
+    assert!(matches!(
+        classify_single_goal(start, start, false, true),
+        GoalClassification::Reachable { .. }
+    ));
+}
+
+#[test]
 fn test_symmetry_1() {
     let start =
         parse_line_to_board("-----------O------OO------XOX------XOX-------O------------------")
@@ -230,7 +245,7 @@ fn test_turn_canonicalization_2() {
     ));
     assert!(matches!(
         classify_single_goal(start, goal_white_relative, false, false),
-        GoalClassification::Reachable { .. }
+        GoalClassification::Unreachable { .. }
     ));
 }
 
