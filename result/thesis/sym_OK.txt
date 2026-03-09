@@ -1,1 +1,1 @@
-../result_gpw2025/sym_OK.txt
+../gpw2025/sym_OK.txt

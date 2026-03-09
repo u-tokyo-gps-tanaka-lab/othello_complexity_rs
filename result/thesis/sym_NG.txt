@@ -1,0 +1,1 @@
+../gpw2025/sym_NG.txt
