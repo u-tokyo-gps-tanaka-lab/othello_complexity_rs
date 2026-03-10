@@ -1,0 +1,728 @@
+layer-sat configuration:
+  from_initial: true
+  start_turn: Black
+  start: ---------------------------OX------XO---------------------------
+  goal_source: --goal-file (result/thesis_layer_sat/layer_sat_UNKNOWN.txt)
+  goal_count: 98
+  check_symmetry: true
+  parallel_goals: 15
+  show_coords: false
+  show_boards: false
+  verbose: true
+  out_dir: result/thesis_layer_sat/layer_sat_6000s
+  dump_dimacs_cnf: false
+  cnf_dump_only: false
+  cnf_dump_dir: disabled
+  sat_timeout_secs: 6000
+goal[1] O--XO-OOXXXOXXXO-OOXXOXO-O-OXXX-XO-OXOXOOOOO-XXXXXO-OOO--XOOX---
+goal[2] OXX-OXXO-OXXXOX--XO-XOXXXXOOXXOOOO-OOO-X-XOXOOXXXXXO-XOX-X--OX--
+goal[3] X-XOX-XXOOXXXXXOOXOOXXX--OXXXOX-OOOXXXOX-XX--XXOXXO-XOOOXOO--O-X
+goal[4] X-XXX-O-OX-XXOOOXOO-XXOOXXOXXXXOOOOOXXXO-OOOXXX-OO-XX--XOXXO----
+goal[5] XO-OXXXX-OXXXOXXXOOX-XO-XXXXOXXO-XXXX-OXXXXXOX-XOXXO-OXX-OXXO-O-
+goal[6] -O-XXXOX-OXOXOO-OXXOXOX-XOOXX-OXX-XOO-OOXXO-OXOOXXOOOOOOXO-OOX--
+goal[7] --OO-XXO-OOO-XOXOOXOXXXOO-XXXOOO-OXXXOOOOOOXXXXXXX-XOOXXX--X-O--
+goal[8] XOOOOO--OXOOOXO-O-XXO-XO-OOXOX-OXXOOXOXXOXX-XOOXOXOO-X-XO-OOX---
+goal[9] OXXXXXX-OO-OOXXOOXX--OOO-OOXOOO-O-OXOXOOXOOXOXXOOOXOX-OXO-O-----
+goal[10] -O-OXX-OOXOXO-XOXOXO--OOXOOXXXOOXOOXOX-OXOOOXXXOX-XXO--O--OXXX--
+goal[11] OXXOXXO-XOX-XX--OOOXOXXX-OOXOXXX-OXOOX-XO-XOOOO-OXXOXOXOXX-X-O--
+goal[12] OOOO--OXO-OXO-OXOOOX-XOOXXXOXOXX-OXXOO--O-X-OO--XXOOXXOOO-O---X-
+goal[13] -OXX-XXXOOOX--OX-X-OOXOOO-XOXX-O-XOXXXO-XOOO-OXXXXOXX-O--OX-----
+goal[14] O-OOOO-OOOOO-OO-OXXXXXOOOOOOOXXX-X-OXXO-OOXO-OXX-XXOXXXXXXOOOO--
+goal[15] OXXOOOOOOOXXOOXOXOXOX-X-XO-XOOOOXXXXOX---XXOXXX-XXXXXOOX-XXXOX--
+goal[16] -OOO-O---OXOXOXOOXXO-OX-OX-XXXXX-XXOOO-XOOXXXXXXOOOOOXO-OXOO----
+goal[17] XO-XXO--OXX-XO-XOXXXX-O-OXOXXOOOOX-XOXX--OOXOXOO-OXXXXOOOOX-XX--
+goal[18] OX-OOOOXXOO-OXOXXXXXXO-X-XXOOOO-XOOOOOXO-OO-X-XOXOXO-XOOOOOOO-X-
+goal[19] XX---XOOX-X-XOXOXOOXXXOXXXOOOOXXOOOOOXOX-XXOX-OXOOXXXOXOOXX-OXX-
+goal[20] -OOXXXXOXOO-OOOXXOXXXOXOXO-XOXX-X--OO-XXOOOO-OOOXXXXOOOOXXX-XO--
+goal[21] OOXXXXXXOOOXXOOOOXXXX-XOOXXXXO--XX-XOXOX-XXXOXOO-O-OOXXXO---OO--
+goal[22] XO-XXXO-XXXXOXOOOXOOX-XOO-XXXXXXXXOOOXXOXX-XXOO-XXX-X-OO--XO-X--
+goal[23] OOOO--OO--OX-OXOX-XOOX-O-X-XOOOOOXXXXOXOOOOOX--OX-OXXX-O--XOXX--
+goal[24] OXX-XXXOOOOX-XXOOX-OOXOOOXOXOXXO-OOXOO-OOO-OXXOO-OX-OOOO-XXX-X--
+goal[25] -X-OOOX-OOOXOO-OOOX-OXOXOOOXOO-XOX-XOX-XOXO-XOOXOXOXOXX-OOOO----
+goal[26] OXOOX-O--XXX-O--OXXXXOXOXXOXXOXOOX-XOXOOOOXOXO-OOO-XO----O--XO--
+goal[27] XXO--OOOXOXOXXX-XXX-XOXXX-OXX--O-XOOXOOOXXXXXXOOOXX-OOX-XX-XO--X
+goal[28] OO-OXXXOXOOOXOXX--XO-XXXXOOXXXX-OXXXOOOXXOXXOOO-XOOXOXOOO-X-OO--
+goal[29] XOX-XX-XXXOOOOXOXO-XOOX-X-XXO-OOX-OXXOXOOOOXOOO-XXOXOOOX-OXO--O-
+goal[30] O-XXXOOO-O--OXXX-XXOXXXOXOXXOXO-OO-XXOO-XOXOXOOOXOOOOXOXX-X-OX--
+goal[31] OXXO---XXXXOOXXX--XOXXXOXXOOOX--OXOOOX-O-OO-OOO--OOOOOX-XXXX----
+goal[32] XO-XX--OXOOOOOOXXOOX-OOXOO-OXOXX-X-OX--OXXOXOOXOXOOXX-XOOXXX-X--
+goal[33] XOXX-XXOOOXOXXXX-OX-OOOOX-XOXOOOOXOXXX-OX-XX-X-OXXXOOOOOO-XOX--O
+goal[34] XXXXXXO--O-OO-X-OX-OOOOXXOXOXXXXXOOXOOOXOXOXX-XX-OO-XXOXO--OOX--
+goal[35] XOOO-XX-XO-OXOXO-OXXOOOOXXOXXX-OXXOXXO-XXO-XOOOXXXO---OXXXX--XO-
+goal[36] XOOX-OOXXXXOO-XOOOO--XXOOOOXOOXOOOOOX--O-XOOOOOO-XO-OXXXXXOOX---
+goal[37] OXO--XOOXOOXXOOOOOXOOOXXOO-OXXXX--OOOXXX-XOXOOOXOOOOO--O-XXOOX--
+goal[38] OOOXXXOOXOX--OXO-XXXX-XO--OOXXXOX--XOO-OOOOXXOXO-OOXOX-OXXO---X-
+goal[39] X-O--OXXOOO-XOXX--OOOOOO-XXOX-XOOOOXX-XXOXO-XXXOO-XOOXXOOOOOOXX-
+goal[40] OOOOX-OOOOOO-XOOOOO-OXXXX-OXOX---OOXXXXXOXOO-OXOOXO-XOX----OO---
+goal[41] OXX-OO-XOX-XOOXO-XXXXOOOXOXXOOOOXXOXOOXXXOXXOOOXX-OOOXXOXOOXO---
+goal[42] XXXO-OOOXOX-XOOOXXX-OX-O-OXOXOOO--OOOXO-XXXXOOXXO-OXXO-X-X-O----
+goal[43] XOOX-O-XXX-OXOXO-XXXXXOOXXXOXOXOOOXOOXXOXXOOO-OOXOXXOX---OOOOO--
+goal[44] O----XXXOO-XXX-OOOO-OX-O-OOOO--O-OOXXXXOXXOO-OOO-XXXXOO-O-X----O
+goal[45] O-OOX-XOO-XOOOXXOXXOXOXO-OOOOOX-XXXXOXX-XX--XXX-X-OOXOOOX--X---X
+goal[46] O-O--OX-XOOO-XXX-XOXO-XXOXXOXOOXX-OOOX-XOO-XO-XXOXXOXOOO-XXXX-O-
+goal[47] XXXOOOXXOOX-XOOO-XOXOO-OOO-OXXOOOOXXXXXOXOXXOOOXX-OOXXX-XXOO-X--
+goal[48] X-OX-OOXXO--X-X-XXXXOXOXXOOOOOXXXO-OXXOOO-XXXX-XOXOOO-X-XO-----X
+goal[49] OX-XX-OO-XXXXXO-OXXXOO--OX-XOOOXOOOOOXX-OOOOOOO-XOOO-XXX-OOX-X--
+goal[50] -XOOOOXXOOX-OOOOX-OXOXOXXOOOX-O-XOOOOXXX-OOXXXXXXXXOXX-OOX-O-XO-
+goal[51] -XOOOXOO-OXOOOOXOXO--OOX-XXOOXOXOOOOXOOOXO--OO-OXX-XOOOOXX-O----
+goal[52] OOXXXXOXOOXOOOOOOOXOOXOX-O-OO-XX-OOOOOXXX-OOOOXOXOXXX-X-XXX-X---
+goal[53] -X-XO-O-XXOOOOXOXXXOXXX--XXOOXOO-XOXOOO-XX-OXOO-XXX-X-OOXO-OOO--
+goal[54] O-O-OXXOOOOX-XOXO-XOOXX--OXXOXX--XXOOOXO-OXXOOXX-OO-O-OXXXXOO---
+goal[55] XOOOXXOXOXXXOXX-X-XO-OXX-OXXXXXXOXOXOOXO-XXOXO-OOO-XXO-OO-OOOO--
+goal[56] -OXXXO-O--XXXOOOOOXOOOX-X-XOOX-X-XOOOXX--OOXOOX-XXXO--XOXX-X----
+goal[57] --OOX-O-XXO-OXXX--OOXXOO--XXXXOOOOOXXXOOXOX-OXXOOX-XXXO---X--X--
+goal[58] -OOOX-O-XXOX-X--XOO-O-XXX-OXO-XX-OOXXOOO-OX-OXO-XOXX-XOOO----X--
+goal[59] XXX-XXXXOXXXOX-O-XXOXXOOOXOXOOO---XXXO-XOOXX-OXOOXXOX-OOOXOOOO-O
+goal[60] XXXX-XOXOOX--XX-XX-OXXX-XXXOOOOOO-OOXXO--OXOOOXOXXOO-OXXXOO--OO-
+goal[61] -OOXXXX-XOOX-XXOXOXOXXXXO-XXOXXX-X-OX-X-OXOXOO-OXOXXXOO-OO--O---
+goal[62] O-XXXXX-OOOOOOXOXOOX-OXOOO-XOXOXO-XXXXXXXOOXXXXXXO-OOX-XXO--X-O-
+goal[63] OOOO--X---X-OOXXOOOOOOXOOXXXXOX-OOXOXXOO-O-XXXOO-OXOO-OXOOOXXO--
+goal[64] -O--XXO--OXOOOX-XXOXXXOXX--XO-XOXXOXOXOXOOOOX-X-OXXOOOXXXXX-OO--
+goal[65] OX-XO-XO-OXXOOXXX-OXOOOO-XOOXXOOXOOXOO-OXOOXXX-O-OO-OXXOXXXX-XO-
+goal[66] O--XXO-OXXXOOOOOOOO-XXOO-OOXXOXOXOOOX-OO-XXOXXXOOXOX-XOXX--XOO--
+goal[67] O--O-O-O-OXXO-OOOXXXOXOOOO-XXXOXXXXXXOXX-XXOOOOOO-XOXOX-OOOOX---
+goal[68] XO-OX-OOXOX-OXOXXXOX-XOXXXXXX-XXO-OXX-OXXXXOOXOX-XOX-OXX-OOO----
+goal[69] XXXOOOOXOOX-XOO---XOOXXXOOXOO-XX-XXXXX-OO-OXX-XXOOOXOXXXXOO-XX-X
+goal[70] -OOXXXX-XO-OOXXOXOO-OOX--XXOX-OOXOXXXXXOOOOXXOOX-OO-OOOOXXX-OO--
+goal[71] XOOOO--X-XOXXOX-OXXOOOXOOOOXO-OXXX-OXXOO--XOX-X-XXXOX--XOX-OX---
+goal[72] XOOO--OXOOOXOOOOXOOOOOXO--OOX-OOOX-OO-X-XOXXXOXX-OXXXOO-OX-XX--O
+goal[73] XO-XXX-OOXXXOOXOXOXXXXOOXOOXOO-O-XOXXOOOXXXXOO-X-X--OXOOOOOO-X--
+goal[74] X-X-OO-OX-XXXXOXXXXOXOO---XOOXOOX--XOO-XXXXXXXOOXOXX-XXOO--OOO--
+goal[75] OOXXOOOOXXX--OOXOXOX-OX--O-OOOOOXXXOOXX-OXXXXOO-OOOXOOXXXXOOOO-O
+goal[76] -XXXOO-OXOXXOOOXOOXO-O-X-XXOOOX-XXXOXX-XXOOXXXXXOOXO-XOO-XX-O-X-
+goal[77] OOXX-OOXXXOX-OO---OO-XO----XOX-OOXOOXOOOXOXXXOO-XXXOOXXXX-O--X--
+goal[78] -O-O-OOOOOOOOX-O-XOXXXXOOO-OXXOO-OOOOOX-XOOOOO--OX-OOOXXXXXO-O--
+goal[79] O--OOOXXXO--XXXX-OXOOOO-XOOXOXOX-OXOX-OOOOOX-XOXXX--XXOXOX-OOOO-
+goal[80] -OXOOX--XXX-OX-OOXX-OXXX--XXXOXX-OOOOXO-OOXXXXOXXXOX-XXOXXO--X--
+goal[81] -OXO-X-OOOOXX-OO--OOOO-OXOXOOOXO-OOOOXXOOOOXXXO-XOXOXO-O-X--XO--
+goal[82] XX-O---OOXXO-X-OOXOXX-XO-XXOXOO--OXOOX-X-OXXOOOOXO-X-O-OXOOXXX--
+goal[83] XO-XX-OXXO-OXXXOXO-XXXXOXX-XX-O-XXXXXXXXXOXOOXXOXXXX-OXOOX-OO--O
+goal[84] X-OXO-OXXXX--OXXXXX--XXO-OXOXX-OXOOXOOOXOOXXXXXOXXO-XOX-XXX--X-X
+goal[85] OXOOOOOXXXOO--XXOOO--XOO-OOOOOOOXXOOXOOOO-OXXXXOXXOOXOXO-O-XOX--
+goal[86] OO-X-XXXOXOXX-X-O-OOOOO--X-OOXXX-OOOOXO-OXXXXOX-XXXXXOOXO--XXO--
+goal[87] X-X-O-XO-XXOXOOO-OXX--XO-OOXXOOXXOOOXXXO-OOO-X-OXOOXO-O--X-OOO--
+goal[88] OOOOO-XOXX-O-OX-XXXO-OOOOOXOOXOXO--OOXOXOOXOOOOXOXXX-OXOOXX-X-X-
+goal[89] O-XO--XOXXXX-XXXX-OOOXX-OXOXOO--OOOOOXX--OXOO-XXXOX-XOXO-OXX--X-
+goal[90] O-O-OXXXXXOXX-X-X-X---OXXXXOOOXXXXOXXOX-OOOOOXO-OOOXOOOX-OX-OO--
+goal[91] -OOOX-OXX-XXXXXOX---OOOOXOOXXXOOXXOXX-OXOXO-XXXX-OO-OXXXO---XO--
+goal[92] OXX-X-O-OOO-OXO-XXXOXOOO---OOOOXXOOOOOXXOXO-OXOOOXXOO-OXXXX-----
+goal[93] X---OOX-OOO-OX-XXXXXXXX--OOOXXX--O-XXXX-O-OXX-OX--OOXX-OXXXOOO--
+goal[94] X--O-XXXOXXXO-OX-XOOOXX-XOXOXXO-OX-XXXOXXXXOXX-X-O-XXXOXOXXX-O--
+goal[95] --X---XOXXXXO-X--XOXXOX-XOXXXOXOO-XXOXXO-OXXOXXXXOOXOOOXO-O-X---
+goal[96] X-X--X-OOXXXXOO-OOXXOOO-OOOXXXOX-XOOOXO-OXX-XXOXOXOOOO--X-O-O---
+goal[97] OXOOOXX--OX--XXXOXXOXXXXOXXXOOXXOX-OXXOXO-OOXOXOOXXOXOOXO--XX---
+goal[98] O-XXXXX--OOOXOOO--OOXXOO--XOO--OOX-XXOOOXOXXXOXO-OXOOOXOOX-XXOX-
+[info][goal=1] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=13] build single CNF with h=[41..=82] (start_discs=4, goal_discs=45)
+[info][goal=13] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=50] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=50] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=7] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=7] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=1] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=25] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=25] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=74] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=74] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=62] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=62] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=37] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=37] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=68] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=68] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=56] build single CNF with h=[42..=84] (start_discs=4, goal_discs=46)
+[info][goal=56] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=53] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=59] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=53] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=59] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=65] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=65] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=57] build single CNF with h=[42..=84] (start_discs=4, goal_discs=46)
+[info][goal=57] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=63] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=63] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=13] range=41..=82 symmetry=0 vars=407834 clauses=3988678
+[info][goal=57] range=42..=84 symmetry=0 vars=417778 clauses=4085955
+[info][goal=56] range=42..=84 symmetry=0 vars=417778 clauses=4085955
+[info][goal=53] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=1] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=74] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=25] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=7] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=63] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=37] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=65] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=68] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=62] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=50] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=59] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=1] trying goal symmetry=1
+[info][goal=1] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=75] build single CNF with h=[51..=102] (start_discs=4, goal_discs=55)
+[info][goal=75] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[74] SAT (H=45)
+[74] Record: E6D6C7D7C6F4C3B7B6A5A6A7A8F5F3C4F6G6D8G4H4F2G3D3H6H2B3E8F8G7E3A3A2A1G2F7F1E2E1H5H7D2C2C1H1
+[info][goal=75] range=51..=102 symmetry=0 vars=507274 clauses=4961448
+[info][goal=53] trying goal symmetry=1
+[info][goal=53] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=2] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=2] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=2] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=54] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=54] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=54] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=68] trying goal symmetry=1
+[info][goal=68] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=13] trying goal symmetry=1
+[info][goal=56] trying goal symmetry=1
+[info][goal=57] trying goal symmetry=1
+[info][goal=13] range=41..=82 symmetry=1 vars=407834 clauses=3988678
+[info][goal=25] trying goal symmetry=1
+[info][goal=65] trying goal symmetry=1
+[info][goal=56] range=42..=84 symmetry=1 vars=417778 clauses=4085955
+[info][goal=63] trying goal symmetry=1
+[info][goal=59] trying goal symmetry=1
+[info][goal=57] range=42..=84 symmetry=1 vars=417778 clauses=4085955
+[info][goal=7] trying goal symmetry=1
+[info][goal=37] trying goal symmetry=1
+[info][goal=50] trying goal symmetry=1
+[info][goal=25] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=65] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=59] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=63] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=62] trying goal symmetry=1
+[info][goal=7] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=37] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=50] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=62] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=69] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=69] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=69] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=51] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=51] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[50] SAT (H=50)
+[50] Record: D3C5C6E3F5D2C2B2B5D6B1F3G2E6F2G4F4F1F7F6G7B6C7B4D1H8A3C1H7D7E7B8C3B3C8E8A5G6H3H4H5H2A1A7A6A2G1G5G8E1
+[info][goal=51] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=51] trying goal symmetry=1
+[info][goal=51] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=69] trying goal symmetry=1
+[info][goal=69] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=75] trying goal symmetry=1
+[info][goal=75] range=51..=102 symmetry=1 vars=507274 clauses=4961448
+[info][goal=52] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=52] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=52] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=2] trying goal symmetry=1
+[info][goal=2] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=70] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=70] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=70] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=54] trying goal symmetry=1
+[info][goal=54] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=26] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=26] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[25] SAT (H=46)
+[25] Record: D3C5D6C3F4F6B3G4G3E7G7C2F3G2H3A4C4C6G5H4G6F2G1H5B7C7D2H8B1C1A3F7B6A5A6D1E2E1H6A2D7H2F8H7G8E8
+[info][goal=26] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=14] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=14] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=58] build single CNF with h=[39..=78] (start_discs=4, goal_discs=43)
+[info][goal=58] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=14] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=55] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=55] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=58] range=39..=78 symmetry=0 vars=387946 clauses=3794124
+[info][goal=64] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=64] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=55] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=8] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=8] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=64] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=38] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=38] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=8] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=60] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=60] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=38] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=60] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=66] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=66] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=66] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=31] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=31] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=31] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=76] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=76] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=76] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=52] trying goal symmetry=1
+[info][goal=52] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=3] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=3] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=3] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=70] trying goal symmetry=1
+[info][goal=70] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=43] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=43] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=43] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=58] trying goal symmetry=1
+[info][goal=58] range=39..=78 symmetry=1 vars=387946 clauses=3794124
+[info][goal=26] trying goal symmetry=1
+[info][goal=26] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+[info][goal=14] trying goal symmetry=1
+[info][goal=14] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=55] trying goal symmetry=1
+[info][goal=64] trying goal symmetry=1
+[info][goal=55] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=64] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=38] trying goal symmetry=1
+[info][goal=8] trying goal symmetry=1
+[info][goal=38] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=8] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=66] trying goal symmetry=1
+[info][goal=60] trying goal symmetry=1
+[info][goal=31] trying goal symmetry=1
+[info][goal=66] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=60] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=31] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+[info][goal=71] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=71] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=71] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=76] trying goal symmetry=1
+[info][goal=76] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=40] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=40] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=40] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=3] trying goal symmetry=1
+[info][goal=3] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=32] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=32] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[31] SAT (H=43)
+[31] Record: C4E3F2C3F5E2F3G2H1G4E1D6C7B3C6F6D3B7G7H8C5B6B2F1A3A2F7G6H5E7D7A1D2C2G8G1F4H2G5H4F8E8A5
+[info][goal=32] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=19] build single CNF with h=[51..=102] (start_discs=4, goal_discs=55)
+[info][goal=19] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=19] range=51..=102 symmetry=0 vars=507274 clauses=4961448
+[info][goal=43] trying goal symmetry=1
+[info][goal=43] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=39] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=39] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[38] SAT (H=45)
+[38] Record: D3E3F2C4B3B4C5B2A3C2B1D6E6A2D1F6F7B6C6G1F4G8G6F3G2H2F1H5H1G3F8E1A7A6G7C1D7H8H6E7C7B8A5A4A1
+[info][goal=39] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=77] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=77] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[76] SAT (H=48)
+[76] Record: F5D6C7G5F4F3H5G6C5G4G3G2E2B6H6E3G7H7E6D1C3F7H2C6A6A7F8B7G1H3G8E7C4B2C2D8B8B4F2F1A3D2A2A1E1C1A5F6
+[info][goal=77] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=32] trying goal symmetry=1
+[info][goal=32] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=27] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=27] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=27] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=4] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=4] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[3] SAT (H=48)
+[3] Record: F5F4C3C6F3G2E3G5H1F2G4E2G6H3F1H2C5G7D1B5D3E1H7B2B7F6F7G8H8C7G3H5D7C2C4C8B6A7A5B4D2B3A8F8A1A2B1A6
+[info][goal=4] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=10] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=10] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=15] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=15] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=10] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=15] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=22] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=22] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=22] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=67] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=67] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=61] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=61] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=9] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=9] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=67] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=61] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=9] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=71] trying goal symmetry=1
+[info][goal=71] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+[info][goal=33] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=33] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=33] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=40] trying goal symmetry=1
+[info][goal=40] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+[info][goal=23] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=23] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[61] SAT (H=45)
+[61] Record: E6F4D3C4B3D6G4C3C7E3B2G5C2H4C6A3F2D7E8B6A6B7A4E7D2D1A8A2H6F6B8A7F7B5C1F3G2G1F1E1G7H3H2G3B1
+[info][goal=23] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=22] trying goal symmetry=1
+[info][goal=22] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=19] trying goal symmetry=1
+[info][goal=19] range=51..=102 symmetry=1 vars=507274 clauses=4961448
+[info][goal=44] build single CNF with h=[40..=80] (start_discs=4, goal_discs=44)
+[info][goal=44] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=44] range=40..=80 symmetry=0 vars=397890 clauses=3891401
+[info][goal=20] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=20] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[67] SAT (H=47)
+[67] Record: D3C5D6E3F3F4B4B6G3F5C6E2D1D2C3B2A7C7D8B8A1A5A3B5D7H2H3E6F6G7H1G6G5B3E7G2A4H5F1E8H6H4F7G4C8C2A8
+[info][goal=20] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=46] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=46] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=46] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=45] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=45] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[44] SAT (H=40)
+[44] Record: F5D6C5F6C4E3F2B4B3B2B6G6G7F7F3C3A2B5C6E2G5C7B7H8C8D7D2H4E7A8H5G1H3H6A6H2F1A3H1A1
+[info][goal=45] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=9] trying goal symmetry=1
+[info][goal=9] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=39] trying goal symmetry=1
+[info][goal=39] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=77] trying goal symmetry=1
+[info][goal=77] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+[info][goal=27] trying goal symmetry=1
+[info][goal=27] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=4] trying goal symmetry=1
+[info][goal=4] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=10] trying goal symmetry=1
+[info][goal=10] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=15] trying goal symmetry=1
+[info][goal=15] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=72] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=72] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=72] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=33] trying goal symmetry=1
+[info][goal=33] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=41] build single CNF with h=[52..=104] (start_discs=4, goal_discs=56)
+[info][goal=41] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=41] range=52..=104 symmetry=0 vars=517218 clauses=5058725
+[info][goal=23] trying goal symmetry=1
+[info][goal=23] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+[info][goal=42] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=42] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=42] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=20] trying goal symmetry=1
+[info][goal=20] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=24] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=24] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=24] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=72] trying goal symmetry=1
+[info][goal=72] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=46] trying goal symmetry=1
+[info][goal=46] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=45] trying goal symmetry=1
+[info][goal=45] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+UNKNOWN
+[info][goal=21] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=21] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=21] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=78] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=78] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=78] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=28] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=28] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=28] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=5] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=5] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=5] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=11] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=11] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=16] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=16] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=11] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=16] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=73] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=73] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=73] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=47] build single CNF with h=[51..=102] (start_discs=4, goal_discs=55)
+[info][goal=47] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[46] SAT (H=46)
+[46] Record: C4C5E6F5G6E3E2B4B3B2A4F7C2F4B6D6D7H7G3E7G4H4F3C7E8G2G7F8B7H6H5A7D8A3G8D3H2A5F2B8B1C1A2H1A6F1
+[info][goal=47] range=51..=102 symmetry=0 vars=507274 clauses=4961448
+[info][goal=34] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=34] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=34] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=41] trying goal symmetry=1
+[info][goal=41] range=52..=104 symmetry=1 vars=517218 clauses=5058725
+[info][goal=48] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=48] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=48] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=34] trying goal symmetry=1
+[info][goal=34] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=48] trying goal symmetry=1
+[info][goal=48] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+UNSAT
+[info][goal=35] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=35] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[info][goal=35] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=42] trying goal symmetry=1
+[info][goal=42] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+[info][goal=36] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=36] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=36] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=49] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=49] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=49] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=24] trying goal symmetry=1
+[info][goal=24] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=86] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=86] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=86] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=21] trying goal symmetry=1
+[info][goal=21] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=78] trying goal symmetry=1
+[info][goal=78] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=28] trying goal symmetry=1
+[info][goal=28] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=79] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=79] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[78] SAT (H=46)
+[78] Record: E6F6D3D6F5C4B4E3G7C3F2G6C2G8C7A4G5G1E2H4D7C1D2F3G2E1B3G4B5C5B1H2C6A3A2A1G3B7H8E8H6H7F8E7A7C8
+[info][goal=79] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=5] trying goal symmetry=1
+[info][goal=5] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=11] trying goal symmetry=1
+[info][goal=11] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=16] trying goal symmetry=1
+[info][goal=16] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=73] trying goal symmetry=1
+[info][goal=73] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=79] trying goal symmetry=1
+[info][goal=79] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=47] trying goal symmetry=1
+[info][goal=47] range=51..=102 symmetry=1 vars=507274 clauses=4961448
+[info][goal=17] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=17] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=17] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=80] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=80] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=80] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=35] trying goal symmetry=1
+[info][goal=35] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=92] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=92] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[36] SAT (H=48)
+[36] Record: C4C5F6C3D6G7F4G4F3E7B2C2D2C1H4G3E6A3E8D8G2H2B3G1H3H5H1F1C6B7D1E2A8B4A1C7A4A5B6B1B8F7A2B5G6C8H7H6
+[info][goal=92] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=95] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=95] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=95] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=49] trying goal symmetry=1
+[info][goal=49] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=97] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=97] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=97] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=86] trying goal symmetry=1
+[info][goal=86] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=92] trying goal symmetry=1
+[info][goal=92] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=18] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=18] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=18] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=97] trying goal symmetry=1
+[info][goal=97] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=93] build single CNF with h=[41..=82] (start_discs=4, goal_discs=45)
+[info][goal=93] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=93] range=41..=82 symmetry=0 vars=407834 clauses=3988678
+[info][goal=29] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=29] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=29] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=6] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=6] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=6] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=12] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=12] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=12] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=30] build single CNF with h=[48..=96] (start_discs=4, goal_discs=52)
+[info][goal=30] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=30] range=48..=96 symmetry=0 vars=477442 clauses=4669617
+[info][goal=89] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=89] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=89] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=81] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=81] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[80] SAT (H=45)
+[80] Record: C4E3F2E2F3C3D1D6C2B3A3B2B1C1F6F4C5A2E6F1G3H4H2C6B7G7G6H6E1F5F7F8C7D7H7B8B6G4G5A7A6H3C8A8B5
+[info][goal=81] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=87] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=87] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=87] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=17] trying goal symmetry=1
+[info][goal=17] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=29] trying goal symmetry=1
+[info][goal=29] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=12] trying goal symmetry=1
+[info][goal=12] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+[info][goal=98] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=98] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=98] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=30] trying goal symmetry=1
+[info][goal=30] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=90] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=90] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=90] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=88] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=88] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[87] SAT (H=43)
+[87] Record: F5D6C7F4C3B8D7C5G4G3B5G5H5C4H3C6G2H2H1A5B6F6B4H4H6D3D2C2D8G1B2E8G7E7F2C1B3E2E1A7B7A1F8
+[info][goal=88] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=96] build single CNF with h=[44..=88] (start_discs=4, goal_discs=48)
+[info][goal=96] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=96] range=44..=88 symmetry=0 vars=437666 clauses=4280509
+[info][goal=94] build single CNF with h=[46..=92] (start_discs=4, goal_discs=50)
+[info][goal=94] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=94] range=46..=92 symmetry=0 vars=457554 clauses=4475063
+[info][goal=95] trying goal symmetry=1
+[info][goal=95] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+[info][goal=91] build single CNF with h=[45..=90] (start_discs=4, goal_discs=49)
+[info][goal=91] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNSAT
+[info][goal=91] range=45..=90 symmetry=0 vars=447610 clauses=4377786
+[info][goal=83] build single CNF with h=[49..=98] (start_discs=4, goal_discs=53)
+[info][goal=83] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=83] range=49..=98 symmetry=0 vars=487386 clauses=4766894
+[info][goal=82] build single CNF with h=[43..=86] (start_discs=4, goal_discs=47)
+[info][goal=82] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+UNKNOWN
+[info][goal=82] range=43..=86 symmetry=0 vars=427722 clauses=4183232
+[info][goal=18] trying goal symmetry=1
+[info][goal=18] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=88] trying goal symmetry=1
+[info][goal=88] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=93] trying goal symmetry=1
+[info][goal=93] range=41..=82 symmetry=1 vars=407834 clauses=3988678
+[info][goal=6] trying goal symmetry=1
+[info][goal=6] range=48..=96 symmetry=1 vars=477442 clauses=4669617
+[info][goal=84] build single CNF with h=[47..=94] (start_discs=4, goal_discs=51)
+[info][goal=84] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[89] SAT (H=44)
+[89] Record: D3E3F4G3F5C5H2D2C2B2C1D6A2D1B6G5E7F3G6C4H6H7B4C7G7A5G2F2B5A4A7H1G1C3D8A1A3C6B7F7G8B8C8E6
+[info][goal=84] range=47..=94 symmetry=0 vars=467498 clauses=4572340
+[info][goal=85] build single CNF with h=[50..=100] (start_discs=4, goal_discs=54)
+[info][goal=85] this goal has 2 symmetric candidate(s) (from all 8 symmetries)
+[17] SAT (H=46)
+[17] Record: D3E3F6C2F3E6F7E7F2G8F8G6G7C6C4G3H4H3D2G1G2G5D8C1G4D6C7F4B7B3A2H2E1H5C5D7H1A7C8B4B6A6B5A4D1H8
+[info][goal=85] range=50..=100 symmetry=0 vars=497330 clauses=4864171
+[info][goal=81] trying goal symmetry=1
+[info][goal=81] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=85] trying goal symmetry=1
+[info][goal=85] range=50..=100 symmetry=1 vars=497330 clauses=4864171
+[info][goal=98] trying goal symmetry=1
+[info][goal=98] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+UNSAT
+[info][goal=90] trying goal symmetry=1
+[info][goal=90] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+[info][goal=96] trying goal symmetry=1
+[info][goal=96] range=44..=88 symmetry=1 vars=437666 clauses=4280509
+[info][goal=84] trying goal symmetry=1
+[info][goal=84] range=47..=94 symmetry=1 vars=467498 clauses=4572340
+[info][goal=94] trying goal symmetry=1
+[info][goal=94] range=46..=92 symmetry=1 vars=457554 clauses=4475063
+UNSAT
+UNKNOWN
+[info][goal=91] trying goal symmetry=1
+[info][goal=91] range=45..=90 symmetry=1 vars=447610 clauses=4377786
+[info][goal=83] trying goal symmetry=1
+[info][goal=83] range=49..=98 symmetry=1 vars=487386 clauses=4766894
+[info][goal=82] trying goal symmetry=1
+[info][goal=82] range=43..=86 symmetry=1 vars=427722 clauses=4183232
+UNKNOWN
+UNSAT
+[82] SAT (H=43)
+[82] Record: F5F6D3E3F2C5D6E7G7E6C6C4F8G6B3B6C7A2A7B4A3C8A1A5F4F3A6C2D8E8G2E2G5H1G3G4E1H7H3H8H2G1G8
+UNKNOWN
+UNKNOWN
+UNKNOWN
+[83] SAT (H=49)
+[83] Record: E6F6D3C5B6E3D6C7G6H6D8C2F5C3D2B5F7E1B4G4G5G7G3H4B1G2H5G8E2H7B3A5G1H3H2B2E8H1A2D1H8E7C6A1A3A7A6B7A8
+UNKNOWN
+UNKNOWN
+UNKNOWN
+UNKNOWN
+UNKNOWN
+        Command being timed: "target/release/layer_sat --verbose --from-initial --goal-file result/thesis_layer_sat/layer_sat_UNKNOWN.txt --check-symmetry --parallel-goals 15 -o result/thesis_layer_sat/layer_sat_6000s --sat-timeout-secs 6000"
+        User time (seconds): 898917.62
+        System time (seconds): 257.36
+        Percent of CPU this job got: 1417%
+        Elapsed (wall clock) time (h:mm:ss or m:ss): 17:37:09
+        Average shared text size (kbytes): 0
+        Average unshared data size (kbytes): 0
+        Average stack size (kbytes): 0
+        Average total size (kbytes): 0
+        Maximum resident set size (kbytes): 8745876
+        Average resident set size (kbytes): 0
+        Major (requiring I/O) page faults: 0
+        Minor (reclaiming a frame) page faults: 21189806
+        Voluntary context switches: 8258
+        Involuntary context switches: 3514140
+        Swaps: 0
+        File system inputs: 0
+        File system outputs: 664
+        Socket messages sent: 0
+        Socket messages received: 0
+        Signals delivered: 0
+        Page size (bytes): 4096
+        Exit status: 0
