@@ -1,6 +1,6 @@
 use crate::io::{TriCategory, TriOutcome};
 use crate::othello::{board_with_symmetry, get_moves, Board};
-use rayon::prelude::*;
+use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
     solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -212,6 +213,13 @@ enum GoalSolveResult {
     Unknown,
 }
 
+struct GoalTaskResult {
+    input_pos: usize,
+    goal_index: usize,
+    goal: Board,
+    sat_result: GoalSolveResult,
+}
+
 pub fn run_with_options<F>(
     opts: RunOptions,
     mut on_outcome: F,
@@ -246,76 +254,143 @@ where
     let rays = precompute_rays();
     let flip_sources = precompute_flip_sources(&rays);
     let many_goals = goals.len() > 1;
-    let mut outcomes: Vec<GoalClassification> = Vec::with_capacity(goals.len());
-    let goals_with_index: Vec<(usize, Board)> = goals
+    let goals_with_index: Vec<(usize, usize, Board)> = goals
         .into_iter()
         .enumerate()
-        .map(|(idx, goal)| (idx + 1, goal))
+        .map(|(input_pos, goal)| (input_pos, input_pos + 1, goal))
         .collect();
-    let chunk_size = parallel_goals.max(1);
-
-    for chunk in goals_with_index.chunks(chunk_size) {
-        if many_goals {
-            for (goal_index, goal) in chunk {
-                println!("goal[{}] {}", goal_index, goal.to_string());
-            }
-        } else {
-            println!("goal {}", chunk[0].1.to_string())
-        }
-
-        let solved: Vec<Result<(usize, Board, GoalSolveResult), String>> = chunk
-            .par_iter()
-            .map(|(goal_index, goal)| {
-                let sat_result = check_sat_reachability(
-                    start,
-                    *goal,
-                    *goal_index,
-                    check_symmetry,
-                    start_turn_black,
-                    verbose,
-                    cnf_dump_dir.as_deref(),
-                    cnf_dump_only,
-                    sat_timeout_per_instance,
-                    &rays,
-                    &flip_sources,
-                )?;
-                Ok((*goal_index, *goal, sat_result))
-            })
-            .collect();
-
-        for result in solved {
-            let (goal_index, goal, sat_result) = result?;
-
-            if cnf_dump_only {
-                if verbose {
-                    println!("[info] CNF dump only completed for goal[{}]", goal_index);
-                }
-                continue;
-            }
-
-            match sat_result {
-                GoalSolveResult::Sat(witness) => {
-                    print_sat_result(&witness, goal_index, show_coords, show_boards);
-                    let outcome = GoalClassification::Reachable { goal };
-                    outcomes.push(outcome);
-                    on_outcome(&outcome)?;
-                }
-                GoalSolveResult::Unsat => {
-                    println!("UNSAT");
-                    let outcome = GoalClassification::Unreachable { goal };
-                    outcomes.push(outcome);
-                    on_outcome(&outcome)?;
-                }
-                GoalSolveResult::Unknown => {
-                    println!("UNKNOWN");
-                    let outcome = GoalClassification::Unknown { goal };
-                    outcomes.push(outcome);
-                    on_outcome(&outcome)?;
-                }
-            }
-        }
+    if goals_with_index.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(outcomes)
+
+    if many_goals {
+        for (_, goal_index, goal) in &goals_with_index {
+            println!("goal[{}] {}", goal_index, goal.to_string());
+        }
+    } else {
+        println!("goal {}", goals_with_index[0].2.to_string());
+    }
+
+    let worker_count = parallel_goals.max(1).min(goals_with_index.len());
+    let cancelled = AtomicBool::new(false);
+    let (tx, rx) = mpsc::channel::<Result<GoalTaskResult, String>>();
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(worker_count)
+        .build()
+        .map_err(|err| format!("failed to build rayon pool for layer_sat: {err}"))?;
+
+    std::thread::scope(|scope| -> Result<Vec<GoalClassification>, String> {
+        let goals_with_index = &goals_with_index;
+        let cnf_dump_dir = cnf_dump_dir.as_deref();
+        let rays = &rays;
+        let flip_sources = &flip_sources;
+        let cancelled = &cancelled;
+        scope.spawn(move || {
+            pool.install(|| {
+                goals_with_index.par_iter().for_each_with(tx, |tx, task| {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    let &(input_pos, goal_index, goal) = task;
+                    let result = check_sat_reachability(
+                        start,
+                        goal,
+                        goal_index,
+                        check_symmetry,
+                        start_turn_black,
+                        verbose,
+                        cnf_dump_dir,
+                        cnf_dump_only,
+                        sat_timeout_per_instance,
+                        rays,
+                        flip_sources,
+                    )
+                    .map(|sat_result| GoalTaskResult {
+                        input_pos,
+                        goal_index,
+                        goal,
+                        sat_result,
+                    })
+                    .map_err(|err| {
+                        cancelled.store(true, Ordering::Relaxed);
+                        format!("goal[{}] {}: {}", goal_index, goal.to_string(), err)
+                    });
+
+                    if tx.send(result).is_err() {
+                        cancelled.store(true, Ordering::Relaxed);
+                    }
+                });
+            });
+        });
+
+        let mut ordered_outcomes: Vec<Option<GoalClassification>> =
+            (0..goals_with_index.len()).map(|_| None).collect();
+        let mut first_error: Option<String> = None;
+
+        for message in rx {
+            match message {
+                Err(err) => {
+                    if first_error.is_none() {
+                        cancelled.store(true, Ordering::Relaxed);
+                        first_error = Some(err);
+                    }
+                }
+                Ok(solved) => {
+                    if first_error.is_some() {
+                        continue;
+                    }
+
+                    if cnf_dump_only {
+                        if verbose {
+                            println!(
+                                "[info] CNF dump only completed for goal[{}]",
+                                solved.goal_index
+                            );
+                        }
+                        continue;
+                    }
+
+                    let outcome = match solved.sat_result {
+                        GoalSolveResult::Sat(witness) => {
+                            print_sat_result(&witness, solved.goal_index, show_coords, show_boards);
+                            GoalClassification::Reachable { goal: solved.goal }
+                        }
+                        GoalSolveResult::Unsat => {
+                            println!("UNSAT");
+                            GoalClassification::Unreachable { goal: solved.goal }
+                        }
+                        GoalSolveResult::Unknown => {
+                            println!("UNKNOWN");
+                            GoalClassification::Unknown { goal: solved.goal }
+                        }
+                    };
+                    ordered_outcomes[solved.input_pos] = Some(outcome);
+
+                    if let Err(err) =
+                        on_outcome(ordered_outcomes[solved.input_pos].as_ref().unwrap())
+                    {
+                        cancelled.store(true, Ordering::Relaxed);
+                        if first_error.is_none() {
+                            first_error = Some(err);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(err) = first_error {
+            return Err(err);
+        }
+        if cnf_dump_only {
+            return Ok(Vec::new());
+        }
+
+        Ok(ordered_outcomes
+            .into_iter()
+            .map(|outcome| outcome.expect("each goal should produce an outcome"))
+            .collect())
+    })
 }
 
 fn check_sat_reachability(
