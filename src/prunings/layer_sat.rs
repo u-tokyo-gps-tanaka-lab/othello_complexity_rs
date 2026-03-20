@@ -1,5 +1,5 @@
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{board_with_symmetry, get_moves, Board};
+use crate::othello::{board_with_symmetry, get_moves, square_to_coord, Board};
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
@@ -25,13 +25,6 @@ const DIRS: [(i32, i32); 8] = [
     (-1, 0),  // W
     (-1, 1),  // NW
 ];
-
-pub const INITIAL_BLACK: u64 = 0x0000_0008_1000_0000;
-pub const INITIAL_WHITE: u64 = 0x0000_0010_0800_0000;
-pub const INITIAL_BOARD: Board = Board {
-    player: INITIAL_BLACK,
-    opponent: INITIAL_WHITE,
-};
 
 #[derive(Clone, Copy, Debug)]
 // 「play_sq に着手し、dir 方向で相手石を k 枚はさむ」を表す
@@ -631,15 +624,25 @@ fn canonicalize_start_board(start: Board, start_turn_black: bool) -> Board {
 // layer の実際の次手番が白なら、goal の黒白を反転して絶対色へ戻す。
 #[inline(always)]
 fn goal_for_layer(goal: Board, start_turn_black: bool, layer: usize) -> Board {
-    let goal_turn_black = if layer % 2 == 0 {
+    let goal_turn_black = turn_black_for_layer(start_turn_black, layer);
+    board_for_turn(goal, goal_turn_black)
+}
+
+#[inline(always)]
+fn turn_black_for_layer(start_turn_black: bool, layer: usize) -> bool {
+    if layer % 2 == 0 {
         start_turn_black
     } else {
         !start_turn_black
-    };
-    if goal_turn_black {
-        goal
+    }
+}
+
+#[inline(always)]
+fn board_for_turn(board: Board, turn_black: bool) -> Board {
+    if turn_black {
+        board
     } else {
-        goal.swapped()
+        board.swapped()
     }
 }
 
@@ -1309,13 +1312,6 @@ fn bit_is_set(bb: u64, sq: usize) -> bool {
     (bb >> sq) & 1 == 1
 }
 
-#[inline(always)]
-fn square_to_coord(sq: usize) -> String {
-    let file = (b'A' + (sq % 8) as u8) as char;
-    let rank = sq / 8 + 1;
-    format!("{file}{rank}")
-}
-
 // SAT/UNSATのテストは tests/layer_sat_test.rs に置く
 #[cfg(test)]
 mod tests {
@@ -1343,7 +1339,7 @@ mod tests {
 
     #[test]
     fn min_required_plies_matches_disc_difference() {
-        let start = INITIAL_BOARD;
+        let start = Board::initial();
         let goal = Board::new(0x0000_0008_1808_0000, 0x0000_0010_0000_0000); // initial + D3
 
         assert_eq!(min_required_plies(start, goal), Some(1));

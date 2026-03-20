@@ -467,3 +467,36 @@ pub fn board_with_symmetry(board: Board, sym: i32) -> Board {
     board.board_symmetry(sym, &mut transformed);
     Board::new(transformed[0], transformed[1])
 }
+
+pub fn square_to_coord(sq: usize) -> String {
+    let file = (b'A' + (sq % 8) as u8) as char;
+    let rank = sq / 8 + 1;
+    format!("{file}{rank}")
+}
+
+pub fn coord_to_square(coord: &str) -> Result<usize, String> {
+    let bytes = coord.as_bytes();
+    if bytes.len() != 2 {
+        return Err(format!(
+            "invalid coordinate '{}': expected 2 characters",
+            coord
+        ));
+    }
+    let file = bytes[0].to_ascii_uppercase();
+    let rank = bytes[1];
+    if !(b'A'..=b'H').contains(&file) {
+        return Err(format!(
+            "invalid file '{}' in coordinate '{}'",
+            file as char, coord
+        ));
+    }
+    if !(b'1'..=b'8').contains(&rank) {
+        return Err(format!(
+            "invalid rank '{}' in coordinate '{}'",
+            rank as char, coord
+        ));
+    }
+    let x = (file - b'A') as usize;
+    let y = (rank - b'1') as usize;
+    Ok(y * 8 + x)
+}
