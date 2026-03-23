@@ -33,6 +33,10 @@ path = "src/bin/reverse_to_initial.rs"
 name = "check"
 path = "src/bin/check.rs"
 
+[[bin]]
+name = "verify_record"
+path = "src/bin/verify_record.rs"
+
 [profile.dev]
 panic = "unwind"
 

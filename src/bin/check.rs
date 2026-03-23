@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 use rayon::prelude::*;
 
-use othello_complexity_rs::io::parse_file_to_boards;
-use othello_complexity_rs::othello::Board;
+use othello_complexity_rs::io::{parse_file_to_boards, parse_line_to_board};
+use othello_complexity_rs::othello::{validate_board, Board};
 use othello_complexity_rs::prunings::{
     connectivity::is_connected, flip_sat::is_sat_ok, impossible_edges::check_edge_patterns,
     linear_programming::check_lp, occupancy::check_occupancy_with_string, seg3::check_seg3_more,
@@ -25,12 +25,21 @@ struct Cli {
 #[derive(Args, Debug, Clone)]
 struct CommonOpts {
     /// Output directory for result files
-    #[arg(short = 'o', long = "out-dir", value_name = "DIR")]
+    #[arg(
+        short = 'o',
+        long = "out-dir",
+        value_name = "DIR",
+        conflicts_with = "board"
+    )]
     out_dir: Option<PathBuf>,
 
     /// Input file(s) containing board positions
-    #[arg(value_name = "INPUT")]
+    #[arg(value_name = "INPUT", conflicts_with = "board")]
     inputs: Vec<PathBuf>,
+
+    /// Single 64-cell board string using only X/O/-
+    #[arg(long = "board", value_name = "BOARD", allow_hyphen_values = true)]
+    board: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -68,19 +77,62 @@ fn resolve_out_dir(dir: &Option<PathBuf>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"))
 }
 
-fn process_inputs(
+fn parse_board_arg(raw: &str) -> io::Result<Board> {
+    let text = raw.trim();
+    if text.len() != 64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "board must be exactly 64 characters long, got {}",
+                text.len()
+            ),
+        ));
+    }
+    if !text.chars().all(|c| matches!(c, 'X' | 'O' | '-')) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "board must use only 'X', 'O', and '-' characters",
+        ));
+    }
+
+    let board = parse_line_to_board(text).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "failed to parse board from X/O/- string",
+        )
+    })?;
+    validate_board(&board).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid board: {err:?}"),
+        )
+    })?;
+    Ok(board)
+}
+
+fn print_direct_status(ok: bool) -> io::Result<()> {
+    let status = if ok { "OK" } else { "NG" };
+    writeln!(io::stdout().lock(), "{status}")
+}
+
+fn process_inputs_or_board(
     opts: &CommonOpts,
-    mut f: impl FnMut(&Path, &Path) -> io::Result<()>,
+    mut file_fn: impl FnMut(&Path, &Path) -> io::Result<()>,
+    mut board_fn: impl FnMut(&Board) -> io::Result<()>,
 ) -> io::Result<()> {
+    if let Some(board_text) = &opts.board {
+        let board = parse_board_arg(board_text)?;
+        return board_fn(&board);
+    }
     if opts.inputs.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "at least one input file is required",
+            "at least one input file or --board is required",
         ));
     }
     let out_dir = resolve_out_dir(&opts.out_dir);
     for input in &opts.inputs {
-        if let Err(e) = f(input, &out_dir) {
+        if let Err(e) = file_fn(input, &out_dir) {
             eprintln!("Error processing {}: {}", input.display(), e);
         }
     }
@@ -91,53 +143,61 @@ fn to_path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn process_con_file(path: &Path, out_dir: &Path) -> io::Result<()> {
+fn process_file_simple(
+    path: &Path,
+    out_dir: &Path,
+    prefix: &str,
+    parallel: bool,
+    check: impl Fn(&Board) -> io::Result<bool> + Sync + Send,
+) -> io::Result<()> {
     let boards = parse_file_to_boards(&to_path_string(path))?;
     fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("con_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("con_NG.txt"))?;
+    let mut okfile = File::create(out_dir.join(format!("{prefix}_OK.txt")))?;
+    let mut ngfile = File::create(out_dir.join(format!("{prefix}_NG.txt")))?;
 
-    let judged: Vec<(String, bool)> = boards
-        .par_iter()
-        .map(|board| {
-            (
-                board.to_string(),
-                is_connected(board.player | board.opponent),
-            )
-        })
-        .collect();
+    let judged: Vec<io::Result<(String, bool)>> = if parallel {
+        boards
+            .par_iter()
+            .map(|b| check(b).map(|ok| (b.to_string(), ok)))
+            .collect()
+    } else {
+        boards
+            .iter()
+            .map(|b| check(b).map(|ok| (b.to_string(), ok)))
+            .collect()
+    };
 
-    for (line, ok) in judged {
-        match ok {
-            true => writeln!(okfile, "{}", line)?,
-            false => writeln!(ngfile, "{}", line)?,
+    for result in judged {
+        let (line, ok) = result?;
+        if ok {
+            writeln!(okfile, "{}", line)?;
+        } else {
+            writeln!(ngfile, "{}", line)?;
         }
     }
     Ok(())
 }
 
-fn process_lp_file(path: &Path, out_dir: &Path, by_ip_solver: bool) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
-    fs::create_dir_all(out_dir)?;
-    let prefix = if by_ip_solver { "ip" } else { "lp" };
-    let mut okfile = File::create(out_dir.join(format!("{prefix}_OK.txt")))?;
-    let mut ngfile = File::create(out_dir.join(format!("{prefix}_NG.txt")))?;
-
-    let judged: Vec<(String, bool)> = boards
-        .par_iter()
-        .map(|board| {
-            (
-                board.to_string(),
-                check_lp(board.player, board.opponent, by_ip_solver, false),
-            )
-        })
-        .collect();
-
-    for (line, ok) in judged {
-        if ok {
-            writeln!(okfile, "{}", line)?;
-        } else {
-            writeln!(ngfile, "{}", line)?;
+fn run_check(
+    opts: &CommonOpts,
+    prefix: &str,
+    parallel: bool,
+    check: impl Fn(&Board) -> io::Result<bool> + Sync + Send,
+) -> io::Result<()> {
+    if let Some(board_text) = &opts.board {
+        let board = parse_board_arg(board_text)?;
+        return print_direct_status(check(&board)?);
+    }
+    if opts.inputs.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "at least one input file or --board is required",
+        ));
+    }
+    let out_dir = resolve_out_dir(&opts.out_dir);
+    for input in &opts.inputs {
+        if let Err(e) = process_file_simple(input, &out_dir, prefix, parallel, &check) {
+            eprintln!("Error processing {}: {}", input.display(), e);
         }
     }
     Ok(())
@@ -165,92 +225,14 @@ fn process_occupancy_file(path: &Path, out_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn process_edge_file(path: &Path, out_dir: &Path) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
-    fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("edge_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("edge_NG.txt"))?;
-
-    let judged: Vec<(String, bool)> = boards
-        .par_iter()
-        .map(|board| {
-            (
-                board.to_string(),
-                check_edge_patterns(board.player, board.opponent),
-            )
-        })
-        .collect();
-
-    for (line, ok) in judged {
-        if ok {
-            writeln!(okfile, "{}", line)?;
-        } else {
-            writeln!(ngfile, "{}", line)?;
-        }
-    }
-    Ok(())
-}
-
-fn process_seg3more_file(path: &Path, out_dir: &Path) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
-    fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("seg3more_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("seg3more_NG.txt"))?;
-
-    for board in boards {
-        let line = board.to_string();
-        if check_seg3_more(board.player, board.opponent, false) {
-            writeln!(okfile, "{}", line)?;
-        } else {
-            writeln!(ngfile, "{}", line)?;
-        }
-    }
-    Ok(())
-}
-
-fn process_flip_sat_file(path: &Path, out_dir: &Path) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
-    fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("flip_sat_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("flip_sat_NG.txt"))?;
-
-    for (_index, board) in boards.iter().enumerate() {
-        let line = board.to_string();
-        match is_sat_ok(board.player, board.opponent, true) {
-            Ok(true) => {
-                writeln!(okfile, "{}", line)?;
-            }
-            Ok(false) => {
-                writeln!(ngfile, "{}", line)?;
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn process_sym_file(path: &Path, out_dir: &Path) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
-    fs::create_dir_all(out_dir)?;
-    let mut okfile = File::create(out_dir.join("sym_OK.txt"))?;
-    let mut ngfile = File::create(out_dir.join("sym_NG.txt"))?;
-
-    let judged: Vec<io::Result<(String, bool)>> = boards
-        .par_iter()
-        .map(|board| is_sym_ok(board).map(|ok| (board.to_string(), ok)))
-        .collect();
-
-    for board_result in judged {
-        let (line, ok) = board_result?;
-        if ok {
-            writeln!(okfile, "{}", line)?;
-        } else {
-            writeln!(ngfile, "{}", line)?;
-        }
-    }
-    Ok(())
+fn process_occupancy_board(board: &Board) -> io::Result<()> {
+    let (ok, text) = check_occupancy_with_string(board.player | board.opponent);
+    writeln!(
+        io::stdout().lock(),
+        "{}\n{}",
+        if ok { "OK" } else { "NG" },
+        text
+    )
 }
 
 fn is_sym_ok(board: &Board) -> io::Result<bool> {
@@ -274,21 +256,29 @@ fn is_sym_ok(board: &Board) -> io::Result<bool> {
 }
 
 fn main() {
-    for (i, arg) in std::env::args().enumerate() {
-        println!("argv[{}] : {}", i, arg);
-    }
-
     let cli = Cli::parse();
     let result = match cli.command {
-        Command::Con(opts) => process_inputs(&opts, process_con_file),
-        Command::Edge(opts) => process_inputs(&opts, process_edge_file),
-        Command::Lp(opts) => process_inputs(&opts.common, |path, out_dir| {
-            process_lp_file(path, out_dir, opts.ip)
+        Command::Con(opts) => run_check(&opts, "con", true, |b| {
+            Ok(is_connected(b.player | b.opponent))
         }),
-        Command::Occupancy(opts) => process_inputs(&opts, process_occupancy_file),
-        Command::Seg3More(opts) => process_inputs(&opts, process_seg3more_file),
-        Command::FlipSat(opts) => process_inputs(&opts, process_flip_sat_file),
-        Command::Sym(opts) => process_inputs(&opts, process_sym_file),
+        Command::Edge(opts) => run_check(&opts, "edge", true, |b| {
+            Ok(check_edge_patterns(b.player, b.opponent))
+        }),
+        Command::Lp(opts) => {
+            run_check(&opts.common, if opts.ip { "ip" } else { "lp" }, true, |b| {
+                Ok(check_lp(b.player, b.opponent, opts.ip, false))
+            })
+        }
+        Command::Occupancy(opts) => {
+            process_inputs_or_board(&opts, process_occupancy_file, process_occupancy_board)
+        }
+        Command::Seg3More(opts) => run_check(&opts, "seg3more", false, |b| {
+            Ok(check_seg3_more(b.player, b.opponent, false))
+        }),
+        Command::FlipSat(opts) => run_check(&opts, "flip_sat", false, |b| {
+            is_sat_ok(b.player, b.opponent, true)
+        }),
+        Command::Sym(opts) => run_check(&opts, "sym", true, is_sym_ok),
     };
 
     if let Err(e) = result {
