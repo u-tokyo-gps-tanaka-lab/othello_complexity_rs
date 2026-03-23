@@ -1,5 +1,5 @@
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{board_with_symmetry, get_moves, square_to_coord, Board};
+use crate::othello::{board_with_symmetry, flip, get_moves, square_to_coord, Board};
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
@@ -490,6 +490,7 @@ fn check_sat_reachability(
 
         match solve_single_problem(&vars, &clauses, sat_timeout_per_instance)? {
             GoalSolveResult::Sat(witness) => {
+                verify_witness(&witness, start, goal_board, start_turn_black)?;
                 return Ok(GoalSolveResult::Sat(witness));
             }
             GoalSolveResult::Unsat => {}
@@ -1094,6 +1095,135 @@ fn solve_single_problem(
             }
         }
     }
+}
+
+fn verify_witness(
+    witness: &SatWitness,
+    start: Board,
+    goal: Board,
+    start_turn_black: bool,
+) -> Result<(), String> {
+    if witness.boards.len() != witness.h + 1 {
+        return Err(format!(
+            "verify_witness: expected {} boards but got {}",
+            witness.h + 1,
+            witness.boards.len()
+        ));
+    }
+    if witness.plies.len() != witness.h {
+        return Err(format!(
+            "verify_witness: expected {} plies but got {}",
+            witness.h,
+            witness.plies.len()
+        ));
+    }
+
+    let canonical_start = canonicalize_start_board(start, start_turn_black);
+    if witness.boards[0] != canonical_start {
+        return Err(format!(
+            "verify_witness: boards[0] ({}) does not match canonical start ({})",
+            witness.boards[0].to_string(),
+            canonical_start.to_string()
+        ));
+    }
+
+    let mut current = witness.boards[0];
+    for (ply_idx, ply) in witness.plies.iter().enumerate() {
+        // 手番交代の検証: ply_idx から期待される手番と一致するか確認する
+        let expected_turn = turn_black_for_layer(start_turn_black, ply_idx);
+        if ply.turn_black != expected_turn {
+            return Err(format!(
+                "verify_witness: ply {} has turn_black={} but expected {}",
+                ply_idx, ply.turn_black, expected_turn
+            ));
+        }
+
+        // In the witness, board.player = black bits, board.opponent = white bits.
+        // Determine player/opponent for othello functions based on turn.
+        let (player, opponent) = if ply.turn_black {
+            (current.player, current.opponent)
+        } else {
+            (current.opponent, current.player)
+        };
+
+        match ply.action {
+            PlyAction::Pass => {
+                let moves = get_moves(player, opponent);
+                if moves != 0 {
+                    return Err(format!(
+                        "verify_witness: ply {} is Pass but legal moves exist (0x{:016x})",
+                        ply_idx, moves
+                    ));
+                }
+                // 終局局面での PASS を拒否: 相手にも合法手がなければゲームは終了している
+                let opponent_moves = get_moves(opponent, player);
+                if opponent_moves == 0 {
+                    return Err(format!(
+                        "verify_witness: ply {} is Pass but game is over (neither side has legal moves)",
+                        ply_idx
+                    ));
+                }
+                // Board unchanged on pass
+                if witness.boards[ply_idx + 1] != current {
+                    return Err(format!(
+                        "verify_witness: ply {} is Pass but boards[{}] ({}) differs from boards[{}] ({})",
+                        ply_idx,
+                        ply_idx + 1,
+                        witness.boards[ply_idx + 1].to_string(),
+                        ply_idx,
+                        current.to_string()
+                    ));
+                }
+            }
+            PlyAction::Play(sq) => {
+                let moves = get_moves(player, opponent);
+                if (moves >> sq) & 1 == 0 {
+                    return Err(format!(
+                        "verify_witness: ply {} plays {} but it is not a legal move (legal=0x{:016x}, board={})",
+                        ply_idx,
+                        square_to_coord(sq),
+                        moves,
+                        current.to_string()
+                    ));
+                }
+
+                let flipped = flip(sq, player, opponent);
+                let new_player = player | flipped | (1u64 << sq);
+                let new_opponent = opponent & !flipped;
+
+                // Convert back to absolute color (player=black, opponent=white)
+                let next_board = if ply.turn_black {
+                    Board::new(new_player, new_opponent)
+                } else {
+                    Board::new(new_opponent, new_player)
+                };
+
+                if witness.boards[ply_idx + 1] != next_board {
+                    return Err(format!(
+                        "verify_witness: ply {} plays {} but boards[{}] ({}) does not match expected ({})",
+                        ply_idx,
+                        square_to_coord(sq),
+                        ply_idx + 1,
+                        witness.boards[ply_idx + 1].to_string(),
+                        next_board.to_string()
+                    ));
+                }
+
+                current = next_board;
+            }
+        }
+    }
+
+    let expected_goal = goal_for_layer(goal, start_turn_black, witness.h);
+    if witness.boards[witness.h] != expected_goal {
+        return Err(format!(
+            "verify_witness: final board ({}) does not match expected goal ({})",
+            witness.boards[witness.h].to_string(),
+            expected_goal.to_string()
+        ));
+    }
+
+    Ok(())
 }
 
 fn decode_witness(
