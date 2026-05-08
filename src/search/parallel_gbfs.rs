@@ -65,6 +65,46 @@ pub fn parallel_retrospective_greedy_best_first_search(
     use_lp: bool,
     num_threads: usize,
 ) -> SearchResult {
+    parallel_retrospective_gbfs_impl(
+        board,
+        discs,
+        leafnode,
+        node_limit,
+        use_lp,
+        num_threads,
+        true,
+    )
+}
+
+/// 並列 Greedy Best-First Search without symmetry canonicalization.
+pub fn parallel_retrospective_greedy_best_first_search_strict(
+    board: &Board,
+    discs: i32,
+    leafnode: &Vec<[u64; 2]>,
+    node_limit: usize,
+    use_lp: bool,
+    num_threads: usize,
+) -> SearchResult {
+    parallel_retrospective_gbfs_impl(
+        board,
+        discs,
+        leafnode,
+        node_limit,
+        use_lp,
+        num_threads,
+        false,
+    )
+}
+
+fn parallel_retrospective_gbfs_impl(
+    board: &Board,
+    discs: i32,
+    leafnode: &Vec<[u64; 2]>,
+    node_limit: usize,
+    use_lp: bool,
+    num_threads: usize,
+    use_symmetry: bool,
+) -> SearchResult {
     // 共有データ構造
     let open: Arc<SkipSet<(NotNan<f64>, [u64; 2])>> = Arc::new(SkipSet::new());
     let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::with_capacity(node_limit + 100));
@@ -81,8 +121,7 @@ pub fn parallel_retrospective_greedy_best_first_search(
         starts.push([board.opponent, board.player]);
     }
     for s in starts {
-        let unique = Board::new(s[0], s[1]).unique();
-        let start = [unique[0], unique[1]];
+        let start = search_key(s, use_symmetry);
         if visited.insert(start) {
             visited_count.fetch_add(1, Ordering::Relaxed);
             let h = NotNan::new(heuristic_function(start)).expect("heuristic returned NaN");
@@ -118,6 +157,7 @@ pub fn parallel_retrospective_greedy_best_first_search(
                     discs,
                     node_limit,
                     use_lp,
+                    use_symmetry,
                 );
             });
         }
@@ -128,6 +168,15 @@ pub fn parallel_retrospective_greedy_best_first_search(
         STATE_FOUND => SearchResult::Found,
         STATE_NOT_FOUND => SearchResult::NotFound,
         _ => SearchResult::Unknown,
+    }
+}
+
+#[inline]
+fn search_key(state: [u64; 2], use_symmetry: bool) -> [u64; 2] {
+    if use_symmetry {
+        Board::new(state[0], state[1]).unique()
+    } else {
+        state
     }
 }
 
@@ -142,6 +191,7 @@ fn worker_loop(
     discs: i32,
     node_limit: usize,
     use_lp: bool,
+    use_symmetry: bool,
 ) {
     while state.load(Ordering::Acquire) == STATE_RUNNING {
         // ノード制限チェック
@@ -200,7 +250,15 @@ fn worker_loop(
         }
 
         // 子ノードを展開
-        expand_node(node, open, visited, visited_count, state, node_limit);
+        expand_node(
+            node,
+            open,
+            visited,
+            visited_count,
+            state,
+            node_limit,
+            use_symmetry,
+        );
 
         inflight.fetch_sub(1, Ordering::AcqRel);
     }
@@ -214,6 +272,7 @@ fn expand_node(
     visited_count: &AtomicUsize,
     state: &AtomicU8,
     node_limit: usize,
+    use_symmetry: bool,
 ) {
     PREV_RETROFLIPS_BUF.with(|retroflips| {
         PREV_STATES_BUF.with(|prev_buf| {
@@ -235,9 +294,7 @@ fn expand_node(
                     continue;
                 }
 
-                // 正規化して重複チェック
-                let unique = Board::new(prev[0], prev[1]).unique();
-                let child = [unique[0], unique[1]];
+                let child = search_key(prev, use_symmetry);
 
                 if visited.insert(child) {
                     let new_count = visited_count.fetch_add(1, Ordering::Relaxed) + 1;

@@ -11,6 +11,7 @@ use othello_complexity_rs::search::run::{
     run_bfs, run_dfs, run_dfs_move_ordering, run_parallel_bfs, run_parallel_dfs, run_parallel_gbfs,
     run_parallel_inmemory_bfs,
 };
+use othello_complexity_rs::search::strict::run_strict_parallel_gbfs;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,6 +38,9 @@ pub enum Command {
     /// Parallel greedy best-first search with priority queue
     #[command(name = "gbfs-parallel")]
     GbfsPar(GbfsOpts),
+    /// Parallel greedy best-first reverse search without symmetry canonicalization
+    #[command(name = "gbfs-strict-parallel")]
+    GbfsStrictPar(GbfsOpts),
     /// BFS-based meet-in-the-middle search
     #[command(name = "bfs-external")]
     ExternalBfs(BfsArgs),
@@ -256,6 +260,10 @@ fn dispatch(cli: Cli) -> io::Result<()> {
         Command::GbfsPar(opts) => {
             let (input, out_dir, discs, max_nodes, use_lp, threads) = opts.resolve();
             run_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
+        }
+        Command::GbfsStrictPar(opts) => {
+            let (input, out_dir, discs, max_nodes, use_lp, threads) = opts.resolve();
+            run_strict_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
         }
         Command::ExternalBfs(args) => {
             let cfg: BfsCfg = args.into();
