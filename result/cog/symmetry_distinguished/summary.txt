@@ -1,0 +1,12 @@
+sym_ok = result/thesis_layer_sat/sym_OK.txt
+reachable = result/thesis/reverse_OK.txt
+out_dir = ./result/cog/symmetry_distinguished
+seed = 0
+input_boards = 124755
+kept_boards = 124755
+dropped_boards = 0
+full_orbits = 124755
+smaller_orbits = 0
+reachable_input_boards = 97
+reachable_matched_samples = 97
+reachable_dropped_by_orbit_sampling = 0
