@@ -4,8 +4,8 @@ use othello_complexity_rs::{
     io::parse_line_to_board,
     othello::Board,
     search::{
-        core::SearchResult, parallel_gbfs::parallel_retrospective_greedy_best_first_search_strict,
-        strict::strict_fwd_search,
+        core::SearchResult, forward::make_fwd_table_strict,
+        parallel_gbfs::parallel_retrospective_greedy_best_first_search_strict,
     },
     symmetry_distinguished::{
         board_key, deterministic_sample, distinguished_orbit_key, distinguished_variants,
@@ -51,11 +51,8 @@ fn deterministic_sampling_is_reproducible() {
 
 #[test]
 fn strict_parallel_gbfs_finds_the_initial_position_without_symmetry() {
-    let mut searched = HashSet::new();
-    let mut leaf = HashSet::new();
-    strict_fwd_search(&Board::initial(), &mut searched, &mut leaf, 4);
-    let mut leaf_vec = leaf.iter().copied().collect::<Vec<_>>();
-    leaf_vec.sort_unstable();
+    let initial = Board::initial();
+    let leaf_vec = make_fwd_table_strict(&[initial.player, initial.opponent], 4);
 
     let result = parallel_retrospective_greedy_best_first_search_strict(
         &Board::initial(),

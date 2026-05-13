@@ -126,6 +126,17 @@ fn check_fwd_sub(b: &[u64; 2], target: &[u64; 2]) -> bool {
     b[0] & stable == target[1] & stable && b[1] & stable == target[0] & stable
 }
 
+/// Strict version of `check_fwd_sub`: no color swap is allowed.
+fn check_fwd_sub_strict(b: &[u64; 2], target: &[u64; 2]) -> bool {
+    let o1 = b[0] | b[1];
+    let o2 = target[0] | target[1];
+    if o1 & o2 != o1 {
+        return false;
+    }
+    let stable = get_stable_discs(o1, o2);
+    b[0] & stable == target[0] & stable && b[1] & stable == target[1] & stable
+}
+
 /// targetの8対称についてcheck_fwd_subを計算する
 fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
     for i in 0..8 {
@@ -134,6 +145,35 @@ fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
         }
     }
     false
+}
+
+fn insert_strict_forward_successors(b: [u64; 2], target: [u64; 2], visited: &DashSet<[u64; 2]>) {
+    let mut moves = get_moves(b[0], b[1]);
+    while moves != 0 {
+        let idx = moves.trailing_zeros();
+        moves &= moves - 1;
+        let flipped = flip(idx as usize, b[0], b[1]);
+        if flipped == 0 {
+            continue;
+        }
+
+        let next = Board {
+            player: b[1] ^ flipped,
+            opponent: b[0] ^ (flipped | (1_u64 << idx)),
+        };
+        let next_key = [next.player, next.opponent];
+        if !check_fwd_sub_strict(&next_key, &target) {
+            continue;
+        }
+        visited.insert(next_key);
+
+        if get_moves(next.player, next.opponent) == 0 {
+            let pass = [next.opponent, next.player];
+            if check_fwd_sub_strict(&pass, &target) {
+                visited.insert(pass);
+            }
+        }
+    }
 }
 
 /// 石discs個の配置を初期配置から全列挙
@@ -246,6 +286,60 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
         ans = Arc::new(newans);
         // println!("after Arc::new(newans)");
     }
+    let mut ans_vec = ans.to_vec();
+    ans_vec.sort_unstable();
+    ans_vec
+}
+
+/// Strict version of `make_fwd_table`.
+///
+/// This enumerates exact forward states only: no board symmetry, no color
+/// swap, and no canonicalization are used when pruning toward `b`.
+pub fn make_fwd_table_strict(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
+    let board = Board::new(b[0], b[1]);
+    println!("strict b=\n{}\ndiscs={}", board.show(), discs);
+    let target = *b;
+    let initial = Board::initial();
+    let mut ans = Arc::new(vec![[initial.player, initial.opponent]]);
+
+    for i in 4..discs {
+        let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+        let next = Arc::new(AtomicUsize::new(0));
+
+        let num_threads = thread::available_parallelism()
+            .map(|n| n.get().min(64))
+            .unwrap_or(1);
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .thread_name(|i| format!("strict-forward-worker-{i}"))
+            .build()
+            .expect("failed to build thread pool");
+
+        pool.scope(|s| {
+            for _ in 0..num_threads {
+                let visited = visited.clone();
+                let ans = ans.clone();
+                let next = next.clone();
+                s.spawn(move |_| loop {
+                    let j = next.fetch_add(1, Ordering::Relaxed);
+                    if j >= ans.len() {
+                        break;
+                    }
+                    insert_strict_forward_successors(ans[j], target, &visited);
+                });
+            }
+        });
+
+        let mut newans = Vec::with_capacity(visited.len());
+        for node in visited.iter() {
+            newans.push(*node);
+        }
+        newans.sort_unstable();
+
+        println!("strict i={}, newans.len() = {}", i + 1, newans.len());
+        ans = Arc::new(newans);
+    }
+
     let mut ans_vec = ans.to_vec();
     ans_vec.sort_unstable();
     ans_vec

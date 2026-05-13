@@ -5,7 +5,10 @@ use std::path::Path;
 use crate::{
     io::{ensure_tri_outputs, parse_file_to_boards},
     othello::{get_moves, validate_board, Board},
-    search::parallel_gbfs::parallel_retrospective_greedy_best_first_search_strict,
+    search::{
+        forward::make_fwd_table_strict,
+        parallel_gbfs::parallel_retrospective_greedy_best_first_search_strict,
+    },
 };
 
 pub struct StrictLeafCache {
@@ -105,15 +108,6 @@ pub fn run_strict_parallel_gbfs(
     let mut outputs = ensure_tri_outputs(out_dir, "reverse_strict_gbfs")?;
     println!("info: writing outputs under '{}'", out_dir.display());
 
-    let leaf_cache = StrictLeafCache::new(discs);
-    println!(
-        "info: strict discs = {}: internal = {}, leaf = {}",
-        discs,
-        leaf_cache.searched_count(),
-        leaf_cache.leaf_count()
-    );
-    let leaf = leaf_cache.sorted_leaf();
-
     let rayon_threads = match rayon_threads {
         Some(n) if n > 0 => n,
         Some(_) => 1,
@@ -129,6 +123,9 @@ pub fn run_strict_parallel_gbfs(
             outputs.write_ng(&line)?;
             continue;
         }
+
+        let leaf = make_fwd_table_strict(&[board.player, board.opponent], discs);
+        println!("info: strict target-specific leaf = {}", leaf.len());
 
         let result = parallel_retrospective_greedy_best_first_search_strict(
             &board,
