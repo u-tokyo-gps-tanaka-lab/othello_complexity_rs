@@ -1,0 +1,4 @@
+c 0.005 0 <Reader> Starting
+c 0.006 0 <Reader> [T] Reading job #29 rev. 0 {/home/azureuser/othello_complexity_rs/result/cog/exp2/goal_0002_sym_0_h_052_104.cnf} ...
+c 0.525 0 <Reader> [T] Initialized job #29 {/home/azureuser/othello_complexity_rs/result/cog/exp2/goal_0002_sym_0_h_052_104.cnf} in 0.519s: size 22114041
+c 934.608 0 <Reader> Stopping

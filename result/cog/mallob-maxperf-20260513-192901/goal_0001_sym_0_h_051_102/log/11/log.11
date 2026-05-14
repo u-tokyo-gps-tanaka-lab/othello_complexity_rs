@@ -1,0 +1,55 @@
+c 0.001 11 Mallob rls pid=82283 on host vm-for-othello-01
+c 0.005 11 My bounce alternatives: 2 4 13 1 
+c 0.007 11 Machine color 0 with 16 total workers (my rank: 11)
+c 0.528 11 ADOPT r.#28:11 rev. 0 <- [5] born=0.528 hops=0 epoch=2 matchId=-1 mode=1 <= [5]
+c 0.528 11 COMMIT #28 -> #28:11
+c 0.825 11 UNCOMMIT #28:11
+c 0.825 11 LOAD 1 (+#28:11)
+c 0.825 11 EXECUTE #28:11 <= [5]
+c 0.867 11 SPA: formula with 86755148 bytes
+c 13.878 11 #28:11 : deferring CS initiation
+c 252.412 11 #28:11 : deferring CS initiation
+c 375.452 11 #28:11 : deferring CS initiation
+c 7790.934 11 #28:11 : deferring CS initiation
+c 8046.990 11 #28:11 : deferring CS initiation
+c 8844.009 11 #28:11 : deferring CS initiation
+c 10165.072 11 LOAD 0 (-#28:11)
+c 10165.072 11 corealloc ret 30 -> 30 free
+c 10165.072 11 #28:11 desires fulfilled=0.0000 latency={num:0 min:0.00000 med:0.00000 avg:0.00000 max:0.00000}
+c 10165.132 11 [WARN] Watchdog: No reset for 53 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.231 11 [WARN] Watchdog: No reset for 152 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.332 11 [WARN] Watchdog: No reset for 253 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.432 11 [WARN] Watchdog: No reset for 353 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.532 11 [WARN] Watchdog: No reset for 453 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.632 11 [WARN] Watchdog: No reset for 553 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.732 11 [WARN] Watchdog: No reset for 653 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.832 11 [WARN] Watchdog: No reset for 753 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.933 11 [WARN] Watchdog: No reset for 854 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.032 11 [WARN] Watchdog: No reset for 953 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.133 11 [WARN] Watchdog: No reset for 1054 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.232 11 [WARN] Watchdog: No reset for 1153 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.333 11 [WARN] Watchdog: No reset for 1254 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.433 11 [WARN] Watchdog: No reset for 1354 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.532 11 [WARN] Watchdog: No reset for 1453 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.633 11 [WARN] Watchdog: No reset for 1554 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.732 11 [WARN] Watchdog: No reset for 1653 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.833 11 [WARN] Watchdog: No reset for 1754 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.933 11 [WARN] Watchdog: No reset for 1854 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.033 11 [WARN] Watchdog: No reset for 1954 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.086 11 [WARN] Watchdog: No reset for 2000 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.133 11 [WARN] Watchdog: No reset for 2054 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.233 11 [WARN] Watchdog: No reset for 2154 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.333 11 [WARN] Watchdog: No reset for 2254 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.434 11 [WARN] Watchdog: No reset for 2355 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.533 11 [WARN] Watchdog: No reset for 2454 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.634 11 [WARN] Watchdog: No reset for 2555 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.733 11 [WARN] Watchdog: No reset for 2654 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.834 11 [WARN] Watchdog: No reset for 2755 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.934 11 [WARN] Watchdog: No reset for 2855 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.033 11 [WARN] Watchdog: No reset for 2954 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.086 11 [WARN] Watchdog: No reset for 3000 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.134 11 [WARN] Watchdog: No reset for 3055 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.221 11 STATS balancing_latencies num:0 min:0.000000 max:0.000000 med:0.000000 mean:0.000000
+c 10168.221 11 busytime=10164.248
+c 10168.234 11 [WARN] Watchdog: No reset for 3155 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.490 11 Exiting happily

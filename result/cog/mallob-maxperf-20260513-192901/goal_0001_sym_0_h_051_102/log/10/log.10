@@ -1,0 +1,58 @@
+c 0.001 10 Mallob rls pid=82280 on host vm-for-othello-01
+c 0.005 10 My bounce alternatives: 0 12 2 14 
+c 0.007 10 Machine color 0 with 16 total workers (my rank: 10)
+c 0.528 10 ADOPT r.#28:10 rev. 0 <- [4] born=0.528 hops=0 epoch=2 matchId=-1 mode=1 <= [4]
+c 0.528 10 COMMIT #28 -> #28:10
+c 0.827 10 UNCOMMIT #28:10
+c 0.827 10 LOAD 1 (+#28:10)
+c 0.827 10 EXECUTE #28:10 <= [4]
+c 0.869 10 SPA: formula with 86755148 bytes
+c 15.842 10 #28:10 : deferring CS initiation
+c 248.292 10 #28:10 : deferring CS initiation
+c 252.159 10 #28:10 : deferring CS initiation
+c 256.171 10 #28:10 : deferring CS initiation
+c 855.088 10 #28:10 : deferring CS initiation
+c 3877.271 10 #28:10 : deferring CS initiation
+c 5317.149 10 #28:10 : deferring CS initiation
+c 7790.930 10 #28:10 : deferring CS initiation
+c 8395.617 10 #28:10 : deferring CS initiation
+c 10165.068 10 LOAD 0 (-#28:10)
+c 10165.068 10 corealloc ret 30 -> 30 free
+c 10165.068 10 #28:10 desires fulfilled=0.0000 latency={num:0 min:0.00000 med:0.00000 avg:0.00000 max:0.00000}
+c 10165.170 10 [WARN] Watchdog: No reset for 91 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.271 10 [WARN] Watchdog: No reset for 192 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.370 10 [WARN] Watchdog: No reset for 291 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.471 10 [WARN] Watchdog: No reset for 392 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.570 10 [WARN] Watchdog: No reset for 491 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.671 10 [WARN] Watchdog: No reset for 592 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.771 10 [WARN] Watchdog: No reset for 692 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.871 10 [WARN] Watchdog: No reset for 792 ms (activity=0 recvtag=0 sendtag=0)
+c 10165.971 10 [WARN] Watchdog: No reset for 892 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.071 10 [WARN] Watchdog: No reset for 992 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.172 10 [WARN] Watchdog: No reset for 1093 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.271 10 [WARN] Watchdog: No reset for 1192 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.372 10 [WARN] Watchdog: No reset for 1293 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.472 10 [WARN] Watchdog: No reset for 1393 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.572 10 [WARN] Watchdog: No reset for 1493 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.672 10 [WARN] Watchdog: No reset for 1593 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.772 10 [WARN] Watchdog: No reset for 1693 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.872 10 [WARN] Watchdog: No reset for 1793 ms (activity=0 recvtag=0 sendtag=0)
+c 10166.973 10 [WARN] Watchdog: No reset for 1894 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.072 10 [WARN] Watchdog: No reset for 1993 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.085 10 [WARN] Watchdog: No reset for 2000 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.173 10 [WARN] Watchdog: No reset for 2094 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.272 10 [WARN] Watchdog: No reset for 2193 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.373 10 [WARN] Watchdog: No reset for 2294 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.473 10 [WARN] Watchdog: No reset for 2394 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.572 10 [WARN] Watchdog: No reset for 2493 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.673 10 [WARN] Watchdog: No reset for 2594 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.772 10 [WARN] Watchdog: No reset for 2693 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.873 10 [WARN] Watchdog: No reset for 2794 ms (activity=0 recvtag=0 sendtag=0)
+c 10167.973 10 [WARN] Watchdog: No reset for 2894 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.073 10 [WARN] Watchdog: No reset for 2994 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.085 10 [WARN] Watchdog: No reset for 3000 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.173 10 [WARN] Watchdog: No reset for 3094 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.271 10 STATS balancing_latencies num:0 min:0.000000 max:0.000000 med:0.000000 mean:0.000000
+c 10168.271 10 busytime=10164.241
+c 10168.273 10 [WARN] Watchdog: No reset for 3194 ms (activity=0 recvtag=0 sendtag=0)
+c 10168.473 10 Exiting happily

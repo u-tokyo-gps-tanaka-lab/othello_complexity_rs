@@ -1,0 +1,3 @@
+cnf	result	result_file	output_dir
+/home/azureuser/othello_complexity_rs/result/cog/exp2/goal_0001_sym_0_h_051_102.cnf	UNSAT	/home/azureuser/othello_complexity_rs/result/cog/exp2/mallob-maxperf-20260513-192901/goal_0001_sym_0_h_051_102/result.txt	/home/azureuser/othello_complexity_rs/result/cog/exp2/mallob-maxperf-20260513-192901/goal_0001_sym_0_h_051_102
+/home/azureuser/othello_complexity_rs/result/cog/exp2/goal_0002_sym_0_h_052_104.cnf	SAT	/home/azureuser/othello_complexity_rs/result/cog/exp2/mallob-maxperf-20260513-192901/goal_0002_sym_0_h_052_104/result.txt	/home/azureuser/othello_complexity_rs/result/cog/exp2/mallob-maxperf-20260513-192901/goal_0002_sym_0_h_052_104

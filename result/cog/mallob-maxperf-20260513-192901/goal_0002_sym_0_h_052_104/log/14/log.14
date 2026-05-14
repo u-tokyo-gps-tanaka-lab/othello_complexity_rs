@@ -1,0 +1,22 @@
+c 0.000 14 Mallob rls pid=84276 on host vm-for-othello-01
+c 0.005 14 My bounce alternatives: 9 8 1 6 
+c 0.006 14 Machine color 0 with 16 total workers (my rank: 14)
+c 0.536 14 ADOPT r.#29:14 rev. 0 <- [6] born=0.536 hops=0 epoch=2 matchId=-1 mode=1 <= [6]
+c 0.536 14 COMMIT #29 -> #29:14
+c 0.843 14 UNCOMMIT #29:14
+c 0.843 14 LOAD 1 (+#29:14)
+c 0.843 14 EXECUTE #29:14 <= [6]
+c 0.886 14 SPA: formula with 88456164 bytes
+c 10.531 14 #29:14 : deferring CS initiation
+c 30.940 14 #29:14 : deferring CS initiation
+c 40.905 14 #29:14 : deferring CS initiation
+c 42.982 14 #29:14 : deferring CS initiation
+c 333.429 14 #29:14 : deferring CS initiation
+c 934.513 14 #29:14 rev. 0 : found result SAT => [0]
+c 934.517 14 LOAD 0 (-#29:14)
+c 934.517 14 corealloc ret 30 -> 30 free
+c 934.517 14 #29:14 desires fulfilled=0.0000 latency={num:0 min:0.00000 med:0.00000 avg:0.00000 max:0.00000}
+c 934.517 14 Send result of #29 rev. 0 to client => [0]
+c 934.570 14 STATS balancing_latencies num:0 min:0.000000 max:0.000000 med:0.000000 mean:0.000000
+c 934.570 14 busytime=933.674
+c 937.568 14 Exiting happily
