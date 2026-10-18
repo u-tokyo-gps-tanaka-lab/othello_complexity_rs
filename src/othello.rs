@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt;
 
 /**
  * edax-reversi
@@ -103,10 +104,124 @@ pub fn backshift(d: Direction, b: u64) -> u64 {
     }
 }
 
+/// 手番側と相手側の石集合を表す相対盤面。
+///
+/// `player` は絶対色によらず手番側であり、着手とパスのたびに視点を交換する。
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Board {
     pub player: u64,
     pub opponent: u64,
+}
+
+/// 石と手番の絶対色。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum Color {
+    Black,
+    White,
+}
+
+impl Color {
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::Black => Self::White,
+            Self::White => Self::Black,
+        }
+    }
+}
+
+/// 相対盤面と、その `player` が黒か白かを示す絶対手番の組。
+///
+/// 黒番では `board.player` が黒石、白番では `board.opponent` が黒石を表す。
+/// 盤面を変えずに `side_to_move` だけを交換すると、絶対色と手番をともに交換する。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct Position {
+    pub board: Board,
+    pub side_to_move: Color,
+}
+
+impl Position {
+    /// 標準初期配置で黒番の局面。
+    pub fn initial() -> Self {
+        Self {
+            board: Board::initial(),
+            side_to_move: Color::Black,
+        }
+    }
+}
+
+/// 正方形の8対称変換。座標だけを移し、絶対色と手番を保存する。
+///
+/// ビット `8 * y + x` の座標は以下のように変換される。
+/// `Rotate90` は `(7-y, x)`、`Rotate180` は `(7-x, 7-y)`、
+/// `Rotate270` は `(y, 7-x)`、`MirrorHorizontal` は `(7-x, y)`、
+/// `MirrorVertical` は `(x, 7-y)`、`Transpose` は `(y, x)`、
+/// `AntiTranspose` は `(7-y, 7-x)` とする。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum BoardSymmetry {
+    Identity,
+    Rotate90,
+    Rotate180,
+    Rotate270,
+    MirrorHorizontal,
+    MirrorVertical,
+    Transpose,
+    AntiTranspose,
+}
+
+impl BoardSymmetry {
+    pub const ALL: [Self; 8] = [
+        Self::Identity,
+        Self::Rotate90,
+        Self::Rotate180,
+        Self::Rotate270,
+        Self::MirrorHorizontal,
+        Self::MirrorVertical,
+        Self::Transpose,
+        Self::AntiTranspose,
+    ];
+
+    /// 証跡で使用する変換の識別名。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::Rotate90 => "rotate90",
+            Self::Rotate180 => "rotate180",
+            Self::Rotate270 => "rotate270",
+            Self::MirrorHorizontal => "mirror_horizontal",
+            Self::MirrorVertical => "mirror_vertical",
+            Self::Transpose => "transpose",
+            Self::AntiTranspose => "anti_transpose",
+        }
+    }
+
+    pub fn apply(self, board: Board) -> Board {
+        let transform = |bits| match self {
+            Self::Identity => bits,
+            Self::Rotate90 => Board::horizontal_mirror(Board::transpose(bits)),
+            Self::Rotate180 => Board::horizontal_mirror(Board::vertical_mirror(bits)),
+            Self::Rotate270 => Board::vertical_mirror(Board::transpose(bits)),
+            Self::MirrorHorizontal => Board::horizontal_mirror(bits),
+            Self::MirrorVertical => Board::vertical_mirror(bits),
+            Self::Transpose => Board::transpose(bits),
+            Self::AntiTranspose => {
+                Board::horizontal_mirror(Board::vertical_mirror(Board::transpose(bits)))
+            }
+        };
+        Board::new(transform(board.player), transform(board.opponent))
+    }
+
+    pub fn apply_position(self, position: Position) -> Position {
+        Position {
+            board: self.apply(position.board),
+            side_to_move: position.side_to_move,
+        }
+    }
+}
+
+impl fmt::Display for BoardSymmetry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 impl Board {
@@ -499,4 +614,55 @@ pub fn coord_to_square(coord: &str) -> Result<usize, String> {
     let x = (file - b'A') as usize;
     let y = (rank - b'1') as usize;
     Ok(y * 8 + x)
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn initial_position_preserves_relative_and_absolute_colors() {
+        let initial = Position::initial();
+        // Standard black discs are E4 and D5; white discs are D4 and E5.
+        assert_eq!(initial.board.player, (1_u64 << 28) | (1_u64 << 35));
+        assert_eq!(initial.board.opponent, (1_u64 << 27) | (1_u64 << 36));
+        assert_eq!(initial.side_to_move, Color::Black);
+        assert_eq!(Color::Black.opposite(), Color::White);
+        assert_eq!(Color::White.opposite(), Color::Black);
+        assert_ne!(
+            initial,
+            Position {
+                side_to_move: Color::White,
+                ..initial
+            }
+        );
+    }
+
+    #[test]
+    fn square_symmetries_preserve_relative_colors_and_absolute_turn() {
+        // A2 and C5 give distinct, hand-calculated images under all 8 maps.
+        let position = Position {
+            board: Board::new(1_u64 << 8, 1_u64 << 34),
+            side_to_move: Color::White,
+        };
+        let expected = [
+            (BoardSymmetry::Identity, 8, 34),
+            (BoardSymmetry::Rotate90, 6, 19),
+            (BoardSymmetry::Rotate180, 55, 29),
+            (BoardSymmetry::Rotate270, 57, 44),
+            (BoardSymmetry::MirrorHorizontal, 15, 37),
+            (BoardSymmetry::MirrorVertical, 48, 26),
+            (BoardSymmetry::Transpose, 1, 20),
+            (BoardSymmetry::AntiTranspose, 62, 43),
+        ];
+        for (symmetry, player_square, opponent_square) in expected {
+            assert_eq!(
+                symmetry.apply_position(position),
+                Position {
+                    board: Board::new(1_u64 << player_square, 1_u64 << opponent_square),
+                    side_to_move: Color::White,
+                }
+            );
+        }
+    }
 }

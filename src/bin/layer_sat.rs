@@ -1,69 +1,64 @@
-use clap::{Parser, ValueEnum};
-use othello_complexity_rs::io::{ensure_tri_outputs, parse_file_to_boards, parse_line_to_board};
-use othello_complexity_rs::othello::Board;
+use clap::Parser;
+use othello_complexity_rs::io::{
+    ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
+};
+use othello_complexity_rs::othello::Position;
 use othello_complexity_rs::prunings::layer_sat::{run_with_options, RunOptions};
-use std::path::PathBuf;
+use othello_complexity_rs::record::GoalMatch;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum Side {
-    Black,
-    White,
-}
-
-impl Side {
-    fn is_black(self) -> bool {
-        matches!(self, Self::Black)
-    }
-}
 
 #[derive(Parser, Debug)]
 #[command(
     name = "layer-sat",
-    about = "Bounded SAT reachability checker for 8x8 Othello positions"
+    about = "SAT reachability checker for 8x8 Othello positions with absolute turns"
 )]
 struct Cli {
-    /// Use the standard initial position as start board
-    #[arg(long)]
+    /// Use the standard initial position with Black to move
+    #[arg(long, conflicts_with = "start", required_unless_present = "start")]
     from_initial: bool,
 
-    /// Start board as a 64-cell X/O/- string (X = side to move, O = waiting side)
-    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
+    /// Start position: 64 X/O/- cells followed by a space and b or w (X = side to move)
+    #[arg(long, value_name = "POSITION", allow_hyphen_values = true)]
     start: Option<String>,
 
-    /// Goal board as a 64-cell X/O/- string normalized so the next side to move is black
-    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
+    /// Goal position in the same format as --start
+    #[arg(
+        long,
+        value_name = "POSITION",
+        allow_hyphen_values = true,
+        conflicts_with = "goal_file",
+        required_unless_present = "goal_file"
+    )]
     goal: Option<String>,
 
-    /// Input file containing one or more goal boards normalized so the next side to move is black
+    /// Input file containing one goal position per nonempty line
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
-    /// Enable symmetry-aware goal expansion/deduplication
-    #[arg(long, default_value_t = false)]
+    /// Allow independent rotations and reflections of the start and goal
+    #[arg(long)]
     check_symmetry: bool,
 
-    /// Absolute color of X on the start board; this also fixes the side to move
-    #[arg(long, value_enum, default_value_t = Side::Black)]
-    start_turn: Side,
-
     /// Print coordinates for every layer
-    #[arg(long, default_value_t = false)]
+    #[arg(long)]
     show_coords: bool,
 
-    /// Print X/O/- board strings for every layer
-    #[arg(long, default_value_t = false)]
+    /// Print relative X/O/- boards for every layer
+    #[arg(long)]
     show_boards: bool,
 
     /// Print encoding progress for each depth
-    #[arg(long, default_value_t = false)]
+    #[arg(long)]
     verbose: bool,
 
-    /// Maximum number of goal boards solved concurrently
+    /// Maximum number of goal positions solved concurrently
     #[arg(long, default_value_t = 1, value_parser = parse_positive_usize)]
     parallel_goals: usize,
 
-    /// Output directory for layer SAT result files
+    /// Output directory for classifications and verified records
     #[arg(
         short = 'o',
         long = "out-dir",
@@ -72,50 +67,61 @@ struct Cli {
     )]
     out_dir: PathBuf,
 
-    /// Emit DIMACS CNF files for each ranged-h instance
-    #[arg(long, default_value_t = false)]
+    /// Emit DIMACS CNF files for each exact candidate
+    #[arg(long)]
     dump_dimacs_cnf: bool,
 
-    /// Generate DIMACS CNF files only (skip SAT solving)
-    #[arg(long, default_value_t = false)]
+    /// Generate DIMACS CNF files without classifications or records
+    #[arg(long)]
     cnf_dump_only: bool,
 
-    /// Per-instance SAT solver timeout in seconds
+    /// SAT solver timeout in seconds for each exact candidate
     #[arg(long, value_name = "SECS", value_parser = parse_positive_u64)]
     sat_timeout_secs: Option<u64>,
 }
 
 fn main() {
-    let cli = Cli::parse();
-    if let Err(err) = run_cli(cli) {
+    if let Err(err) = run_cli(Cli::parse()) {
         eprintln!("error: {err}");
         std::process::exit(1);
     }
 }
 
 fn run_cli(cli: Cli) -> Result<(), String> {
+    // Validate every input before opening any output: a bad line must not erase
+    // an earlier run's classifications or evidence.
+    let start = resolve_start(&cli)?;
+    let goals = resolve_goals(&cli)?;
+    let goal_match = if cli.check_symmetry {
+        GoalMatch::SymmetryOrbit
+    } else {
+        GoalMatch::Exact
+    };
+    let cnf_dump_dir = (cli.dump_dimacs_cnf || cli.cnf_dump_only).then(|| cli.out_dir.clone());
+    print_config(&cli, start, &goals, goal_match, cnf_dump_dir.as_deref());
+
     let mut outputs = if cli.cnf_dump_only {
         None
     } else {
-        Some(ensure_tri_outputs(&cli.out_dir, "layer_sat").map_err(|e| {
+        let prefix = format!("layer_sat_{}", goal_match.as_str());
+        let classifications = ensure_tri_outputs(&cli.out_dir, &prefix).map_err(|e| {
             format!(
-                "failed to create output files in {}: {}",
-                cli.out_dir.display(),
-                e
+                "failed to create output files in {}: {e}",
+                cli.out_dir.display()
             )
-        })?)
+        })?;
+        let path = cli.out_dir.join(format!("{prefix}_records.tsv"));
+        let records = BufWriter::new(
+            File::create(&path).map_err(|e| format!("failed to create {}: {e}", path.display()))?,
+        );
+        Some((classifications, records))
     };
 
-    let start = resolve_start_board(&cli)?;
-    let goals = resolve_goal_boards(&cli)?;
-    let cnf_dump_dir = resolve_cnf_dump_dir(&cli);
-    print_config(&cli, &start, &goals, cnf_dump_dir.as_deref());
     run_with_options(
         RunOptions {
             start,
             goals,
-            check_symmetry: cli.check_symmetry,
-            start_turn_black: cli.start_turn.is_black(),
+            goal_match,
             parallel_goals: cli.parallel_goals,
             show_coords: cli.show_coords,
             show_boards: cli.show_boards,
@@ -125,125 +131,98 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             sat_timeout_per_instance: cli.sat_timeout_secs.map(Duration::from_secs),
         },
         |outcome| {
-            if cli.cnf_dump_only {
-                return Ok(());
-            }
-            let outputs = outputs
+            let (classifications, records) = outputs
                 .as_mut()
-                .expect("outputs must exist unless cnf_dump_only");
-            outputs
-                .write_result(outcome, &outcome.goal().to_string())
-                .map_err(|e| format!("failed to write output: {e}"))?;
-            outputs
+                .ok_or("CNF-only execution unexpectedly produced a classification")?;
+            if let Some(record) = outcome.record() {
+                record.verify().map_err(|e| {
+                    format!(
+                        "input {}: record verification failed: {e}",
+                        outcome.input_index()
+                    )
+                })?;
+                writeln!(records, "{}", record.to_tsv())
+                    .map_err(|e| format!("failed to write record: {e}"))?;
+                records
+                    .flush()
+                    .map_err(|e| format!("failed to flush records: {e}"))?;
+            }
+            classifications
+                .write_result(outcome, &format_position(outcome.goal()))
+                .map_err(|e| format!("failed to write classification: {e}"))?;
+            classifications
                 .flush()
-                .map_err(|e| format!("failed to flush output files: {e}"))?;
-            Ok(())
+                .map_err(|e| format!("failed to flush classifications: {e}"))
         },
     )?;
-
-    if cli.cnf_dump_only {
-        return Ok(());
-    }
     Ok(())
 }
 
-fn print_config(cli: &Cli, start: &Board, goals: &[Board], cnf_dump_dir: Option<&std::path::Path>) {
-    println!("layer-sat configuration:");
-    println!("  from_initial: {}", cli.from_initial);
-    println!("  start_turn: {:?}", cli.start_turn);
-    println!("  start: {}", start.to_string());
+fn print_config(
+    cli: &Cli,
+    start: Position,
+    goals: &[Position],
+    goal_match: GoalMatch,
+    cnf_dump_dir: Option<&Path>,
+) {
+    println!("start: {}", format_position(start));
+    println!("goal match: {goal_match}");
+    println!("goals: {}", goals.len());
+    println!("parallel goals: {}", cli.parallel_goals);
+    println!("output directory: {}", cli.out_dir.display());
     if let Some(path) = &cli.goal_file {
-        println!("  goal_source: --goal-file ({})", path.display());
-    } else {
-        println!("  goal_source: --goal");
+        println!("goal file: {}", path.display());
     }
-    println!("  goal_count: {}", goals.len());
-    if goals.len() == 1 {
-        println!("  goal: {}", goals[0].to_string());
+    if let Some(dir) = cnf_dump_dir {
+        println!("CNF directory: {}", dir.display());
     }
-    println!("  check_symmetry: {}", cli.check_symmetry);
-    println!("  parallel_goals: {}", cli.parallel_goals);
-    println!("  show_coords: {}", cli.show_coords);
-    println!("  show_boards: {}", cli.show_boards);
-    println!("  verbose: {}", cli.verbose);
-    println!("  out_dir: {}", cli.out_dir.display());
-    println!("  dump_dimacs_cnf: {}", cli.dump_dimacs_cnf);
-    println!("  cnf_dump_only: {}", cli.cnf_dump_only);
-    match cnf_dump_dir {
-        Some(dir) => println!("  cnf_dump_dir: {}", dir.display()),
-        None => println!("  cnf_dump_dir: disabled"),
-    }
-    match cli.sat_timeout_secs {
-        Some(secs) => println!("  sat_timeout_secs: {}", secs),
-        None => println!("  sat_timeout_secs: none"),
+    if let Some(secs) = cli.sat_timeout_secs {
+        println!("SAT timeout per exact candidate: {secs} s");
     }
 }
 
-fn resolve_cnf_dump_dir(cli: &Cli) -> Option<PathBuf> {
-    if cli.dump_dimacs_cnf || cli.cnf_dump_only {
-        return Some(cli.out_dir.clone());
+fn resolve_start(cli: &Cli) -> Result<Position, String> {
+    match (cli.from_initial, cli.start.as_deref()) {
+        (true, None) => Ok(Position::initial()),
+        (false, Some(raw)) => parse_position(raw).map_err(|e| format!("invalid --start: {e}")),
+        (true, Some(_)) => Err("--from-initial and --start are mutually exclusive".into()),
+        (false, None) => Err("start position is required: use --from-initial or --start".into()),
     }
-    None
 }
 
-fn resolve_start_board(cli: &Cli) -> Result<Board, String> {
-    if cli.from_initial {
-        if cli.start.is_some() {
-            eprintln!("warning: --from-initial is set, so --start is ignored");
+fn resolve_goals(cli: &Cli) -> Result<Vec<Position>, String> {
+    match (cli.goal.as_deref(), cli.goal_file.as_deref()) {
+        (Some(raw), None) => parse_position(raw)
+            .map(|goal| vec![goal])
+            .map_err(|e| format!("invalid --goal: {e}")),
+        (None, Some(path)) => {
+            let path_text = path
+                .to_str()
+                .ok_or("--goal-file path must be valid UTF-8")?;
+            parse_file_to_positions(path_text)
+                .map_err(|e| format!("failed to parse goals from {}: {e}", path.display()))
         }
-        return Ok(Board::initial());
+        (Some(_), Some(_)) => Err("--goal and --goal-file are mutually exclusive".into()),
+        (None, None) => Err("goal position is required: use --goal or --goal-file".into()),
     }
-
-    match cli.start.as_deref() {
-        Some(raw) => parse_board_arg(raw, "--start"),
-        None => Err("start board is required unless --from-initial is set (--start)".to_string()),
-    }
-}
-
-fn resolve_goal_boards(cli: &Cli) -> Result<Vec<Board>, String> {
-    if let Some(path) = &cli.goal_file {
-        if cli.goal.is_some() {
-            return Err("use either --goal-file or --goal, not both".to_string());
-        }
-        let path_text = path.to_string_lossy().to_string();
-        let boards = parse_file_to_boards(&path_text)
-            .map_err(|e| format!("failed to parse goal boards from {}: {}", path.display(), e))?;
-        return Ok(boards);
-    }
-
-    match cli.goal.as_deref() {
-        Some(raw) => Ok(vec![parse_board_arg(raw, "--goal")?]),
-        None => Err("goal board is required: set --goal-file or --goal".to_string()),
-    }
-}
-
-fn parse_board_arg(raw: &str, flag_name: &str) -> Result<Board, String> {
-    parse_line_to_board(raw).ok_or_else(|| {
-        format!(
-            "invalid {} board: expected a 64-cell X/O/- string",
-            flag_name
-        )
-    })
 }
 
 fn parse_positive_usize(raw: &str) -> Result<usize, String> {
     let value = raw
-        .trim()
         .parse::<usize>()
         .map_err(|e| format!("invalid positive integer '{raw}': {e}"))?;
     if value == 0 {
-        return Err("value must be >= 1".to_string());
+        return Err("value must be >= 1".into());
     }
     Ok(value)
 }
 
 fn parse_positive_u64(raw: &str) -> Result<u64, String> {
     let value = raw
-        .trim()
         .parse::<u64>()
         .map_err(|e| format!("invalid positive integer '{raw}': {e}"))?;
     if value == 0 {
-        return Err("value must be >= 1".to_string());
+        return Err("value must be >= 1".into());
     }
     Ok(value)
 }
@@ -253,49 +232,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_board_arg_accepts_x_o_dash_64_cells() {
-        let board_str = Board::initial().to_string();
-        assert_eq!(
-            parse_board_arg(&board_str, "--start").unwrap(),
-            Board::initial()
-        );
+    fn position_arguments_preserve_turns_and_leading_empty_cells() {
+        let position = format_position(Position::initial());
+        let cli =
+            Cli::try_parse_from(["layer_sat", "--start", &position, "--goal", &position]).unwrap();
+        assert_eq!(resolve_start(&cli).unwrap(), Position::initial());
+        assert_eq!(resolve_goals(&cli).unwrap(), vec![Position::initial()]);
     }
 
     #[test]
-    fn parse_board_arg_rejects_short_input() {
-        assert!(parse_board_arg("XOXO", "--goal").is_err());
-    }
-
-    #[test]
-    fn parse_positive_usize_rejects_zero() {
-        assert_eq!(parse_positive_usize("4").unwrap(), 4);
-        assert!(parse_positive_usize("0").is_err());
-    }
-
-    #[test]
-    fn parse_positive_u64_rejects_zero() {
-        assert_eq!(parse_positive_u64("5").unwrap(), 5);
-        assert!(parse_positive_u64("0").is_err());
-    }
-
-    #[test]
-    fn cli_accepts_goal_value_starting_with_hyphen() {
-        let goal = "--------------------------XXX--O---XXXOO-O-O-O-O-OOOOOOO-O-O-O-O";
-        let cli = Cli::try_parse_from(["layer_sat", "--from-initial", "--goal", goal]).unwrap();
-        assert_eq!(cli.goal.as_deref(), Some(goal));
-    }
-
-    #[test]
-    fn cli_accepts_start_value_starting_with_hyphen() {
-        let start = "-----------------------------------------------------------OX------";
-        let cli = Cli::try_parse_from([
+    fn start_and_goal_sources_are_exclusive() {
+        let position = format_position(Position::initial());
+        assert!(Cli::try_parse_from([
             "layer_sat",
+            "--from-initial",
             "--start",
-            start,
+            &position,
             "--goal",
-            &Board::initial().to_string(),
+            &position
         ])
-        .unwrap();
-        assert_eq!(cli.start.as_deref(), Some(start));
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "layer_sat",
+            "--from-initial",
+            "--goal",
+            &position,
+            "--goal-file",
+            "goals.txt"
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn resource_limits_must_be_positive() {
+        let position = format_position(Position::initial());
+        for flag in ["--parallel-goals", "--sat-timeout-secs"] {
+            assert!(Cli::try_parse_from([
+                "layer_sat",
+                "--from-initial",
+                "--goal",
+                &position,
+                flag,
+                "0"
+            ])
+            .is_err());
+            assert!(Cli::try_parse_from([
+                "layer_sat",
+                "--from-initial",
+                "--goal",
+                &position,
+                flag,
+                "2"
+            ])
+            .is_ok());
+        }
     }
 }

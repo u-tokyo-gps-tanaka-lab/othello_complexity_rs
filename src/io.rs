@@ -1,7 +1,187 @@
-use crate::othello::Board;
+use crate::othello::{
+    coord_to_square, square_to_coord, validate_board, Board, BoardSymmetry, Color, Position,
+};
+use crate::record::{GoalMatch, PlyAction, ReachabilityRecord};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
+use std::str::FromStr;
+
+/// `64文字のX/O/- + 半角空白 + b/w` を相対盤面と絶対手番へ変換する。
+///
+/// `X` は常に手番側であり、末尾の色が `X` の絶対色を表す。
+/// 手番の省略、余分なフィールド、不正な文字と空の中央マスを拒否する。
+pub fn parse_position(line: &str) -> Result<Position, String> {
+    let bytes = line.as_bytes();
+    if bytes.len() != 66 || bytes[64] != b' ' {
+        return Err("expected exactly 64 X/O/- cells, one space, and b or w".to_owned());
+    }
+    let side_to_move = match bytes[65] {
+        b'b' => Color::Black,
+        b'w' => Color::White,
+        _ => return Err("side to move must be b or w".to_owned()),
+    };
+    let mut player = 0_u64;
+    let mut opponent = 0_u64;
+    for (square, &cell) in bytes[..64].iter().enumerate() {
+        match cell {
+            b'X' => player |= 1_u64 << square,
+            b'O' => opponent |= 1_u64 << square,
+            b'-' => (),
+            _ => return Err(format!("invalid board character at cell {}", square + 1)),
+        }
+    }
+    let board = Board::new(player, opponent);
+    validate_board(&board).map_err(|error| format!("invalid board: {error:?}"))?;
+    Ok(Position {
+        board,
+        side_to_move,
+    })
+}
+
+/// 相対盤面と絶対手番を `64文字のX/O/- + 半角空白 + b/w` で保存する。
+pub fn format_position(position: Position) -> String {
+    let color = match position.side_to_move {
+        Color::Black => 'b',
+        Color::White => 'w',
+    };
+    format!("{} {color}", position.board.to_string())
+}
+
+/// 1行1局面のファイルを読む。空行以外の不正は行番号付きエラーとする。
+///
+/// 局面の順序と重複を保存し、空の局面列を拒否する。
+pub fn parse_file_to_positions(path: &str) -> io::Result<Vec<Position>> {
+    let reader = BufReader::new(File::open(path)?);
+    let mut positions = Vec::new();
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.map_err(|error| {
+            io::Error::new(error.kind(), format!("line {}: {error}", index + 1))
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let position = parse_position(&line).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("line {}: {error}", index + 1),
+            )
+        })?;
+        positions.push(position);
+    }
+    if positions.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "position file is empty",
+        ));
+    }
+    Ok(positions)
+}
+
+impl FromStr for BoardSymmetry {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|symmetry| symmetry.as_str() == value)
+            .ok_or_else(|| format!("unknown board symmetry: {value}"))
+    }
+}
+
+impl FromStr for GoalMatch {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "exact" => Ok(Self::Exact),
+            "symmetry" => Ok(Self::SymmetryOrbit),
+            _ => Err(format!("unknown goal matching condition: {value}")),
+        }
+    }
+}
+
+/// 半角空白で区切られた `A1`〜`H8` と `ps` を読む。空文字列は長さ0の手順。
+pub fn parse_actions(record: &str) -> Result<Vec<PlyAction>, String> {
+    if record.is_empty() {
+        return Ok(Vec::new());
+    }
+    record
+        .split(' ')
+        .enumerate()
+        .map(|(index, token)| {
+            if token == "ps" {
+                return Ok(PlyAction::Pass);
+            }
+            let bytes = token.as_bytes();
+            if bytes.len() != 2 || !(b'A'..=b'H').contains(&bytes[0]) {
+                return Err(format!(
+                    "action {}: expected A1 through H8 or ps",
+                    index + 1
+                ));
+            }
+            coord_to_square(token)
+                .map(PlyAction::Play)
+                .map_err(|error| format!("action {}: {error}", index + 1))
+        })
+        .collect()
+}
+
+/// 全着手と全パスを半角空白で区切る。空手順は空文字列となる。
+pub fn format_actions(actions: &[PlyAction]) -> String {
+    actions
+        .iter()
+        .map(|action| match action {
+            PlyAction::Play(square) => square_to_coord(*square),
+            PlyAction::Pass => "ps".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn format_reachability_record(record: &ReachabilityRecord) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        record.input_index,
+        format_position(record.start),
+        format_position(record.goal),
+        record.goal_match,
+        record.symmetry,
+        format_actions(&record.actions)
+    )
+}
+
+pub(crate) fn parse_reachability_record(line: &str) -> Result<ReachabilityRecord, String> {
+    let fields: Vec<_> = line.split('\t').collect();
+    if fields.len() != 6 {
+        return Err(format!(
+            "expected 6 tab-separated fields, found {}",
+            fields.len()
+        ));
+    }
+    if fields[0].is_empty() || !fields[0].bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("input index must be a positive integer".to_owned());
+    }
+    let input_index = fields[0]
+        .parse::<usize>()
+        .map_err(|error| format!("invalid input index: {error}"))?;
+    if input_index == 0 {
+        return Err("input index must be at least 1".to_owned());
+    }
+    Ok(ReachabilityRecord {
+        input_index,
+        start: parse_position(fields[1]).map_err(|error| format!("invalid start: {error}"))?,
+        goal: parse_position(fields[2]).map_err(|error| format!("invalid goal: {error}"))?,
+        goal_match: fields[3].parse()?,
+        symmetry: fields[4].parse()?,
+        actions: parse_actions(fields[5])?,
+    })
+}
+
+fn has_turn_annotation(line: &str) -> bool {
+    line.split_whitespace()
+        .any(|field| field == "b" || field == "w")
+}
 
 /// 3分類 (OK/NG/UNKNOWN) を表す列挙型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +198,9 @@ pub trait TriOutcome {
 
 /// 64セルの 'X', 'O', '-' 文字列を Board に変換。失敗したら None。
 pub fn parse_line_to_board(line: &str) -> Option<Board> {
+    if has_turn_annotation(line) {
+        return None;
+    }
     let mut player: u64 = 0;
     let mut opponent: u64 = 0;
     let mut idx = 0u32;
@@ -61,16 +244,21 @@ pub fn parse_file_to_boards(path: &str) -> io::Result<Vec<Board>> {
 
     let mut boards: Vec<Board> = Vec::new();
 
-    for line in reader.lines() {
-        let l = line?;
-        let filtered: String = l
-            .chars()
-            .filter(|&c| c == 'X' || c == 'O' || c == '-')
-            .collect();
-        if filtered.len() == 64 {
-            if let Some(b) = parse_line_to_board(&filtered) {
-                boards.push(b);
-            }
+    for (index, line) in reader.lines().enumerate() {
+        let l = line.map_err(|error| {
+            io::Error::new(error.kind(), format!("line {}: {error}", index + 1))
+        })?;
+        if has_turn_annotation(&l) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "line {}: board-only input cannot contain a side-to-move annotation",
+                    index + 1
+                ),
+            ));
+        }
+        if let Some(board) = parse_line_to_board(&l) {
+            boards.push(board);
         }
     }
 
@@ -131,5 +319,161 @@ impl TriOutputs {
         self.ng.flush()?;
         self.unknown.flush()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const INITIAL: &str = "---------------------------OX------XO---------------------------";
+    static FILE_INDEX: AtomicU64 = AtomicU64::new(0);
+
+    fn parse_temporary_file<T>(
+        contents: impl AsRef<[u8]>,
+        parser: fn(&str) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let path = std::env::temp_dir().join(format!(
+            "othello-position-{}-{}.txt",
+            std::process::id(),
+            FILE_INDEX.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&path, contents).expect("write temporary input");
+        let result = parser(path.to_str().expect("temporary path is UTF-8"));
+        fs::remove_file(path).expect("remove temporary input");
+        result
+    }
+
+    #[test]
+    fn positions_round_trip_without_changing_relative_colors_or_turn() {
+        for (suffix, color) in [('b', Color::Black), ('w', Color::White)] {
+            let text = format!("{INITIAL} {suffix}");
+            let position = parse_position(&text).unwrap();
+            assert_eq!(position.board, Board::initial());
+            assert_eq!(position.side_to_move, color);
+            assert_eq!(format_position(position), text);
+        }
+    }
+
+    #[test]
+    fn position_input_requires_the_full_valid_position() {
+        let invalid = [
+            INITIAL.to_owned(),
+            format!("{INITIAL} B"),
+            format!("{INITIAL} q"),
+            format!("{INITIAL} b extra"),
+            format!("{INITIAL}  b"),
+            format!("{INITIAL}\tb"),
+            format!("{INITIAL} b "),
+            format!("{} b", &INITIAL[..63]),
+            format!("{INITIAL}- b"),
+            format!("?{} b", &INITIAL[1..]),
+            format!("{} b", "-".repeat(64)),
+        ];
+        for text in invalid {
+            assert!(parse_position(&text).is_err(), "accepted {text:?}");
+        }
+    }
+
+    #[test]
+    fn position_files_preserve_order_duplicates_and_physical_error_lines() {
+        let contents = format!("\n{INITIAL} w\n{INITIAL} b\n\n{INITIAL} w\n");
+        let positions = parse_temporary_file(&contents, parse_file_to_positions).unwrap();
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[0].side_to_move, Color::White);
+        assert_eq!(positions[1].side_to_move, Color::Black);
+        assert_eq!(positions[0], positions[2]);
+
+        let invalid = format!("{INITIAL} b\n\n{INITIAL}\n");
+        let error = parse_temporary_file(&invalid, parse_file_to_positions).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("line 3"));
+        assert!(parse_temporary_file(" \n\n", parse_file_to_positions).is_err());
+    }
+
+    #[test]
+    fn board_only_readers_reject_turn_annotations_even_in_mixed_files() {
+        for suffix in ['b', 'w'] {
+            assert!(parse_line_to_board(&format!("{INITIAL} {suffix}")).is_none());
+            let contents = format!("{INITIAL}\n\n{INITIAL} {suffix}\n{INITIAL}\n");
+            let error = parse_temporary_file(&contents, parse_file_to_boards).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("line 3"));
+        }
+    }
+
+    #[test]
+    fn unreadable_text_reports_the_physical_line_in_both_input_formats() {
+        let positions = [format!("{INITIAL} b\n").as_bytes(), &[0xff, b'\n']].concat();
+        let boards = [format!("{INITIAL}\n").as_bytes(), &[0xff, b'\n']].concat();
+        for error in [
+            parse_temporary_file(positions, parse_file_to_positions).unwrap_err(),
+            parse_temporary_file(boards, parse_file_to_boards).unwrap_err(),
+        ] {
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("line 2"));
+        }
+    }
+
+    #[test]
+    fn action_tokens_preserve_empty_records_and_every_explicit_pass() {
+        for text in ["", "ps", "ps A1", "A1 ps H8", "H8 ps"] {
+            let actions = parse_actions(text).unwrap();
+            assert_eq!(format_actions(&actions), text);
+        }
+        assert_eq!(
+            parse_actions("A1 H8").unwrap(),
+            vec![PlyAction::Play(0), PlyAction::Play(63)]
+        );
+        for text in [
+            " ", " A1", "A1 ", "A1  ps", "A1\tps", "a1", "A0", "I1", "pass",
+        ] {
+            assert!(parse_actions(text).is_err(), "accepted {text:?}");
+        }
+    }
+
+    #[test]
+    fn symmetry_and_matching_identifiers_round_trip_strictly() {
+        for symmetry in BoardSymmetry::ALL {
+            assert_eq!(
+                symmetry.as_str().parse::<BoardSymmetry>().unwrap(),
+                symmetry
+            );
+        }
+        for condition in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
+            assert_eq!(condition.as_str().parse::<GoalMatch>().unwrap(), condition);
+        }
+        assert!("unknown".parse::<BoardSymmetry>().is_err());
+        assert!("Identity".parse::<BoardSymmetry>().is_err());
+        assert!("unknown".parse::<GoalMatch>().is_err());
+    }
+
+    #[test]
+    fn records_keep_six_columns_including_empty_actions() {
+        let record = ReachabilityRecord {
+            input_index: 2,
+            start: Position::initial(),
+            goal: Position::initial(),
+            goal_match: GoalMatch::Exact,
+            symmetry: BoardSymmetry::Identity,
+            actions: Vec::new(),
+        };
+        let text = format!("2\t{INITIAL} b\t{INITIAL} b\texact\tidentity\t");
+        assert_eq!(record.to_tsv(), text);
+        assert_eq!(ReachabilityRecord::from_tsv(&text).unwrap(), record);
+        for invalid in [
+            text.trim_end_matches('\t').to_owned(),
+            format!("{text}\t"),
+            text.replacen("2\t", "0\t", 1),
+            text.replacen("2\t", "-1\t", 1),
+            text.replace("identity", "unknown"),
+            text.replace("exact", "unknown"),
+        ] {
+            assert!(
+                ReachabilityRecord::from_tsv(&invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
     }
 }
