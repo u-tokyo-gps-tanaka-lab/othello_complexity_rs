@@ -48,9 +48,9 @@ pub fn format_position(position: Position) -> String {
     format!("{} {color}", position.board.to_string())
 }
 
-/// 1行1局面のファイルを読む。空行以外の不正は行番号付きエラーとする。
+/// 1行1局面のファイルを読む。不正行は空白行も含めて行番号付きエラーとする。
 ///
-/// 局面の順序と重複を保存し、空の局面列を拒否する。
+/// 局面の順序と重複を保存し、空ファイルは空の中間分類として受理する。
 pub fn parse_file_to_positions(path: &str) -> io::Result<Vec<Position>> {
     let reader = BufReader::new(File::open(path)?);
     let mut positions = Vec::new();
@@ -58,9 +58,6 @@ pub fn parse_file_to_positions(path: &str) -> io::Result<Vec<Position>> {
         let line = line.map_err(|error| {
             io::Error::new(error.kind(), format!("line {}: {error}", index + 1))
         })?;
-        if line.trim().is_empty() {
-            continue;
-        }
         let position = parse_position(&line).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -68,12 +65,6 @@ pub fn parse_file_to_positions(path: &str) -> io::Result<Vec<Position>> {
             )
         })?;
         positions.push(position);
-    }
-    if positions.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "position file is empty",
-        ));
     }
     Ok(positions)
 }
@@ -178,11 +169,6 @@ pub(crate) fn parse_reachability_record(line: &str) -> Result<ReachabilityRecord
     })
 }
 
-fn has_turn_annotation(line: &str) -> bool {
-    line.split_whitespace()
-        .any(|field| field == "b" || field == "w")
-}
-
 /// 3分類 (OK/NG/UNKNOWN) を表す列挙型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriCategory {
@@ -194,82 +180,6 @@ pub enum TriCategory {
 /// 結果を OK/NG/UNKNOWN に振り分けるトレイト
 pub trait TriOutcome {
     fn category(&self) -> TriCategory;
-}
-
-/// 64セルの 'X', 'O', '-' 文字列を Board に変換。失敗したら None。
-pub fn parse_line_to_board(line: &str) -> Option<Board> {
-    if has_turn_annotation(line) {
-        return None;
-    }
-    let mut player: u64 = 0;
-    let mut opponent: u64 = 0;
-    let mut idx = 0u32;
-    for c in line.chars() {
-        match c {
-            'X' => {
-                if idx >= 64 {
-                    return None;
-                }
-                player |= 1_u64 << idx;
-                idx += 1;
-            }
-            'O' => {
-                if idx >= 64 {
-                    return None;
-                }
-                opponent |= 1_u64 << idx;
-                idx += 1;
-            }
-            '-' => {
-                if idx >= 64 {
-                    return None;
-                }
-                idx += 1;
-            }
-            _ => (),
-        }
-    }
-
-    if idx == 64 {
-        Some(Board::new(player, opponent))
-    } else {
-        None
-    }
-}
-
-/// ファイルから 'X', 'O', '-' 文字列を読み込み、Board の Vec に変換。失敗したら Err。
-pub fn parse_file_to_boards(path: &str) -> io::Result<Vec<Board>> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-
-    let mut boards: Vec<Board> = Vec::new();
-
-    for (index, line) in reader.lines().enumerate() {
-        let l = line.map_err(|error| {
-            io::Error::new(error.kind(), format!("line {}: {error}", index + 1))
-        })?;
-        if has_turn_annotation(&l) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "line {}: board-only input cannot contain a side-to-move annotation",
-                    index + 1
-                ),
-            ));
-        }
-        if let Some(board) = parse_line_to_board(&l) {
-            boards.push(board);
-        }
-    }
-
-    if !boards.is_empty() {
-        return Ok(boards);
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "failed to parse any 64-cell X/O/- board(s)",
-    ))
 }
 
 /// 出力ディレクトリを作成し、TriOutputsを返す
@@ -378,42 +288,29 @@ mod tests {
 
     #[test]
     fn position_files_preserve_order_duplicates_and_physical_error_lines() {
-        let contents = format!("\n{INITIAL} w\n{INITIAL} b\n\n{INITIAL} w\n");
+        let contents = format!("{INITIAL} w\n{INITIAL} b\n{INITIAL} w\n");
         let positions = parse_temporary_file(&contents, parse_file_to_positions).unwrap();
         assert_eq!(positions.len(), 3);
         assert_eq!(positions[0].side_to_move, Color::White);
         assert_eq!(positions[1].side_to_move, Color::Black);
         assert_eq!(positions[0], positions[2]);
 
-        let invalid = format!("{INITIAL} b\n\n{INITIAL}\n");
+        let invalid = format!("{INITIAL} b\n{INITIAL} w\n{INITIAL}\n");
         let error = parse_temporary_file(&invalid, parse_file_to_positions).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("line 3"));
         assert!(parse_temporary_file(" \n\n", parse_file_to_positions).is_err());
+        assert!(parse_temporary_file("", parse_file_to_positions)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
-    fn board_only_readers_reject_turn_annotations_even_in_mixed_files() {
-        for suffix in ['b', 'w'] {
-            assert!(parse_line_to_board(&format!("{INITIAL} {suffix}")).is_none());
-            let contents = format!("{INITIAL}\n\n{INITIAL} {suffix}\n{INITIAL}\n");
-            let error = parse_temporary_file(&contents, parse_file_to_boards).unwrap_err();
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(error.to_string().contains("line 3"));
-        }
-    }
-
-    #[test]
-    fn unreadable_text_reports_the_physical_line_in_both_input_formats() {
-        let positions = [format!("{INITIAL} b\n").as_bytes(), &[0xff, b'\n']].concat();
-        let boards = [format!("{INITIAL}\n").as_bytes(), &[0xff, b'\n']].concat();
-        for error in [
-            parse_temporary_file(positions, parse_file_to_positions).unwrap_err(),
-            parse_temporary_file(boards, parse_file_to_boards).unwrap_err(),
-        ] {
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(error.to_string().contains("line 2"));
-        }
+    fn unreadable_text_reports_the_physical_line() {
+        let contents = [format!("{INITIAL} b\n").as_bytes(), &[0xff, b'\n']].concat();
+        let error = parse_temporary_file(contents, parse_file_to_positions).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("line 2"));
     }
 
     #[test]

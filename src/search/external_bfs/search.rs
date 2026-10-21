@@ -2,7 +2,7 @@ use std::io::Result;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use crate::othello::Board;
+use crate::othello::Position;
 use crate::search::core::SearchResult;
 
 use super::config::Cfg;
@@ -44,7 +44,7 @@ pub fn parallel_retrospective_bfs_resume(
     cfg: &Cfg,
     num_disc: i32,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
 ) -> Result<SearchResult> {
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
     let mut jobs = cfg.jobs;
@@ -84,19 +84,21 @@ pub fn parallel_retrospective_bfs_resume(
 /// - 中間層(discs石)で合流判定を行うことで探索空間を削減
 pub fn parallel_retrospective_bfs(
     cfg: &Cfg,
-    board: &Board,
+    position: &Position,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
 ) -> Result<SearchResult> {
-    let uni = board.unique();
+    let uni = *position;
+    let board = &position.board;
     let num_disc = board.popcount() as usize;
+    let discs = discs.min(num_disc as i32);
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
 
     if (num_disc as i32) <= discs {
         return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
+            println!("unique player = {}", uni.board.player);
+            println!("unique opponent = {}", uni.board.opponent);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
             Ok(SearchResult::Found)
@@ -104,8 +106,8 @@ pub fn parallel_retrospective_bfs(
             Ok(SearchResult::NotFound)
         };
     }
-    write_target_board(tmp_dir, board)?;
-    write_given_board(tmp_dir, board, num_disc)?;
+    write_target_board(tmp_dir, position)?;
+    write_given_board(tmp_dir, position, num_disc)?;
     parallel_retrospective_bfs_resume(cfg, num_disc as i32, discs, leafnode)
 }
 
@@ -128,20 +130,22 @@ pub fn parallel_retrospective_bfs(
 /// - デバッグ、検証用途
 pub fn sequential_retrospective_bfs(
     cfg: &Cfg,
-    board: &Board,
+    position: &Position,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
 ) -> Result<SearchResult> {
-    let uni = board.unique();
+    let uni = *position;
+    let board = &position.board;
     let num_disc = board.popcount() as usize;
+    let discs = discs.min(num_disc as i32);
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
     let block_size = cfg.block_size;
 
     if (num_disc as i32) <= discs {
         return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
+            println!("unique player = {}", uni.board.player);
+            println!("unique opponent = {}", uni.board.opponent);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
             Ok(SearchResult::Found)
@@ -149,7 +153,7 @@ pub fn sequential_retrospective_bfs(
             Ok(SearchResult::NotFound)
         };
     }
-    write_given_board(tmp_dir, board, num_disc)?;
+    write_given_board(tmp_dir, position, num_disc)?;
     for s in (discs..(num_disc as i32)).rev() {
         let v = expand_layer_blocked_seq(s, tmp_dir, block_size)?;
         if !v {
@@ -179,19 +183,21 @@ pub fn sequential_retrospective_bfs(
 /// - 大規模状態空間ではメモリ不足の可能性
 pub fn unblocked_retrospective_bfs(
     cfg: &Cfg,
-    board: &Board,
+    position: &Position,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
 ) -> Result<SearchResult> {
-    let uni = board.unique();
+    let uni = *position;
+    let board = &position.board;
     let num_disc = board.popcount() as usize;
+    let discs = discs.min(num_disc as i32);
     let tmp_dir: &PathBuf = &cfg.tmp_dir;
 
     if (num_disc as i32) <= discs {
         return if leafnode.binary_search(&uni).is_ok() {
             println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
+            println!("unique player = {}", uni.board.player);
+            println!("unique opponent = {}", uni.board.opponent);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
             Ok(SearchResult::Found)
@@ -199,7 +205,7 @@ pub fn unblocked_retrospective_bfs(
             Ok(SearchResult::NotFound)
         };
     }
-    write_given_board(tmp_dir, board, num_disc)?;
+    write_given_board(tmp_dir, position, num_disc)?;
     for s in (discs..(num_disc as i32)).rev() {
         let v = expand_layer_inplace(s, tmp_dir)?;
         if !v {

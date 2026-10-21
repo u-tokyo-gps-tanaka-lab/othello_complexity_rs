@@ -4,9 +4,10 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::path::PathBuf;
 
-use super::io::{read_pair, write_pair};
+use super::io::{read_header, read_position, validate_file_size, write_header, write_position};
+use crate::othello::Position;
 
-/// ソート済みのbinファイル群(ネイティブエンディアンの\[u64;2\]連続)を、
+/// ソート済みの手番付き局面ファイル群を、
 /// 重複を除去しながらマージしてoutputに書き出す
 ///
 /// # パラメータ
@@ -30,36 +31,41 @@ pub fn merge_sorted_bins(inputs: &[PathBuf], output: &PathBuf) -> io::Result<usi
     // 各入力ファイルのリーダを用意
     let mut readers: Vec<BufReader<File>> = Vec::with_capacity(inputs.len());
     for p in inputs {
-        readers.push(BufReader::new(File::open(p)?));
+        let file = File::open(p)?;
+        validate_file_size(file.metadata()?.len(), "merge_sorted_bins")?;
+        let mut reader = BufReader::new(file);
+        read_header(&mut reader)?;
+        readers.push(reader);
     }
 
-    // min-heap: (key=(p,o), file_idx)
-    let mut heap: BinaryHeap<Reverse<((u64, u64), usize)>> = BinaryHeap::new();
+    // min-heap: (position, file_idx)
+    let mut heap: BinaryHeap<Reverse<(Position, usize)>> = BinaryHeap::new();
 
     // 各ファイルの先頭をヒープに積む
     for (i, r) in readers.iter_mut().enumerate() {
-        if let Some((p, o)) = read_pair(r)? {
-            heap.push(Reverse(((p, o), i)));
+        if let Some(position) = read_position(r)? {
+            heap.push(Reverse((position, i)));
         }
     }
 
     let outfile = File::create(output)?;
     let mut writer = BufWriter::new(outfile);
+    write_header(&mut writer)?;
 
     let mut written: usize = 0;
-    let mut last: Option<(u64, u64)> = None;
+    let mut last: Option<Position> = None;
 
-    while let Some(Reverse(((p, o), idx))) = heap.pop() {
+    while let Some(Reverse((position, idx))) = heap.pop() {
         // 重複排除
-        if last.map_or(true, |x| x != (p, o)) {
-            write_pair(&mut writer, p, o)?;
-            last = Some((p, o));
+        if last.map_or(true, |x| x != position) {
+            write_position(&mut writer, position)?;
+            last = Some(position);
             written += 1;
         }
 
         // 取り出したファイルから次レコードを補充
-        if let Some((np, no)) = read_pair(&mut readers[idx])? {
-            heap.push(Reverse(((np, no), idx)));
+        if let Some(next) = read_position(&mut readers[idx])? {
+            heap.push(Reverse((next, idx)));
         }
     }
 
@@ -97,7 +103,7 @@ pub(in crate::search::external_bfs) fn merge_files(
     }
     let outfile = tmp_dir.join(format!("r_{}.bin", num_disc));
     let count = if inputs.is_empty() {
-        File::create(&outfile)?;
+        write_header(&mut File::create(&outfile)?)?;
         0
     } else {
         let c = merge_sorted_bins(&inputs, &outfile)?;

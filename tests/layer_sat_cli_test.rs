@@ -86,7 +86,7 @@ fn parallel_classifications_and_records_preserve_duplicate_input_numbers_and_tur
     };
     let goals = [initial, other_turn, after_d3(), initial];
     let input = directory.path().join("goals.txt");
-    fs::write(&input, goals.map(format_position).join("\n\n") + "\n").unwrap();
+    fs::write(&input, goals.map(format_position).join("\n") + "\n").unwrap();
     expect_success(
         layer_sat()
             .args(["--from-initial", "--parallel-goals", "2", "--goal-file"])
@@ -290,9 +290,9 @@ fn invalid_input_is_rejected_before_existing_outputs_are_opened() {
     let initial = format_position(Position::initial());
     let no_turn = Position::initial().board.to_string();
     for contents in [
-        format!("{initial}\n\n{no_turn}\n"),
-        format!("{initial}\n\n{initial} extra\n"),
-        String::new(),
+        format!("{initial}\n{initial}\n{no_turn}\n"),
+        format!("{initial}\n{initial}\n{initial} extra\n"),
+        format!("{initial}\n{initial}\n\n"),
     ] {
         fs::write(&input, &contents).unwrap();
         let output = layer_sat()
@@ -303,9 +303,7 @@ fn invalid_input_is_rejected_before_existing_outputs_are_opened() {
             .output()
             .unwrap();
         assert!(!output.status.success());
-        if !contents.is_empty() {
-            assert!(String::from_utf8_lossy(&output.stderr).contains("line 3"));
-        }
+        assert!(String::from_utf8_lossy(&output.stderr).contains("line 3"));
         for name in output_names {
             assert_eq!(
                 fs::read_to_string(directory.path().join(name)).unwrap(),
@@ -323,6 +321,30 @@ fn invalid_input_is_rejected_before_existing_outputs_are_opened() {
         .unwrap();
     assert!(!output.status.success());
     assert!(!unused_output.exists());
+}
+
+#[test]
+fn empty_intermediate_input_produces_empty_completed_classifications() {
+    let directory = TestDirectory::new("empty-intermediate");
+    let input = directory.path().join("empty.txt");
+    fs::write(&input, "").unwrap();
+    expect_success(
+        layer_sat()
+            .args(["--from-initial", "--goal-file"])
+            .arg(&input)
+            .arg("--out-dir")
+            .arg(directory.path())
+            .output()
+            .unwrap(),
+    );
+    for name in ["OK.txt", "NG.txt", "UNKNOWN.txt", "records.tsv"] {
+        assert_eq!(
+            fs::metadata(directory.path().join(format!("layer_sat_exact_{name}")))
+                .unwrap()
+                .len(),
+            0
+        );
+    }
 }
 
 #[test]

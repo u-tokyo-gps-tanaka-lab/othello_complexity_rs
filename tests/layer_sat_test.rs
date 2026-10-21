@@ -422,7 +422,11 @@ fn invalid_positions_and_callback_failures_are_execution_errors() {
             assert_eq!(callbacks, 0);
         }
     }
-    assert!(run_with_options(options(start, vec![], GoalMatch::Exact), |_| Ok(())).is_err());
+    let empty = run_with_options(options(start, vec![], GoalMatch::Exact), |_| {
+        panic!("empty input cannot produce an outcome")
+    })
+    .unwrap();
+    assert!(empty.is_empty());
     assert!(
         run_with_options(options(start, vec![start], GoalMatch::Exact), |_| {
             Err("intentional callback failure".to_string())

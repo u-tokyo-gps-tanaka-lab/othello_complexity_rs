@@ -50,7 +50,7 @@ pub enum Command {
 
 #[derive(Args, Debug, Clone)]
 pub struct BasicOpts {
-    /// Input file containing board positions
+    /// Input file containing 64 X/O/- cells, a space, and b or w per line
     #[arg(value_name = "INPUT")]
     input: Option<PathBuf>,
 
@@ -144,7 +144,7 @@ impl GbfsOpts {
 
 #[derive(Args, Debug, Clone)]
 pub struct InmemoryBfsOpts {
-    /// Input file containing board positions
+    /// Input file containing 64 X/O/- cells, a space, and b or w per line
     #[arg(value_name = "INPUT")]
     input: Option<PathBuf>,
 
@@ -191,7 +191,7 @@ impl InmemoryBfsOpts {
 
 #[derive(Args, Debug, Clone)]
 pub struct BfsArgs {
-    /// Input file containing board positions
+    /// Input file containing 64 X/O/- cells, a space, and b or w per line
     #[arg(value_name = "INPUT")]
     input: PathBuf,
 

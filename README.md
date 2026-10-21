@@ -14,38 +14,48 @@ cargo build --release
 
 ## 使い方
 
+通常の入出力は、64文字の `X/O/-` に半角空白と絶対手番 `b` または `w` を続けた形式です。
+`X` は常に手番側の石を表します。
+向き、絶対色、手番を区別し、重複した入力局面もそのまま扱います。
+
+```text
+---------------------------OX------XO--------------------------- b
+```
+
+`gen_random_boards` は盤面と絶対手番を独立に一様抽出し、`random_play` は初期局面からの着手とパスで決まる手番を保存します。
+`rnd_to_txt` の整数は絶対局面の番号で、最下位ビットの0が黒番、1が白番を表します。
+残りの桁はA1からH8の順に、中央4マスを2進数、それ以外を3進数として解釈します。
+母集団の大きさは `2^5 × 3^60` です。
+
 ### 到達不能局面のチェック
 
 ```
-# 対称性
-# `sym_{OK,NG}.txt` が生成される
-$ target/release/check sym ./result/result_gpw2025/all.txt -o ./result/result_gpw2025/
-
 # 連結性
 # `con_{OK,NG}.txt` が生成される
-$ target/release/check con ./result/result_gpw2025/sym_OK.txt -o ./result/result_gpw2025/
+$ target/release/check con ./result/absolute_positions/all.txt -o ./result/absolute_positions/
 
 # 占有到達性
 # `occupancy_{OK,NG}.txt` が生成される
-$ target/release/check occupancy ./result/result_gpw2025/con_OK.txt -o ./result/result_gpw2025/
+$ target/release/check occupancy ./result/absolute_positions/con_OK.txt -o ./result/absolute_positions/
 
 # 反転整合性
 # `seg3more_{OK,NG}.txt` が生成される
-$ target/release/check seg3-more ./result/result_gpw2025/occupancy_OK.txt -o ./result/result_gpw2025/
+$ target/release/check seg3more ./result/absolute_positions/occupancy_OK.txt -o ./result/absolute_positions/
 
 # SATチェック
-# `sat_{OK,NG}.txt` が生成される
-$ target/release/check sat ./result/result_gpw2025/seg3more_OK.txt -o ./result/result_gpw2025/
+# `flip_sat_{OK,NG}.txt` が生成される
+$ target/release/check flip-sat ./result/absolute_positions/seg3more_OK.txt -o ./result/absolute_positions/
 
 # 線形計画法チェック
 # `lp_{OK,NG}.txt` が生成される
-$ target/release/check lp ./result/result_gpw2025/sat_OK.txt -o ./result/result_gpw2025/
+$ target/release/check lp ./result/absolute_positions/flip_sat_OK.txt -o ./result/absolute_positions/
 ```
 
 
 ### 双方向探索
 
 異なる複数の探索手法を実装しています。
+前向き集合との一致判定には、盤面の向きと絶対手番を含めます。
 
 スレッド並列DFSの実行例:
 
@@ -80,13 +90,11 @@ target/release/verify_record \
 
 `check` の `_OK` は到達不能性を示せなかった局面を表します。
 `layer_sat` の `_OK` は指定した一致条件での到達を証明しますが、対称性を許す場合は元の向きの到達を保証しません。
-手番付き出力を盤面専用のフィルタや逆探索に渡すとエラーになるため、再実行には同じ開始局面と一致条件の `layer_sat --goal-file` を使います。
+フィルタと逆探索も同じ手番付き形式を読み書きします。
+逆探索は標準初期局面を起点とする完全一致を判定するため、任意の開始局面や対称性を許す問い合わせを再実行するときは、同じ条件の `layer_sat --goal-file` を使います。
 
 ### 状態数の計算
 
 ```
 $ target/release/compute_ci --ok 147 --ng 999349 --unknown 504
-Sample size = 1000000
-99.5% Wilson CI: [0.000117, 0.000727]
-Expected |R| interval: [7.913957e+25, 4.928495e+26]
 ```

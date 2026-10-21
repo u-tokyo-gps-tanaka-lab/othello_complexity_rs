@@ -7,12 +7,13 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::othello::Board;
+use othello_complexity_rs::io::format_position;
+use othello_complexity_rs::othello::{Board, Color, Position};
 
 #[derive(Parser, Debug)]
 #[command(
     name = "gen_random_boards",
-    about = "Generate random Othello board positions"
+    about = "Generate uniform absolute Othello positions"
 )]
 struct Args {
     /// 中心4マス以外に石を置くマス数 (0ならばマス数を限定しない全状態から抽出)
@@ -90,10 +91,10 @@ fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
     }
 }
 
-/// n+4マス埋まりのランダムなビットボードを生成（到達可能とは限らない）
+/// n+4マス埋まりの盤面と独立な絶対手番を一様に生成する（到達可能とは限らない）。
 /// - rng: 疑似乱数生成器
 /// - n: 中心4マス以外に石を置くマス数 (n==0ならばマス数を限定しない全状態から抽出)
-fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
+fn mk_rand_position(rng: &mut ThreadRng, n: usize) -> Position {
     let mut player: u64 = 0;
     let mut opponent: u64 = 0;
 
@@ -160,7 +161,14 @@ fn mk_rand_board(rng: &mut ThreadRng, n: usize) -> Board {
             }
         }
     }
-    Board::new(player, opponent)
+    Position {
+        board: Board::new(player, opponent),
+        side_to_move: if mk_rand(rng, 2) == 0 {
+            Color::Black
+        } else {
+            Color::White
+        },
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -182,8 +190,8 @@ fn main() -> std::io::Result<()> {
     ));
     let mut file = File::create(&file_path)?;
     for _ in 0..args.gen_count {
-        let b = mk_rand_board(&mut rng, args.stone_count);
-        writeln!(file, "{}", b.to_string())?;
+        let position = mk_rand_position(&mut rng, args.stone_count);
+        writeln!(file, "{}", format_position(position))?;
     }
     Ok(())
 }

@@ -42,7 +42,7 @@ pub enum PlyAction {
 
 /// 問い合わせと、それを満たす手順を対応づける到達証跡。
 ///
-/// `input_index` は空行を除いた入力局面列の1から始まる番号。
+/// `input_index` は入力局面ファイルの1から始まる行番号。
 /// `symmetry` は要求した `goal` を実際の終点へ写し、完全一致では恒等変換に限る。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReachabilityRecord {

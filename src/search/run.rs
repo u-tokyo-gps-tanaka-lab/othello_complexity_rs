@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::io::{ensure_tri_outputs, parse_file_to_boards};
+use crate::io::{ensure_tri_outputs, format_position, parse_file_to_positions};
 use crate::othello::validate_board;
 
 use crate::search::core::SearchResult;
@@ -22,7 +22,7 @@ use crate::search::{
 
 /// pure dfs
 pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> io::Result<()> {
-    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -45,9 +45,9 @@ pub fn run_dfs(input: &Path, out_dir: &Path, discs: i32, node_limit: usize) -> i
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
@@ -79,7 +79,7 @@ pub fn run_dfs_move_ordering(
     discs: i32,
     node_limit: usize,
 ) -> io::Result<()> {
-    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -102,9 +102,9 @@ pub fn run_dfs_move_ordering(
     let mut retroflips: Vec<[u64; 10_000]> = vec![];
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
@@ -138,7 +138,7 @@ pub fn run_parallel_dfs(
     table_limit: usize,
     rayon_threads: Option<usize>,
 ) -> io::Result<()> {
-    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -160,9 +160,9 @@ pub fn run_parallel_dfs(
     init_rayon(rayon_threads);
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
@@ -191,7 +191,7 @@ pub fn run_parallel_gbfs(
     use_lp: bool,
     rayon_threads: Option<usize>,
 ) -> io::Result<()> {
-    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -218,10 +218,10 @@ pub fn run_parallel_gbfs(
             .unwrap_or(1),
     };
     for board in boards {
-        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
-        let line = board.to_string();
+        let leaf = make_fwd_table(&board, discs);
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
@@ -244,7 +244,7 @@ pub fn run_parallel_gbfs(
 /// sequential bfs
 pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
     println!("cfg={:?}", cfg);
-    let boards = parse_file_to_boards(&cfg.input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&cfg.input.to_string_lossy())?;
     let discs = cfg.discs as i32;
     let total_input = boards.len();
     println!(
@@ -260,14 +260,14 @@ pub fn run_bfs(cfg: &BfsCfg) -> io::Result<()> {
     println!("info: writing outputs under '{}'", cfg.out_dir.display());
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
 
-        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let leaf = make_fwd_table(&board, discs);
         let stat = unblocked_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(&stat, &line)?;
         outputs.flush()?;
@@ -317,7 +317,7 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
         return outputs.flush();
     }
 
-    let boards = parse_file_to_boards(&cfg.input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&cfg.input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -326,14 +326,14 @@ pub fn run_parallel_bfs(cfg: &BfsCfg) -> io::Result<()> {
     );
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
 
-        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let leaf = make_fwd_table(&board, discs);
         let stat = parallel_retrospective_bfs(cfg, &board, discs, &leaf)?;
         outputs.write_result(&stat, &line)?;
         outputs.flush()?;
@@ -351,7 +351,7 @@ pub fn run_parallel_inmemory_bfs(
     use_lp: bool,
     use_occupancy_cache: bool,
 ) -> io::Result<()> {
-    let boards = parse_file_to_boards(&input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&input.to_string_lossy())?;
     let total_input = boards.len();
     println!(
         "info: read {} board(s) from '{}'.",
@@ -363,14 +363,14 @@ pub fn run_parallel_inmemory_bfs(
     println!("info: writing outputs under '{}'", out_dir.display());
 
     for board in boards {
-        let line = board.to_string();
+        let line = format_position(board);
 
-        if validate_board(&board).is_err() {
+        if validate_board(&board.board).is_err() {
             outputs.write_ng(&line)?;
             continue;
         }
 
-        let leaf = make_fwd_table(&[board.player, board.opponent], discs);
+        let leaf = make_fwd_table(&board, discs);
         println!("got leaf nodes");
 
         let result = parallel_inmemory_retrospective_bfs(

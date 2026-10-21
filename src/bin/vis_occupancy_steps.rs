@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+use othello_complexity_rs::io::parse_position;
 use othello_complexity_rs::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 use othello_complexity_rs::prunings::occupancy::{occupied_to_string, reachable_occupancy};
 
@@ -79,10 +80,10 @@ fn neighbors(bit: u64) -> [u64; 8] {
     ]
 }
 
-/// O/X/G/-形式の文字列をu64ビットボードに変換
-/// - O, X, または G: 占有マス (bit = 1)
+/// 診断用G/-形式の文字列をu64ビットボードに変換
+/// - G: 占有マス (bit = 1)
 /// - -: 非占有マス (bit = 0)
-fn parse_board(s: &str) -> Result<u64, String> {
+fn parse_mask(s: &str) -> Result<u64, String> {
     if s.len() != 64 {
         return Err(format!("Input must be 64 characters, got {}", s.len()));
     }
@@ -90,7 +91,7 @@ fn parse_board(s: &str) -> Result<u64, String> {
     let mut occupied = 0u64;
     for (i, ch) in s.chars().enumerate() {
         match ch {
-            'O' | 'X' | 'G' => {
+            'G' => {
                 occupied |= 1u64 << i;
             }
             '-' => {
@@ -98,7 +99,7 @@ fn parse_board(s: &str) -> Result<u64, String> {
             }
             _ => {
                 return Err(format!(
-                    "Invalid character '{}' at position {}. Use O, X, G, or -",
+                    "Invalid character '{}' at position {}. Use G or -",
                     ch, i
                 ));
             }
@@ -121,29 +122,39 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <board_string> [output_dir]", args[0]);
-        eprintln!("  <board_string>: 64-character string using O/X/G/- format");
-        eprintln!("    O, X, or G: occupied square");
-        eprintln!("    -: empty square");
+        eprintln!("Usage: {} <position> [output_dir]", args[0]);
+        eprintln!("       {} --mask <mask_string> [output_dir]", args[0]);
+        eprintln!("  <position>: 64 X/O/- cells, one space, and b or w");
+        eprintln!("  <mask_string>: 64 G/- cells (G = occupied, - = empty)");
         eprintln!("  [output_dir]: Optional output directory (default: current directory)");
         eprintln!();
         eprintln!("  Output format: G/- (G = reachable, - = unreachable)");
         eprintln!("  Output file: <occupied_hex>_steps.txt");
         eprintln!();
         eprintln!(
-            "Example: {} \"-------------------GG-----GGGG----GGGG-----GG-------------------\"",
+            "Example: {} --mask \"-------------------GG-----GGGG----GGGG-----GG-------------------\"",
             args[0]
         );
         eprintln!(
-            "Example: {} \"-------------------GG-----GGGG----GGGG-----GG-------------------\" output/",
+            "Example: {} --mask \"-------------------GG-----GGGG----GGGG-----GG-------------------\" output/",
             args[0]
         );
         std::process::exit(1);
     }
 
-    // コマンドライン引数からoccupiedを取得（O/X/G/-形式文字列）
-    let board_str = &args[1];
-    let occupied = match parse_board(board_str) {
+    // 局面と診断用マスクを明示的に区別してoccupiedを取得する。
+    let mask_input = args[1] == "--mask";
+    let input_index = if mask_input { 2 } else { 1 };
+    let Some(board_str) = args.get(input_index) else {
+        eprintln!("--mask requires a 64-character G/- string");
+        std::process::exit(1);
+    };
+    let parsed = if mask_input {
+        parse_mask(board_str)
+    } else {
+        parse_position(board_str).map(|position| position.board.player | position.board.opponent)
+    };
+    let occupied = match parsed {
         Ok(b) => b,
         Err(e) => {
             eprintln!("Error parsing board: {}", e);
@@ -152,7 +163,11 @@ fn main() {
     };
 
     // 出力ディレクトリを取得（指定がなければ現在のディレクトリ）
-    let output_dir = if args.len() >= 3 { &args[2] } else { "." };
+    let output_dir = if args.len() > input_index + 1 {
+        &args[input_index + 1]
+    } else {
+        "."
+    };
 
     println!("Input:    {}", board_str);
     println!("Occupied: 0x{:016x}", occupied);

@@ -1,4 +1,4 @@
-use crate::othello::{flip, get_moves, Board, Direction};
+use crate::othello::{flip, get_moves, Board, Color, Direction, Position};
 use dashmap::DashSet;
 use rayon::ThreadPoolBuilder;
 use std::{
@@ -20,23 +20,33 @@ use std::{
  * @author Hiroki Takizawa
  */
 pub fn fwd_search(
-    board: &Board,
-    searched: &mut HashSet<[u64; 2]>,
-    leafnode: &mut HashSet<[u64; 2]>,
+    position: &Position,
+    searched: &mut HashSet<Position>,
+    leafnode: &mut HashSet<Position>,
     discs: i32,
 ) {
-    let uni = board.unique();
+    let board = &position.board;
+    let uni = *position;
 
     if board.popcount() >= discs as u32 {
+        // The boundary includes the state before a pass and terminal states.
+        leafnode.insert(uni);
         if get_moves(board.player, board.opponent) != 0 {
-            leafnode.insert(uni);
             return;
         } else if get_moves(board.opponent, board.player) != 0 {
             let next = Board {
                 player: board.opponent,
                 opponent: board.player,
             };
-            fwd_search(&next, searched, leafnode, discs);
+            fwd_search(
+                &Position {
+                    board: next,
+                    side_to_move: position.side_to_move.opposite(),
+                },
+                searched,
+                leafnode,
+                discs,
+            );
         }
         return;
     }
@@ -52,7 +62,15 @@ pub fn fwd_search(
                 player: board.opponent,
                 opponent: board.player,
             };
-            fwd_search(&next, searched, leafnode, discs);
+            fwd_search(
+                &Position {
+                    board: next,
+                    side_to_move: position.side_to_move.opposite(),
+                },
+                searched,
+                leafnode,
+                discs,
+            );
         }
         return;
     }
@@ -70,7 +88,15 @@ pub fn fwd_search(
             player: board.opponent ^ flipped,
             opponent: board.player ^ (flipped | (1u64 << idx)),
         };
-        fwd_search(&next, searched, leafnode, discs);
+        fwd_search(
+            &Position {
+                board: next,
+                side_to_move: position.side_to_move.opposite(),
+            },
+            searched,
+            leafnode,
+            discs,
+        );
     }
 }
 
@@ -111,45 +137,33 @@ fn get_stable_discs(occupied: u64, t_occupied: u64) -> u64 {
     ans
 }
 
-/// 局面bの確定石がtargetと矛盾しないか
-/// これでfalseなら、bからtargetには到達不能
-fn check_fwd_sub(b: &[u64; 2], target: &[u64; 2]) -> bool {
-    let o1 = b[0] | b[1];
-    let o2 = target[0] | target[1];
+/// 向きと絶対色を保ち、目標まで反転できない石が一致するかを検査する。
+fn check_fwd(b: &Position, target: &Position) -> bool {
+    let o1 = b.board.player | b.board.opponent;
+    let o2 = target.board.player | target.board.opponent;
     if o1 & o2 != o1 {
         return false;
     }
     let stable = get_stable_discs(o1, o2);
-    if b[0] & stable == target[0] & stable && b[1] & stable == target[1] & stable {
-        return true;
-    }
-    b[0] & stable == target[1] & stable && b[1] & stable == target[0] & stable
-}
-
-/// targetの8対称についてcheck_fwd_subを計算する
-fn check_fwd(b: &[u64; 2], target: &[[u64; 2]; 8]) -> bool {
-    for i in 0..8 {
-        if check_fwd_sub(b, &target[i]) {
-            return true;
-        }
-    }
-    false
+    let black = |p: &Position| match p.side_to_move {
+        Color::Black => p.board.player,
+        Color::White => p.board.opponent,
+    };
+    black(b) & stable == black(target) & stable
 }
 
 /// 石discs個の配置を初期配置から全列挙
 /// 確定石を使って、目的配置bへのパスが明らかに存在しない盤面を枝刈りする
-pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
-    let board = Board::new(b[0], b[1]);
+pub fn make_fwd_table(b: &Position, discs: i32) -> Vec<Position> {
+    let discs = discs.min(b.board.popcount() as i32);
+    let board = b.board;
     println!("b=\n{}\ndiscs={}", board.show(), discs);
-    let mut target = [*b; 8];
-    for i in 1..8 {
-        board.board_symmetry(i, &mut target[i as usize]);
-    }
-    let initial = Board::initial();
-    let mut ans = Arc::new(vec![[initial.player, initial.opponent]]);
+    let target = *b;
+    let initial = Position::initial();
+    let mut ans = Arc::new(vec![initial]);
 
     for i in 4..discs {
-        let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::new());
+        let visited: Arc<DashSet<Position>> = Arc::new(DashSet::new());
         let next = Arc::new(AtomicUsize::new(0));
         let mut anslen = ans.len();
         //println!("anslen={}", anslen);
@@ -177,46 +191,51 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
                         if j >= ans.len() {
                             break; // 仕事がなくなった
                         }
-                        let b: [u64; 2] = ans[j];
+                        let b: Position = ans[j];
 
-                        let mut moves = get_moves(b[0], b[1]);
-                        //println!("j={}, board={}, moves=0b{:b}", j, Board::new(b[0], b[1]).to_string(), moves);
+                        let mut moves = get_moves(b.board.player, b.board.opponent);
+                        //println!("j={}, board={}, moves=0b{:b}", j, Board::new(b.board.player, b.board.opponent).to_string(), moves);
                         while moves != 0 {
                             let idx = moves.trailing_zeros();
                             moves &= moves - 1;
-                            let flipped = flip(idx as usize, b[0], b[1]);
+                            let flipped = flip(idx as usize, b.board.player, b.board.opponent);
                             //println!("idx={}, flipped=0b{:b}", idx, flipped);
                             if flipped == 0 {
                                 println!(
                                     "flipped==0, idx={}, board=\n{}",
                                     idx,
-                                    Board::new(b[0], b[1]).show()
+                                    Board::new(b.board.player, b.board.opponent).show()
                                 );
                                 continue;
                             }
-                            let next = Board {
-                                player: b[1] ^ flipped,
-                                opponent: b[0] ^ (flipped | (1u64 << idx)),
+                            let next = Position {
+                                board: Board {
+                                    player: b.board.opponent ^ flipped,
+                                    opponent: b.board.player ^ (flipped | (1u64 << idx)),
+                                },
+                                side_to_move: b.side_to_move.opposite(),
                             };
-                            if !check_fwd(&[next.player, next.opponent], &target) {
+                            if !check_fwd(&next, &target) {
                                 //println!("ng = \n{}", Board::new(next.player, next.opponent).show());
                                 continue;
                             }
-                            let uni = next.unique();
+                            let uni = next;
                             //println!("insert visited uni={}", Board::new(uni[0], uni[1]).to_string());
                             //let guard = visited.guard();
                             //visited.insert(uni, &guard);
                             visited.insert(uni);
-                            if get_moves(uni[0], uni[1]) == 0 {
-                                let next1 = Board {
-                                    player: uni[1],
-                                    opponent: uni[0],
+                            if get_moves(uni.board.player, uni.board.opponent) == 0
+                                && get_moves(uni.board.opponent, uni.board.player) != 0
+                            {
+                                let next1 = Position {
+                                    board: uni.board.swapped(),
+                                    side_to_move: uni.side_to_move.opposite(),
                                 };
-                                if !check_fwd(&[next1.player, next1.opponent], &target) {
+                                if !check_fwd(&next1, &target) {
                                     //println!("ng = \n{}", Board::new(next.player, next.opponent).show());
                                     continue;
                                 }
-                                let uni = next1.unique();
+                                let uni = next1;
                                 //println!("insert visited uni={}", Board::new(uni[0], uni[1]).to_string());
                                 //let guard = visited.guard();
                                 //visited.insert(uni, &guard);
@@ -251,8 +270,8 @@ pub fn make_fwd_table(b: &[u64; 2], discs: i32) -> Vec<[u64; 2]> {
     ans_vec
 }
 
-pub fn is_leaf(x: [u64; 2], leafnode: &Vec<[u64; 2]>, discs: i32) -> bool {
-    let oc = x[0] | x[1];
+pub fn is_leaf(x: Position, leafnode: &Vec<Position>, discs: i32) -> bool {
+    let oc = x.board.player | x.board.opponent;
     if discs == oc.count_ones() as i32 {
         if let Ok(_) = leafnode.binary_search(&x) {
             return true;

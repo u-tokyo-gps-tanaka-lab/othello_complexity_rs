@@ -1,17 +1,18 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, BufWriter, ErrorKind, Result, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
-use bytemuck;
-
-use crate::othello::{get_moves, Board, CENTER_MASK};
+use crate::othello::{get_moves, Board, Position, CENTER_MASK};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::linear_programming::check_lp;
 use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
 use crate::search::core::retrospective_flip;
 
-use super::io::validate_file_size;
+use super::io::{
+    read_header, read_position, validate_file_size, write_header, write_position, HEADER_SIZE,
+    RECORD_SIZE,
+};
 
 /// 単一盤面に対して後退展開を実行し、1手前の盤面集合を生成
 ///
@@ -30,11 +31,11 @@ use super::io::validate_file_size;
 /// # 注意
 /// - 中央4マス(0x0000_0018_1800_0000)は初期配置なので対象外
 pub(in crate::search::external_bfs) fn process_board(
-    board: [u64; 2],
-    prev_boards: &mut HashSet<[u64; 2]>,
+    position: Position,
+    prev_boards: &mut HashSet<Position>,
     retroflips: &mut [u64; 10_000],
 ) {
-    let board: Board = Board::new(board[0], board[1]);
+    let board = position.board;
     let mut b = board.opponent & !CENTER_MASK;
     if b == 0 {
         return;
@@ -62,10 +63,18 @@ pub(in crate::search::external_bfs) fn process_board(
             {
                 continue;
             }
-            let uni = prev.unique();
+            let uni = Position {
+                board: prev,
+                side_to_move: position.side_to_move.opposite(),
+            };
             prev_boards.insert(uni);
-            if get_moves(prev.opponent, prev.player) == 0 {
-                let uni = Board::new(prev.opponent, prev.player).unique();
+            if get_moves(prev.opponent, prev.player) == 0
+                && get_moves(prev.player, prev.opponent) != 0
+            {
+                let uni = Position {
+                    board: prev.swapped(),
+                    side_to_move: position.side_to_move,
+                };
                 prev_boards.insert(uni);
             }
         }
@@ -101,11 +110,13 @@ pub(in crate::search::external_bfs) fn expand_single_block(
 ) -> Result<bool> {
     let rfilename = format!("r_{}.bin", num_disc + 1);
     let mut file = File::open(&tmp_dir.join(rfilename))?;
-    let len = file.metadata()?.len() as usize;
-    validate_file_size(len as u64, "expand_single_block")?;
+    let len = file.metadata()?.len();
+    validate_file_size(len, "expand_single_block")?;
+    read_header(&mut file)?;
+    let records = ((len - HEADER_SIZE) / RECORD_SIZE) as usize;
 
-    let offset = block_size * block_number * 16;
-    if offset >= len {
+    let first = block_size * block_number;
+    if first >= records {
         return Err(io::Error::new(
             ErrorKind::InvalidData,
             format!(
@@ -114,27 +125,28 @@ pub(in crate::search::external_bfs) fn expand_single_block(
             ),
         ));
     }
-    file.seek(SeekFrom::Start(offset as u64))?;
+    file.seek(SeekFrom::Start(HEADER_SIZE + first as u64 * RECORD_SIZE))?;
     let mut r = BufReader::new(file);
-    let mut buf = [0u8; 16];
-    let nrecs = std::cmp::min(block_size, (len - offset) / 16);
-    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new();
+    let nrecs = std::cmp::min(block_size, records - first);
+    let mut prev_boards: HashSet<Position> = HashSet::new();
     let mut retroflips: [u64; 10_000] = [0u64; 10_000];
     for _ in 0..nrecs {
-        r.read_exact(&mut buf)?;
-        let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
-        let b = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
-        process_board([a, b], &mut prev_boards, &mut retroflips);
+        let position = read_position(&mut r)?
+            .ok_or_else(|| io::Error::new(ErrorKind::UnexpectedEof, "missing position in block"))?;
+        process_board(position, &mut prev_boards, &mut retroflips);
     }
     if prev_boards.len() == 0 {
         return Ok(false);
     }
-    let mut bvec: Vec<[u64; 2]> = prev_boards.into_iter().collect();
+    let mut bvec: Vec<Position> = prev_boards.into_iter().collect();
     bvec.sort();
     let ofilename = format!("b_{}_{}.bin", num_disc, block_number);
     let ofile = File::create(&tmp_dir.join(ofilename))?;
     let mut w = BufWriter::new(ofile);
-    w.write_all(bytemuck::cast_slice(&bvec))?;
+    write_header(&mut w)?;
+    for position in bvec {
+        write_position(&mut w, position)?;
+    }
     w.flush()?;
     Ok(true)
 }

@@ -3,8 +3,8 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use othello_complexity_rs::io::parse_file_to_boards;
-use othello_complexity_rs::othello::Board;
+use othello_complexity_rs::io::{format_position, parse_file_to_positions};
+use othello_complexity_rs::othello::Position;
 use othello_complexity_rs::prunings::impossible_edges::{
     check_edge_patterns,
     // check_virtual_edge_patterns,
@@ -17,7 +17,7 @@ use othello_complexity_rs::prunings::impossible_edges::{
     about = "Read boards from text and split into edge_OK.txt / edge_NG.txt depending on edge patterns"
 )]
 struct Cli {
-    /// 盤面が並ぶテキストファイルのパス（各行 64 文字の X/O/-）
+    /// 局面が並ぶファイルのパス（各行は64文字のX/O/-、空白、b/w）
     #[arg(value_name = "INPUT")]
     input: PathBuf,
 
@@ -26,13 +26,13 @@ struct Cli {
     out_dir: Option<PathBuf>,
 }
 
-fn write_board(writer: &mut BufWriter<File>, b: &Board) -> std::io::Result<()> {
-    writeln!(writer, "{}", b.to_string())
+fn write_board(writer: &mut BufWriter<File>, b: &Position) -> std::io::Result<()> {
+    writeln!(writer, "{}", format_position(*b))
 }
 
 fn main() -> std::io::Result<()> {
     let args = Cli::parse();
-    let boards = parse_file_to_boards(&args.input.to_string_lossy())?;
+    let boards = parse_file_to_positions(&args.input.to_string_lossy())?;
 
     let out_dir = args
         .out_dir
@@ -51,16 +51,16 @@ fn main() -> std::io::Result<()> {
     // let mut virtual_ng_cnt = 0usize;
 
     for b in &boards {
-        let edge_is_ok = check_edge_patterns(b.player, b.opponent);
-        // let virtual_edge_is_ok = check_virtual_edge_patterns(b.player, b.opponent);
+        let edge_is_ok = check_edge_patterns(b.board.player, b.board.opponent);
+        // let virtual_edge_is_ok = check_virtual_edge_patterns(b.board.player, b.board.opponent);
 
         if edge_is_ok {
             write_board(&mut edge_ok, b)?;
             ok_cnt += 1;
         } else {
             write_board(&mut edge_ng, b)?;
-            println!("{}", b.show());
-            println!("{}", b.to_string());
+            println!("{}", b.board.show());
+            println!("{}", format_position(*b));
             println!("==========\n");
             ng_cnt += 1;
         }
@@ -75,7 +75,7 @@ fn main() -> std::io::Result<()> {
         // writeln!(
         //     summary,
         //     "{}, {}, {}",
-        //     b.to_string(),
+        //     format_position(*b),
         //     if edge_is_ok { "ok" } else { "ng" },
         //     if virtual_edge_is_ok { "ok" } else { "ng" }
         // )?;

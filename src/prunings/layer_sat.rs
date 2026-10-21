@@ -251,9 +251,6 @@ where
     F: FnMut(&GoalClassification) -> Result<(), String>,
 {
     validate_board(&opts.start.board).map_err(|err| format!("invalid start: {err:?}"))?;
-    if opts.goals.is_empty() {
-        return Err("at least one goal is required".to_string());
-    }
     for (index, goal) in opts.goals.iter().enumerate() {
         validate_board(&goal.board)
             .map_err(|err| format!("invalid goal[{}]: {err:?}", index + 1))?;
@@ -275,6 +272,9 @@ where
             .map_err(|e| format!("failed to create CNF directory {}: {e}", dir.display()))?;
     }
 
+    if opts.goals.is_empty() {
+        return Ok(Vec::new());
+    }
     let rays = precompute_rays();
     let flip_sources = precompute_flip_sources(&rays);
     let cancelled = AtomicBool::new(false);

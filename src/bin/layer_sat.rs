@@ -34,7 +34,7 @@ struct Cli {
     )]
     goal: Option<String>,
 
-    /// Input file containing one goal position per nonempty line
+    /// Input file containing one goal position per line
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
