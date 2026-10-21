@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    othello::{get_moves, Board},
+    othello::{get_moves, Board, Position},
     prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
     search::{
         core::{retrospective_flip, SearchResult},
@@ -20,29 +20,30 @@ use crate::{
  */
 /// - `from_pass`: 直前にパスで1手分遡ったか否か
 /// - `discs`: 順方向探索の深さ（石数）
-/// - `leafnode`: 順方向探索で得たuniqueなleafnodeの集合（しきい値以上で合法手があるもの）
-/// - `retrospective_searched`: 既訪問ユニーク局面
+/// - `leafnode`: 順方向探索で得た手番を含む合流局面の集合
+/// - `retrospective_searched`: 既訪問の絶対局面
 /// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
 ///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
 pub fn retrospective_search(
-    board: &Board,
+    position: &Position,
     from_pass: bool,
     discs: i32,
-    leafnode: &HashSet<[u64; 2]>,
+    leafnode: &HashSet<Position>,
     retrospective_searched: &mut Btable,
     retroflips: &mut Vec<[u64; 10_000]>,
     node_count: &mut usize,
     node_limit: usize,
 ) -> SearchResult {
-    let uni = board.unique();
+    let board = &position.board;
+    let uni = *position;
     let num_disc = board.popcount() as usize;
 
     // 順方向探索の leafnode に含まれているか確認
     if (num_disc as i32) <= discs {
         return if leafnode.contains(&uni) {
-            println!("info: found unique board in leafnodes:");
-            println!("unique player = {}", uni[0]);
-            println!("unique opponent = {}", uni[1]);
+            println!("info: found exact position in leafnodes:");
+            println!("unique player = {}", uni.board.player);
+            println!("unique opponent = {}", uni.board.opponent);
             println!("board player = {}", board.player);
             println!("board opponent = {}", board.opponent);
             SearchResult::Found
@@ -81,13 +82,18 @@ pub fn retrospective_search(
     // パスの処理
     // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
     if !from_pass {
-        if get_moves(board.opponent, board.player) == 0 {
+        if get_moves(board.opponent, board.player) == 0
+            && get_moves(board.player, board.opponent) != 0
+        {
             let prev = Board {
                 player: board.opponent,
                 opponent: board.player,
             };
             match retrospective_search(
-                &prev,
+                &Position {
+                    board: prev,
+                    side_to_move: position.side_to_move.opposite(),
+                },
                 true,
                 discs,
                 leafnode,
@@ -150,7 +156,10 @@ pub fn retrospective_search(
             };
 
             match retrospective_search(
-                &prev,
+                &Position {
+                    board: prev,
+                    side_to_move: position.side_to_move.opposite(),
+                },
                 false,
                 discs,
                 leafnode,

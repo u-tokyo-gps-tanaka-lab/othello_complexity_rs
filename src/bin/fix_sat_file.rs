@@ -4,16 +4,17 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::io::parse_file_to_boards;
+use othello_complexity_rs::io::{format_position, parse_file_to_positions};
+use othello_complexity_rs::othello::Position;
 
 fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()> {
     eprintln!("sat_ok_file={}", sat_ok_file);
-    let sat_boards = parse_file_to_boards(sat_ok_file)?;
+    let sat_boards = parse_file_to_positions(sat_ok_file)?;
     eprintln!("sat_boards.len()={}", sat_boards.len());
-    let boards = parse_file_to_boards(path)?;
-    let mut in_sat_ok: HashSet<[u64; 2]> = HashSet::new();
+    let boards = parse_file_to_positions(path)?;
+    let mut in_sat_ok: HashSet<Position> = HashSet::new();
     for i in 0..sat_boards.len() {
-        in_sat_ok.insert([sat_boards[i].player, sat_boards[i].opponent]);
+        in_sat_ok.insert(sat_boards[i]);
     }
 
     // Ensure output directory exists and write outputs there
@@ -22,8 +23,8 @@ fn process_file(path: &str, out_dir: &Path, sat_ok_file: &str) -> io::Result<()>
     let mut ngfile = File::create(out_dir.join("sat_NG.txt"))?;
 
     for (_index, b) in boards.iter().enumerate() {
-        let line = b.to_string();
-        let res = in_sat_ok.contains(&[b.player, b.opponent]);
+        let line = format_position(*b);
+        let res = in_sat_ok.contains(b);
         match res {
             true => {
                 // println!("{}", line);

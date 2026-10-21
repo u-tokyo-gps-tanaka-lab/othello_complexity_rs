@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 use rayon::prelude::*;
 
-use othello_complexity_rs::io::{parse_file_to_boards, parse_line_to_board};
-use othello_complexity_rs::othello::{validate_board, Board};
+use othello_complexity_rs::io::{format_position, parse_file_to_positions, parse_position};
+use othello_complexity_rs::othello::Board;
 use othello_complexity_rs::prunings::{
     connectivity::is_connected, flip_sat::is_sat_ok, impossible_edges::check_edge_patterns,
     linear_programming::check_lp, occupancy::check_occupancy_with_string, seg3::check_seg3_more,
@@ -37,7 +37,7 @@ struct CommonOpts {
     #[arg(value_name = "INPUT", conflicts_with = "board")]
     inputs: Vec<PathBuf>,
 
-    /// Single 64-cell board string using only X/O/-
+    /// Single position: 64 X/O/- cells, one space, and b or w (X = side to move)
     #[arg(long = "board", value_name = "BOARD", allow_hyphen_values = true)]
     board: Option<String>,
 }
@@ -68,8 +68,6 @@ enum Command {
     /// flip-based SAT pruning check
     #[command(name = "flip-sat")]
     FlipSat(CommonOpts),
-    /// Symmetry check
-    Sym(CommonOpts),
 }
 
 fn resolve_out_dir(dir: &Option<PathBuf>) -> PathBuf {
@@ -78,36 +76,9 @@ fn resolve_out_dir(dir: &Option<PathBuf>) -> PathBuf {
 }
 
 fn parse_board_arg(raw: &str) -> io::Result<Board> {
-    let text = raw.trim();
-    if text.len() != 64 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "board must be exactly 64 characters long, got {}",
-                text.len()
-            ),
-        ));
-    }
-    if !text.chars().all(|c| matches!(c, 'X' | 'O' | '-')) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "board must use only 'X', 'O', and '-' characters",
-        ));
-    }
-
-    let board = parse_line_to_board(text).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "failed to parse board from X/O/- string",
-        )
-    })?;
-    validate_board(&board).map_err(|err| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid board: {err:?}"),
-        )
-    })?;
-    Ok(board)
+    parse_position(raw)
+        .map(|position| position.board)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
 fn print_direct_status(ok: bool) -> io::Result<()> {
@@ -150,7 +121,7 @@ fn process_file_simple(
     parallel: bool,
     check: impl Fn(&Board) -> io::Result<bool> + Sync + Send,
 ) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
+    let boards = parse_file_to_positions(&to_path_string(path))?;
     fs::create_dir_all(out_dir)?;
     let mut okfile = File::create(out_dir.join(format!("{prefix}_OK.txt")))?;
     let mut ngfile = File::create(out_dir.join(format!("{prefix}_NG.txt")))?;
@@ -158,12 +129,12 @@ fn process_file_simple(
     let judged: Vec<io::Result<(String, bool)>> = if parallel {
         boards
             .par_iter()
-            .map(|b| check(b).map(|ok| (b.to_string(), ok)))
+            .map(|b| check(&b.board).map(|ok| (format_position(*b), ok)))
             .collect()
     } else {
         boards
             .iter()
-            .map(|b| check(b).map(|ok| (b.to_string(), ok)))
+            .map(|b| check(&b.board).map(|ok| (format_position(*b), ok)))
             .collect()
     };
 
@@ -204,16 +175,17 @@ fn run_check(
 }
 
 fn process_occupancy_file(path: &Path, out_dir: &Path) -> io::Result<()> {
-    let boards = parse_file_to_boards(&to_path_string(path))?;
+    let boards = parse_file_to_positions(&to_path_string(path))?;
     fs::create_dir_all(out_dir)?;
     let mut okfile = File::create(out_dir.join("occupancy_OK.txt"))?;
     let mut ngfile = File::create(out_dir.join("occupancy_NG.txt"))?;
     let mut okfile_ex = File::create(out_dir.join("occupancy_OK_explainable.txt"))?;
     let mut ngfile_ex = File::create(out_dir.join("occupancy_NG_explainable.txt"))?;
 
-    for board in boards {
+    for position in boards {
+        let board = position.board;
         let (ok, text) = check_occupancy_with_string(board.player | board.opponent);
-        let line = board.to_string();
+        let line = format_position(position);
         if ok {
             writeln!(okfile, "{}", line)?;
             writeln!(okfile_ex, "{}", text)?;
@@ -233,26 +205,6 @@ fn process_occupancy_board(board: &Board) -> io::Result<()> {
         if ok { "OK" } else { "NG" },
         text
     )
-}
-
-fn is_sym_ok(board: &Board) -> io::Result<bool> {
-    let mut tmp = [0u64, 0u64];
-    let occupied = board.player | board.opponent;
-    for i in 1..8 {
-        board.board_symmetry(i, &mut tmp);
-        let o1 = tmp[0] | tmp[1];
-        if o1 < occupied {
-            return Ok(false);
-        } else if o1 > occupied {
-            continue;
-        }
-        if tmp[0] < board.player {
-            return Ok(false);
-        } else if tmp[0] > board.player {
-            continue;
-        }
-    }
-    Ok(true)
 }
 
 fn main() {
@@ -278,7 +230,6 @@ fn main() {
         Command::FlipSat(opts) => run_check(&opts, "flip_sat", false, |b| {
             is_sat_ok(b.player, b.opponent, true)
         }),
-        Command::Sym(opts) => run_check(&opts, "sym", true, is_sym_ok),
     };
 
     if let Err(e) = result {

@@ -1,30 +1,31 @@
 use std::collections::HashSet;
 
-use crate::{othello::Board, search::forward::fwd_search};
+use crate::{othello::Position, search::forward::fwd_search};
 
 /// table for forward leaf nodes
 pub struct LeafCache {
-    searched: HashSet<[u64; 2]>,
-    leaf: HashSet<[u64; 2]>,
+    searched: HashSet<Position>,
+    leaf: HashSet<Position>,
 }
 
 impl LeafCache {
     pub fn new(discs: i32) -> Self {
-        let mut searched: HashSet<[u64; 2]> = HashSet::new();
-        let mut leafnode: HashSet<[u64; 2]> = HashSet::new();
-        let initial = Board::initial();
+        let mut searched: HashSet<Position> = HashSet::new();
+        let mut leafnode: HashSet<Position> = HashSet::new();
+        let initial = Position::initial();
         fwd_search(&initial, &mut searched, &mut leafnode, discs);
+        leafnode.extend(searched.iter().copied());
         for i in 4..9 {
             let mut ans = vec![];
             for s in &searched {
-                if (s[0] | s[1]).count_ones() == i {
+                if s.board.popcount() == i {
                     ans.push(s);
                 }
             }
             println!("i={}, ans.len()={}", i, ans.len());
             ans.sort();
             for j in 0..ans.len() {
-                println!("{}", Board::new(ans[j][0], ans[j][1]).to_string());
+                println!("{}", crate::io::format_position(*ans[j]));
             }
         }
         LeafCache {
@@ -41,7 +42,7 @@ impl LeafCache {
         self.leaf.len()
     }
 
-    pub fn leaf(&self) -> &HashSet<[u64; 2]> {
+    pub fn leaf(&self) -> &HashSet<Position> {
         &self.leaf
     }
 }
@@ -50,16 +51,18 @@ impl LeafCache {
 // tableをsorted arrayとして持つと存在チェックが二分探索でできる
 // hashsetとarrayを組み合わせることで、挿入性能と読み取り性能の両方をそこそこ高く保つ
 pub struct Btable {
+    table_size: usize,
     cache_size: usize,
-    table: Vec<[u64; 2]>,
-    cache: HashSet<[u64; 2]>,
+    table: Vec<Position>,
+    cache: HashSet<Position>,
 }
 
 impl Btable {
     pub fn new(table_size: usize, cache_size: usize) -> Self {
         Btable {
+            table_size,
             cache_size: cache_size,
-            table: Vec::with_capacity(table_size),
+            table: Vec::new(),
             cache: HashSet::new(),
         }
     }
@@ -77,7 +80,7 @@ impl Btable {
     /// Returns true if inserted, false if already present.
     /// まずcacheを調べ、なかったらtableを調べる。
     /// cacheのサイズが上限に達したら、マージソートを行いtableに中身を移す。
-    pub fn insert(&mut self, uni: [u64; 2]) -> bool {
+    pub fn insert(&mut self, uni: Position) -> bool {
         if self.cache.contains(&uni) {
             return false;
         }
@@ -86,16 +89,19 @@ impl Btable {
         }
         self.cache.insert(uni);
         if self.cache.len() >= self.cache_size {
-            if self.table.len() + self.cache.len() > self.table.capacity() {
+            if self.table.len() + self.cache.len() > self.table_size {
                 self.cache.clear();
                 return true;
             }
-            let mut c2v: Vec<[u64; 2]> = self.cache.iter().map(|x| *x).collect();
+            let mut c2v: Vec<Position> = self.cache.iter().map(|x| *x).collect();
             self.cache.clear();
             c2v.sort();
             let mut i = self.table.len();
             let mut j = c2v.len();
-            self.table.resize(i + j, [0u64; 2]);
+            // Reserve only this merge; resize must not grow capacity geometrically
+            // beyond the configured table limit.
+            self.table.reserve_exact(j);
+            self.table.resize(i + j, uni);
             for k in (0..(i + j)).rev() {
                 if j == 0 || (i > 0 && self.table[i - 1] >= c2v[j - 1]) {
                     self.table[k] = self.table[i - 1];

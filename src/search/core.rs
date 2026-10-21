@@ -1,5 +1,5 @@
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{flip, get_last_moves, get_moves, Board};
+use crate::othello::{flip, get_last_moves, get_moves, Board, Position};
 
 use std::{cmp::min, env, path::PathBuf, str::FromStr};
 
@@ -312,11 +312,11 @@ pub fn retrospective_flip(
 }
 
 // retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
-pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
+pub fn prev_states(position: Position) -> Vec<Position> {
     let mut retroflips: [u64; 10000] = [0u64; 10000];
     let mut ans = vec![];
 
-    let board = Board::new(b[0], b[1]);
+    let board = position.board;
     let mut op = get_last_moves(board.opponent, board.player);
 
     while op != 0 {
@@ -329,9 +329,17 @@ pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
                 player: board.opponent ^ (flipped | (1u64 << index)),
                 opponent: board.player ^ flipped,
             };
-            ans.push([prev.player, prev.opponent]);
-            if get_moves(prev.opponent, prev.player) == 0 {
-                ans.push([prev.opponent, prev.player]);
+            ans.push(Position {
+                board: prev,
+                side_to_move: position.side_to_move.opposite(),
+            });
+            if get_moves(prev.opponent, prev.player) == 0
+                && get_moves(prev.player, prev.opponent) != 0
+            {
+                ans.push(Position {
+                    board: prev.swapped(),
+                    side_to_move: position.side_to_move,
+                });
             }
         }
     }
@@ -340,12 +348,12 @@ pub fn prev_states(b: [u64; 2]) -> Vec<[u64; 2]> {
 
 // retroflipsを使い回すパターン
 pub fn prev_states_with_buffer(
-    b: [u64; 2],
+    position: Position,
     retroflips: &mut [u64; 10_000],
-    out: &mut Vec<[u64; 2]>,
+    out: &mut Vec<Position>,
 ) {
     out.clear();
-    let board = Board::new(b[0], b[1]);
+    let board = position.board;
     let mut op = get_last_moves(board.opponent, board.player);
 
     while op != 0 {
@@ -359,9 +367,17 @@ pub fn prev_states_with_buffer(
                 player: board.opponent ^ (flipped | (1u64 << index)),
                 opponent: board.player ^ flipped,
             };
-            out.push([prev.player, prev.opponent]);
-            if get_moves(prev.opponent, prev.player) == 0 {
-                out.push([prev.opponent, prev.player]);
+            out.push(Position {
+                board: prev,
+                side_to_move: position.side_to_move.opposite(),
+            });
+            if get_moves(prev.opponent, prev.player) == 0
+                && get_moves(prev.player, prev.opponent) != 0
+            {
+                out.push(Position {
+                    board: prev.swapped(),
+                    side_to_move: position.side_to_move,
+                });
             }
         }
     }

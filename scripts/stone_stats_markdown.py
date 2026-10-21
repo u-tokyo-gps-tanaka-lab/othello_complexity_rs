@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a Markdown stone-count distribution table from board files."""
+"""Generate a Markdown stone-count distribution table from absolute positions."""
 
 import argparse
 import sys
@@ -79,7 +79,7 @@ def parse_args() -> argparse.Namespace:
         "inputs",
         metavar="FILE",
         nargs="+",
-        help="盤面を含むテキストファイル（複数指定可）。引数の順序で列を並べます。",
+        help="手番付き局面ファイル（複数指定可）。引数の順序で列を並べます。",
     )
     parser.add_argument(
         "-o",

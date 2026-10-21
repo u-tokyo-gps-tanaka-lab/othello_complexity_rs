@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect stone statistics from Othello boards described with O/X/- characters."""
+"""Collect stone statistics from Othello positions with an absolute turn."""
 
 import argparse
 import sys
@@ -7,19 +7,32 @@ from collections import Counter
 from typing import Iterable, Optional, TextIO, List
 
 
+def parse_position(text: str) -> str:
+    """Validate all fields and return the 64 relative board cells."""
+    if len(text) != 66 or text[64] != " " or text[65] not in ("b", "w"):
+        raise ValueError("expected exactly 64 X/O/- cells, one space, and b or w")
+    board = text[:64]
+    if any(cell not in "XO-" for cell in board):
+        raise ValueError("board cells must be X, O, or -")
+    if any(board[square] == "-" for square in (27, 28, 35, 36)):
+        raise ValueError("the centre four squares must be occupied")
+    return board
+
+
 def iter_boards(handle: TextIO) -> Iterable[str]:
-    """Yield cleaned, non-empty board strings from the given text handle."""
-    for raw_line in handle:
-        board = raw_line.strip()
-        if not board:
-            continue
-        yield board
+    """Yield validated positions, retaining their order and absolute turns."""
+    for line_number, raw_line in enumerate(handle, 1):
+        text = raw_line.removesuffix("\n").removesuffix("\r")
+        try:
+            parse_position(text)
+        except ValueError as error:
+            raise ValueError(f"line {line_number}: {error}") from error
+        yield text
 
 
-def count_stones(board: str) -> int:
-    """Return the number of stones (O or X) on the board."""
-    if any(cell not in ("O", "X", "-") for cell in board):
-        raise ValueError(f"Unexpected character in board: {board!r}")
+def count_stones(position: str) -> int:
+    """Return the stone count after validating the complete position."""
+    board = parse_position(position)
     return sum(cell in ("O", "X") for cell in board)
 
 
@@ -41,18 +54,18 @@ def summarize(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="オセロ盤面ファイルから石数の平均と分布を求めます。",
+        description="手番付きオセロ局面から石数の平均と分布を求めます。",
     )
     parser.add_argument(
         "path",
         nargs="?",
-        help="盤面を含むテキストファイル。省略時は標準入力を読み取ります。",
+        help="手番付き局面を含むファイル。省略時は標準入力を読み取ります。",
     )
     parser.add_argument(
         "--stones",
         type=int,
         metavar="N",
-        help="石数Nの盤面を列挙します。",
+        help="石数Nの局面を手番と重複を保って列挙します。",
     )
     args = parser.parse_args()
 

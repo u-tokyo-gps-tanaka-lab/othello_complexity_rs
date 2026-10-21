@@ -5,7 +5,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::othello::{flip, get_moves, Board};
+use othello_complexity_rs::io::format_position;
+use othello_complexity_rs::othello::{flip, get_moves, Board, Color, Position};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,8 +38,8 @@ fn idx_to_coord(idx: usize) -> String {
 
 /// 初期局面から nmoves 手ランダムに指した局面とその棋譜を返す
 /// nmoves == 0 の場合は手数自体もランダム（石5〜64個埋まり = 1〜60手）
-/// 戻り値の bool は「最終局面で手番側(player)が黒かどうか」を表す
-fn do_random_play(nmoves: usize) -> (Board, String) {
+/// 最終局面は、パスを含む全手順から決まる絶対手番を保持する。
+fn do_random_play(nmoves: usize) -> (Position, String) {
     let mut rng = rand::rng();
     let mut b = Board::initial();
     let mut record = String::new();
@@ -80,7 +81,17 @@ fn do_random_play(nmoves: usize) -> (Board, String) {
         is_player_black = !is_player_black;
         moves_played += 1;
     }
-    (b, record)
+    (
+        Position {
+            board: b,
+            side_to_move: if is_player_black {
+                Color::Black
+            } else {
+                Color::White
+            },
+        },
+        record,
+    )
 }
 
 fn main() -> std::io::Result<()> {
@@ -106,8 +117,8 @@ fn main() -> std::io::Result<()> {
     let mut position_file = File::create(&position_path)?;
     let mut record_file = File::create(&record_path)?;
     for _ in 0..args.gen_count {
-        let (b, record) = do_random_play(args.stone_count);
-        writeln!(position_file, "{}", b.to_string())?;
+        let (position, record) = do_random_play(args.stone_count);
+        writeln!(position_file, "{}", format_position(position))?;
         writeln!(record_file, "{record}")?;
     }
     Ok(())

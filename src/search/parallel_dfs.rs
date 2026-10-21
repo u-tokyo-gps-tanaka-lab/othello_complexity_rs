@@ -3,7 +3,7 @@ use rayon::ThreadPoolBuilder;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::othello::{get_moves, Board};
+use crate::othello::{get_moves, Board, Position};
 use crate::prunings::occupancy::check_occupancy;
 use crate::prunings::seg3::check_seg3_more;
 use crate::search::core::{retrospective_flip, SearchResult};
@@ -25,8 +25,8 @@ thread_local! {
 
 // 並列探索用の共有状態
 struct ParShared<'a> {
-    leafnode: &'a std::collections::HashSet<[u64; 2]>, // 読み取り専用
-    visited: &'a DashSet<[u64; 2]>,                    // 既訪問ユニーク局面
+    leafnode: &'a std::collections::HashSet<Position>, // 読み取り専用
+    visited: &'a DashSet<Position>,                    // 既訪問ユニーク局面
     discs: i32,
     node_limit: usize,
     table_limit: usize,
@@ -53,10 +53,10 @@ pub fn init_rayon(num_threads: Option<usize>) {
 }
 
 pub fn retrospective_search_parallel(
-    board: &Board,
+    position: &Position,
     from_pass: bool,
     discs: i32,
-    leafnode: &std::collections::HashSet<[u64; 2]>,
+    leafnode: &std::collections::HashSet<Position>,
     node_limit: usize,
     table_limit: usize,
 ) -> SearchResult {
@@ -81,7 +81,7 @@ pub fn retrospective_search_parallel(
     };
 
     // ルート呼び出し
-    let res = par_retro_core(board, from_pass, &shared, 0);
+    let res = par_retro_core(position, from_pass, &shared, 0);
     for i in 0..=64 {
         eprintln!(
             "{}: {} / {}",
@@ -94,7 +94,12 @@ pub fn retrospective_search_parallel(
 }
 
 // 動的並列コア
-fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) -> SearchResult {
+fn par_retro_core(
+    position: &Position,
+    from_pass: bool,
+    sh: &ParShared,
+    depth: usize,
+) -> SearchResult {
     // 全体の早期停止を確認
     match sh.stop.load(Ordering::Relaxed) {
         1 => return SearchResult::Found,
@@ -102,7 +107,8 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
         _ => {}
     }
 
-    let uni = board.unique();
+    let board = &position.board;
+    let uni = *position;
     let num_disc = board.popcount() as usize;
 
     // カウンターの変更
@@ -154,12 +160,18 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
 
     // ---- 子ノード列挙（パス + 直前着手候補からの retroflips）----
     // 1) パス枝（from_pass==false かつ 相手に合法手無し）
-    let mut children: Vec<(Board, bool)> = Vec::new(); // (prev_board, from_pass_prev)
-    if !from_pass && get_moves(board.opponent, board.player) == 0 {
+    let mut children: Vec<(Position, bool)> = Vec::new(); // (prev_board, from_pass_prev)
+    if !from_pass
+        && get_moves(board.opponent, board.player) == 0
+        && get_moves(board.player, board.opponent) != 0
+    {
         children.push((
-            Board {
-                player: board.opponent,
-                opponent: board.player,
+            Position {
+                board: Board {
+                    player: board.opponent,
+                    opponent: board.player,
+                },
+                side_to_move: position.side_to_move.opposite(),
             },
             true,
         ));
@@ -190,7 +202,13 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
                     player: board.opponent ^ (flipped | (1u64 << index)),
                     opponent: board.player ^ flipped,
                 };
-                children.push((prev, false));
+                children.push((
+                    Position {
+                        board: prev,
+                        side_to_move: position.side_to_move.opposite(),
+                    },
+                    false,
+                ));
             }
         }
     });
@@ -203,10 +221,10 @@ fn par_retro_core(board: &Board, from_pass: bool, sh: &ParShared, depth: usize) 
     // move ordering by handmade heuristic
     let mut children_score: Vec<(f64, usize)> = vec![];
     for i in 0..csize {
-        children_score.push((h_function(&children[i].0), i));
+        children_score.push((h_function(&children[i].0.board), i));
     }
     children_score.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    let mut new_children: Vec<(Board, bool)> = vec![];
+    let mut new_children: Vec<(Position, bool)> = vec![];
     for i in 0..csize {
         let j = children_score[i].1;
         new_children.push(children[j]);

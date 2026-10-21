@@ -222,10 +222,12 @@ pub fn check_virtual_edge_patterns(player: u64, opponent: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{board_has_pattern, edge_has_pattern, Board};
-    use crate::io::parse_line_to_board;
+    use crate::io::parse_position;
 
     fn board_from_str(s: &str) -> Board {
-        parse_line_to_board(s).expect("invalid board string")
+        parse_position(&format!("{s} b"))
+            .expect("invalid position fixture")
+            .board
     }
 
     #[test]

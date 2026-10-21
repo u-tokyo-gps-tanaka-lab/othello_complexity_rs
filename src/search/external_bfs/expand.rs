@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, ErrorKind, Read, Result, Write};
+use std::io::{self, BufReader, BufWriter, ErrorKind, Result, Write};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -8,9 +8,12 @@ use std::sync::{
 };
 use std::thread;
 
-use bytemuck;
+use crate::othello::Position;
 
-use super::io::validate_file_size;
+use super::io::{
+    read_header, read_position, validate_file_size, write_header, write_position, HEADER_SIZE,
+    RECORD_SIZE,
+};
 use super::merge::merge_files;
 use super::process::{expand_single_block, process_board};
 
@@ -38,12 +41,13 @@ pub(in crate::search::external_bfs) fn expand_layer_blocked_seq(
 ) -> Result<bool> {
     // 入力ファイル(1手先の盤面集合)を開いてサイズを検証
     let rfilename = format!("r_{}.bin", num_disc + 1);
-    let file = File::open(&tmp_dir.join(rfilename))?;
+    let mut file = File::open(&tmp_dir.join(rfilename))?;
     let len = file.metadata()?.len() as usize;
     validate_file_size(len as u64, "expand_layer_blocked_seq")?;
+    read_header(&mut file)?;
 
-    // 総レコード数(1レコード=16バイト)とブロック数を計算
-    let all_count = len / 16;
+    // 総レコード数(ヘッダ8バイト、1レコード17バイト)とブロック数を計算
+    let all_count = (len - HEADER_SIZE as usize) / RECORD_SIZE as usize;
     let block_count = (all_count + block_size - 1) / block_size;
 
     // 各ブロックを順次展開処理
@@ -89,13 +93,14 @@ pub fn expand_layer_blocked(
 ) -> io::Result<bool> {
     // 入力ファイル(1手先の盤面集合)を開いてサイズを検証
     let rfilename = format!("r_{}.bin", num_disc + 1);
-    let file = File::open(&tmp_dir.join(rfilename))?;
+    let mut file = File::open(&tmp_dir.join(rfilename))?;
     let len = file.metadata()?.len() as usize;
     validate_file_size(len as u64, "expand_layer_blocked")?;
+    read_header(&mut file)?;
 
     // 動的ブロックサイズとブロック数を計算
     // ブロックサイズ: min(5M, max(1024, 総レコード数/スレッド数/10))
-    let all_count = len / 16;
+    let all_count = (len - HEADER_SIZE as usize) / RECORD_SIZE as usize;
     let block_size = std::cmp::min(5000000, std::cmp::max(1024, all_count / num_threads / 10));
     let block_count = (all_count + block_size - 1) / block_size;
 
@@ -194,20 +199,17 @@ pub(in crate::search::external_bfs) fn expand_layer_inplace(
 
     // バッファと一時領域を初期化
     let mut r = BufReader::new(file);
-    let mut buf = [0u8; 16];
-    let nrecs = len / 16;
+    read_header(&mut r)?;
+    let nrecs = (len - HEADER_SIZE) / RECORD_SIZE;
     println!("nrecs={}", nrecs);
-    let mut prev_boards: HashSet<[u64; 2]> = HashSet::new(); // 1手前の盤面を格納
+    let mut prev_boards: HashSet<Position> = HashSet::new(); // 1手前の盤面を格納
     let mut retroflips: [u64; 10_000] = [0u64; 10_000]; // 後退展開用の作業領域
 
     // 全レコードを読み込んで後退展開を実行
     for _ in 0..nrecs {
-        r.read_exact(&mut buf)?;
-        // バイト列を盤面データ(黒石・白石のビットボード)に変換
-        let a = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
-        let b = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
-        // 1手前の盤面を計算してHashSetに追加
-        process_board([a, b], &mut prev_boards, &mut retroflips);
+        let position = read_position(&mut r)?
+            .ok_or_else(|| io::Error::new(ErrorKind::UnexpectedEof, "missing position in layer"))?;
+        process_board(position, &mut prev_boards, &mut retroflips);
     }
 
     // 展開結果が空なら後退探索の終端に到達
@@ -216,12 +218,15 @@ pub(in crate::search::external_bfs) fn expand_layer_inplace(
     }
 
     // 結果をソートして出力ファイルに書き込み
-    let mut bvec: Vec<[u64; 2]> = prev_boards.into_iter().collect();
+    let mut bvec: Vec<Position> = prev_boards.into_iter().collect();
     bvec.sort();
     let ofilename = format!("r_{}.bin", num_disc);
     let ofile = File::create(&tmp_dir.join(ofilename))?;
     let mut w = BufWriter::new(ofile);
-    w.write_all(bytemuck::cast_slice(&bvec))?;
+    write_header(&mut w)?;
+    for position in bvec {
+        write_position(&mut w, position)?;
+    }
     w.flush()?;
     Ok(true)
 }

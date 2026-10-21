@@ -74,8 +74,6 @@ run_step() {
   done
 }
 
-sym_ok="${out_dir%/}/sym_OK.txt"
-sym_ng="${out_dir%/}/sym_NG.txt"
 con_ok="${out_dir%/}/con_OK.txt"
 con_ng="${out_dir%/}/con_NG.txt"
 edge_ok="${out_dir%/}/edge_OK.txt"
@@ -91,13 +89,12 @@ flip_sat_ng="${out_dir%/}/flip_sat_NG.txt"
 lp_ok="${out_dir%/}/lp_OK.txt"
 lp_ng="${out_dir%/}/lp_NG.txt"
 
-run_step "Step 1/6" "sym" "$input_file" "$sym_ok" "$sym_ng"
-run_step "Step 2/6" "con" "$sym_ok" "$con_ok" "$con_ng"
-run_step "Step 3/6" "edge" "$con_ok" "$edge_ok" "$edge_ng"
-run_step "Step 4/6" "occupancy" "$edge_ok" "$occupancy_ok" "$occupancy_ng" "$occupancy_ok_ex" "$occupancy_ng_ex"
-run_step "Step 5/6" "seg3more" "$occupancy_ok" "$seg3more_ok" "$seg3more_ng"
-run_step "Step 6/6" "lp" "$seg3more_ok" "$lp_ok" "$lp_ng"
-# run_step "Step 7/7" "flip-sat" "$lp_ok" "$flip_sat_ok" "$flip_sat_ng"
+run_step "Step 1/5" "con" "$input_file" "$con_ok" "$con_ng"
+run_step "Step 2/5" "edge" "$con_ok" "$edge_ok" "$edge_ng"
+run_step "Step 3/5" "occupancy" "$edge_ok" "$occupancy_ok" "$occupancy_ng" "$occupancy_ok_ex" "$occupancy_ng_ex"
+run_step "Step 4/5" "seg3more" "$occupancy_ok" "$seg3more_ok" "$seg3more_ng"
+run_step "Step 5/5" "lp" "$seg3more_ok" "$lp_ok" "$lp_ng"
+# run_step "Step 6/6" "flip-sat" "$lp_ok" "$flip_sat_ok" "$flip_sat_ng"
 
 # lp -> flip-sat とする理由:
 # - lp -> flip-sat -> layer-sat とするほうが、SAT同士の違いが明確になりやすそう

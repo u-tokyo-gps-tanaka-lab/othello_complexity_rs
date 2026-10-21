@@ -1,9 +1,8 @@
 use bigdecimal::{BigDecimal, FromPrimitive};
 use clap::Parser;
+use othello_complexity_rs::sampling::POPULATION_SIZE;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::error::Error;
-
-const POPULATION_SIZE: u128 = 3_u128.pow(60) * 2_u128.pow(4);
 
 #[derive(Debug, Parser)]
 #[command(

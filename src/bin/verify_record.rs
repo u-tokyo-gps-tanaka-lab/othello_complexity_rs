@@ -1,257 +1,218 @@
 use clap::Parser;
+use othello_complexity_rs::io::{format_position, parse_position};
+use othello_complexity_rs::othello::{BoardSymmetry, Position};
+use othello_complexity_rs::record::{parse_actions, replay, GoalMatch, ReachabilityRecord};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
-
-use othello_complexity_rs::io::parse_line_to_board;
-use othello_complexity_rs::othello::{
-    board_with_symmetry, coord_to_square, flip, get_moves, square_to_coord, Board,
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(
     name = "verify-record",
-    about = "Verify that a move record reaches a goal board from a start board"
+    about = "Verify Othello reachability records with explicit turns and passes"
 )]
 struct Cli {
-    /// Use the standard initial position as start board
-    #[arg(long)]
+    /// Use the standard initial position with Black to move
+    #[arg(long, conflicts_with = "start")]
     from_initial: bool,
 
-    /// Start board as a 64-cell X/O/- string (X = side to move)
-    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
+    /// Start position: 64 X/O/- cells followed by a space and b or w (X = side to move)
+    #[arg(long, value_name = "POSITION", allow_hyphen_values = true)]
     start: Option<String>,
 
-    /// Goal board as a 64-cell X/O/- string
-    #[arg(long, value_name = "BOARD", allow_hyphen_values = true)]
+    /// Goal position in the same format as --start
+    #[arg(long, value_name = "POSITION", allow_hyphen_values = true)]
     goal: Option<String>,
 
-    /// Move record string (e.g., "D3C3B3B2...")
+    /// Space-separated moves and explicit ps tokens; an empty string is a zero-length record
     #[arg(long, value_name = "RECORD")]
     record: Option<String>,
 
-    /// Input file with lines of "goal, record"
-    #[arg(long, value_name = "FILE")]
+    /// Six-column TSV records emitted by layer_sat
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["from_initial", "start", "goal", "record", "check_symmetry"])]
     input_file: Option<PathBuf>,
 
-    /// Check symmetric variants of goal
-    #[arg(long, default_value_t = false)]
+    /// Require the final position to match some rotation or reflection of the goal
+    #[arg(long)]
     check_symmetry: bool,
-}
-
-fn parse_record(record: &str) -> Result<Vec<usize>, String> {
-    let record = record.trim();
-    if record.is_empty() {
-        return Err("empty record string".to_string());
-    }
-    if record.len() % 2 != 0 {
-        return Err(format!(
-            "record string length {} is not even: '{}'",
-            record.len(),
-            record
-        ));
-    }
-    let mut moves = Vec::with_capacity(record.len() / 2);
-    for i in (0..record.len()).step_by(2) {
-        let coord = &record[i..i + 2];
-        moves.push(coord_to_square(coord)?);
-    }
-    Ok(moves)
-}
-
-fn replay_record(start: Board, moves: &[usize]) -> Result<Board, String> {
-    let mut board = start;
-    for (move_idx, &sq) in moves.iter().enumerate() {
-        let legal = get_moves(board.player, board.opponent);
-        let current_board = if legal == 0 {
-            // current player must pass
-            let swapped = board.swapped();
-            let opponent_legal = get_moves(swapped.player, swapped.opponent);
-            if opponent_legal == 0 {
-                return Err(format!(
-                    "move {}: game already ended (both sides have no legal moves) but record has move {}",
-                    move_idx + 1,
-                    square_to_coord(sq)
-                ));
-            }
-            swapped
-        } else {
-            board
-        };
-
-        let move_bb = 1_u64 << sq;
-        let current_legal = get_moves(current_board.player, current_board.opponent);
-        if (current_legal & move_bb) == 0 {
-            return Err(format!(
-                "move {}: {} is not a legal move\n  board: {}",
-                move_idx + 1,
-                square_to_coord(sq),
-                current_board.to_string()
-            ));
-        }
-
-        let flipped = flip(sq, current_board.player, current_board.opponent);
-        if flipped == 0 {
-            return Err(format!(
-                "move {}: {} flips no discs",
-                move_idx + 1,
-                square_to_coord(sq)
-            ));
-        }
-
-        board = Board::new(
-            current_board.opponent ^ flipped,
-            current_board.player ^ (flipped | move_bb),
-        );
-    }
-    Ok(board)
-}
-
-fn board_matches_goal(final_board: Board, goal: Board, check_symmetry: bool) -> bool {
-    if check_symmetry {
-        for sym in 0..8_i32 {
-            let goal_sym = board_with_symmetry(goal, sym);
-            if final_board == goal_sym || final_board == goal_sym.swapped() {
-                return true;
-            }
-        }
-        false
-    } else {
-        final_board == goal || final_board == goal.swapped()
-    }
-}
-
-fn verify_single(
-    start: Board,
-    goal: Board,
-    record: &str,
-    check_symmetry: bool,
-) -> Result<(), String> {
-    let moves = parse_record(record)?;
-    let final_board = replay_record(start, &moves)?;
-
-    if !board_matches_goal(final_board, goal, check_symmetry) {
-        return Err(format!(
-            "final board does not match goal\n  final:    {}\n  expected: {}",
-            final_board.to_string(),
-            goal.to_string()
-        ));
-    }
-    Ok(())
-}
-
-fn resolve_start(cli: &Cli) -> Result<Board, String> {
-    if cli.from_initial {
-        if cli.start.is_some() {
-            eprintln!("warning: --from-initial is set, so --start is ignored");
-        }
-        return Ok(Board::initial());
-    }
-    match cli.start.as_deref() {
-        Some(raw) => parse_line_to_board(raw.trim())
-            .ok_or_else(|| "invalid --start board: expected a 64-cell X/O/- string".to_string()),
-        None => Err("start board is required: use --from-initial or --start".to_string()),
-    }
 }
 
 fn main() {
-    let cli = Cli::parse();
-    if let Err(err) = run(cli) {
+    if let Err(err) = run(Cli::parse()) {
         eprintln!("error: {err}");
         std::process::exit(1);
     }
 }
 
 fn run(cli: Cli) -> Result<(), String> {
-    let start = resolve_start(&cli)?;
-
     if let Some(path) = &cli.input_file {
-        if cli.goal.is_some() || cli.record.is_some() {
-            return Err("--input-file cannot be used with --goal or --record".to_string());
-        }
-        return run_file(start, path, cli.check_symmetry);
+        return run_file(path);
     }
 
-    let goal_str = cli
-        .goal
-        .as_deref()
-        .ok_or("--goal is required when not using --input-file")?;
+    let start = match (cli.from_initial, cli.start.as_deref()) {
+        (true, None) => Position::initial(),
+        (false, Some(raw)) => parse_position(raw).map_err(|e| format!("invalid --start: {e}"))?,
+        (true, Some(_)) => return Err("--from-initial and --start are mutually exclusive".into()),
+        (false, None) => {
+            return Err("start position is required: use --from-initial or --start".into())
+        }
+    };
+    let goal = parse_position(
+        cli.goal
+            .as_deref()
+            .ok_or("--goal is required without --input-file")?,
+    )
+    .map_err(|e| format!("invalid --goal: {e}"))?;
     let record = cli
         .record
         .as_deref()
-        .ok_or("--record is required when not using --input-file")?;
-
-    let goal = parse_line_to_board(goal_str.trim())
-        .ok_or_else(|| "invalid --goal board: expected a 64-cell X/O/- string".to_string())?;
-
-    match verify_single(start, goal, record, cli.check_symmetry) {
-        Ok(()) => {
-            println!("OK: {}", goal_str.trim());
-            Ok(())
-        }
-        Err(reason) => {
-            println!("NG: {} -- {}", goal_str.trim(), reason);
-            Err("verification failed".to_string())
-        }
-    }
+        .ok_or("--record is required without --input-file")?;
+    let goal_match = if cli.check_symmetry {
+        GoalMatch::SymmetryOrbit
+    } else {
+        GoalMatch::Exact
+    };
+    let symmetry = verify_single(start, goal, record, goal_match)?;
+    println!("OK: {} ({goal_match}, {symmetry})", format_position(goal));
+    Ok(())
 }
 
-fn run_file(start: Board, path: &PathBuf, check_symmetry: bool) -> Result<(), String> {
-    let file = File::open(path).map_err(|e| format!("failed to open {}: {}", path.display(), e))?;
-    let reader = BufReader::new(file);
+fn verify_single(
+    start: Position,
+    goal: Position,
+    record: &str,
+    goal_match: GoalMatch,
+) -> Result<BoardSymmetry, String> {
+    let actions = parse_actions(record)?;
+    let positions = replay(start, &actions)?;
+    let final_position = *positions
+        .last()
+        .ok_or("record replay returned no start position")?;
+    let candidates = match goal_match {
+        GoalMatch::Exact => &[BoardSymmetry::Identity][..],
+        GoalMatch::SymmetryOrbit => &BoardSymmetry::ALL[..],
+    };
+    candidates
+        .iter()
+        .copied()
+        .find(|symmetry| symmetry.apply_position(goal) == final_position)
+        .ok_or_else(|| {
+            format!(
+                "record ends at {}, which does not match {} under {goal_match}",
+                format_position(final_position),
+                format_position(goal)
+            )
+        })
+}
 
-    let mut ok_count = 0_usize;
-    let mut ng_count = 0_usize;
-
-    for (line_no, line) in reader.lines().enumerate() {
-        let line = line.map_err(|e| format!("read error at line {}: {}", line_no + 1, e))?;
-        let line = line.trim().to_string();
+fn run_file(path: &Path) -> Result<(), String> {
+    let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    let mut verified = 0;
+    for (line_no, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
         if line.is_empty() {
             continue;
         }
+        // Keep the final tab: its empty field represents a zero-length record.
+        let record = ReachabilityRecord::from_tsv(&line)
+            .map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
+        record
+            .verify()
+            .map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
+        println!(
+            "OK: input {} {} ({}, {})",
+            record.input_index,
+            format_position(record.goal),
+            record.goal_match,
+            record.symmetry
+        );
+        verified += 1;
+    }
+    println!("Verified {verified} record(s).");
+    Ok(())
+}
 
-        let (goal_str, record) = match line.split_once(',') {
-            Some((g, r)) => (g.trim(), r.trim()),
-            None => {
-                println!("NG: line {} -- missing comma separator", line_no + 1);
-                ng_count += 1;
-                continue;
-            }
-        };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use othello_complexity_rs::othello::{Board, Color};
 
-        let goal = match parse_line_to_board(goal_str) {
-            Some(b) => b,
-            None => {
-                println!(
-                    "NG: line {} -- invalid goal board: '{}'",
-                    line_no + 1,
-                    goal_str
-                );
-                ng_count += 1;
-                continue;
-            }
-        };
-
-        match verify_single(start, goal, record, check_symmetry) {
-            Ok(()) => {
-                println!("OK: {}", goal_str);
-                ok_count += 1;
-            }
-            Err(reason) => {
-                println!("NG: {} -- {}", goal_str, reason);
-                ng_count += 1;
-            }
+    #[test]
+    fn file_input_cannot_be_overridden_by_single_record_arguments() {
+        let position = format_position(Position::initial());
+        for args in [
+            vec!["--from-initial"],
+            vec!["--start", &position],
+            vec!["--goal", &position],
+            vec!["--record", ""],
+            vec!["--check-symmetry"],
+        ] {
+            let mut command = vec!["verify_record", "--input-file", "records.tsv"];
+            command.extend(args);
+            assert!(Cli::try_parse_from(command).is_err());
         }
+        assert!(Cli::try_parse_from(["verify_record", "--input-file", "records.tsv"]).is_ok());
     }
 
-    println!("\n--- Summary ---");
-    println!("OK: {}", ok_count);
-    println!("NG: {}", ng_count);
-    println!("Total: {}", ok_count + ng_count);
+    #[test]
+    fn empty_record_preserves_the_absolute_turn() {
+        let start = Position::initial();
+        assert_eq!(
+            verify_single(start, start, "", GoalMatch::Exact).unwrap(),
+            BoardSymmetry::Identity
+        );
+        let different_turn = Position {
+            side_to_move: Color::White,
+            ..start
+        };
+        assert!(verify_single(start, different_turn, "", GoalMatch::Exact).is_err());
+        assert!(verify_single(start, different_turn, "", GoalMatch::SymmetryOrbit).is_err());
+    }
 
-    if ng_count > 0 {
-        Err(format!("{} verification(s) failed", ng_count))
-    } else {
-        Ok(())
+    #[test]
+    fn symmetry_query_reports_a_transform_mapping_the_requested_goal_to_the_endpoint() {
+        let start = Position::initial();
+        let goal = BoardSymmetry::ALL
+            .into_iter()
+            .map(|s| s.apply_position(start))
+            .find(|p| *p != start)
+            .unwrap();
+        assert!(verify_single(start, goal, "", GoalMatch::Exact).is_err());
+        let symmetry = verify_single(start, goal, "", GoalMatch::SymmetryOrbit).unwrap();
+        assert_eq!(symmetry.apply_position(goal), start);
+    }
+
+    #[test]
+    fn a_legal_pass_must_be_explicit_and_change_the_absolute_turn() {
+        let start =
+            parse_position("OXX-OOOOOXXXXXXOOXOOOXXOOOXOXOXXOXOXOOXXOOOXXXOXOOXOOOXXOOOOOOXX w")
+                .unwrap();
+        let goal = Position {
+            board: start.board.swapped(),
+            side_to_move: Color::Black,
+        };
+        assert!(verify_single(start, goal, "ps", GoalMatch::Exact).is_ok());
+        assert!(verify_single(start, goal, "", GoalMatch::Exact).is_err());
+        assert!(verify_single(start, goal, "ps ps", GoalMatch::Exact).is_err());
+        assert!(verify_single(
+            start,
+            Position {
+                side_to_move: Color::White,
+                ..goal
+            },
+            "ps",
+            GoalMatch::Exact
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn terminal_positions_allow_empty_records_but_no_passes() {
+        let start = Position {
+            board: Board::new(u64::MAX, 0),
+            side_to_move: Color::Black,
+        };
+        assert!(verify_single(start, start, "", GoalMatch::Exact).is_ok());
+        assert!(verify_single(start, start, "ps", GoalMatch::SymmetryOrbit).is_err());
     }
 }

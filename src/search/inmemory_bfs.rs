@@ -6,7 +6,7 @@ use crate::hash::CustomHash;
 use dashmap::DashSet;
 use rayon::{prelude::*, ThreadPoolBuilder};
 
-use crate::othello::{get_moves, Board};
+use crate::othello::{get_moves, Position};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::linear_programming::check_lp;
 use crate::prunings::occupancy::check_occupancy;
@@ -16,14 +16,14 @@ use crate::search::forward::is_leaf;
 
 /// 探索全体で共有される不変パラメータ
 struct SearchContext<'a> {
-    closed: &'a DashSet<[u64; 2], CustomHash>,
+    closed: &'a DashSet<Position, CustomHash>,
     found: &'a AtomicBool,
     exceeded: &'a AtomicBool,
     next_count: &'a AtomicUsize,
     current_layer_count: usize,
     node_limit: usize,
     goal_disc_count: i32,
-    leafnode: &'a Vec<[u64; 2]>,
+    leafnode: &'a Vec<Position>,
     use_lp: bool,
     use_occupancy_cache: bool,
 }
@@ -49,8 +49,8 @@ impl SearchContext<'_> {
     }
 
     /// 目標石数に到達していれば true を返す。leafnode に一致する場合は found フラグを立てる。
-    fn check_goal(&self, state: [u64; 2]) -> bool {
-        let disc_count = (state[0] | state[1]).count_ones() as i32;
+    fn check_goal(&self, state: Position) -> bool {
+        let disc_count = (state.board.player | state.board.opponent).count_ones() as i32;
         if disc_count == self.goal_disc_count {
             if is_leaf(state, self.leafnode, self.goal_disc_count) {
                 self.found.store(true, Ordering::Release);
@@ -69,7 +69,7 @@ impl SearchContext<'_> {
 /// # Parameters
 /// - `board`: The start node
 /// - `discs`: Target disc count for meeting forward search leaf nodes
-/// - `leafnode`: Sorted vector of canonical leaf nodes from forward search
+/// - `leafnode`: Sorted vector of exact positions from forward search
 /// - `node_limit`: Maximum number of simultaneously held in-memory nodes
 /// - `use_lp`: Enable LP-solver pruning
 ///
@@ -78,14 +78,16 @@ impl SearchContext<'_> {
 /// - `SearchResult::NotFound`: No path exists (search exhausted or tree unexpandable)
 /// - `SearchResult::Unknown`: Resource limit reached before completion
 pub fn parallel_inmemory_retrospective_bfs(
-    board: &Board,
+    position: &Position,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
     node_limit: usize,
     use_lp: bool,
     use_occupancy_cache: bool,
 ) -> SearchResult {
+    let board = &position.board;
     let initial_disc_count = board.popcount() as i32;
+    let discs = discs.min(initial_disc_count);
     println!("target_discs={}", initial_disc_count);
 
     let found: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -93,7 +95,7 @@ pub fn parallel_inmemory_retrospective_bfs(
 
     // 早期return
     if initial_disc_count <= discs {
-        let unique = board.unique();
+        let unique = *position;
         if is_leaf(unique, leafnode, discs) {
             return SearchResult::Found;
         }
@@ -102,9 +104,14 @@ pub fn parallel_inmemory_retrospective_bfs(
 
     // 初期ノードを登録
     let mut current_layer = {
-        let u1 = board.unique();
-        if get_moves(board.opponent, board.player) == 0 {
-            let u2 = Board::new(board.opponent, board.player).unique();
+        let u1 = *position;
+        if get_moves(board.opponent, board.player) == 0
+            && get_moves(board.player, board.opponent) != 0
+        {
+            let u2 = Position {
+                board: board.swapped(),
+                side_to_move: position.side_to_move.opposite(),
+            };
             if u1 == u2 {
                 vec![u1]
             } else {
@@ -142,7 +149,7 @@ pub fn parallel_inmemory_retrospective_bfs(
 
         // 重複排除のチェック用の変数
         // sort + dedupによる重複排除は重いのでチェック専用のDashSetを使う
-        let closed: Arc<DashSet<[u64; 2], CustomHash>> =
+        let closed: Arc<DashSet<Position, CustomHash>> =
             Arc::new(DashSet::with_hasher(CustomHash::default()));
         let next_count = AtomicUsize::new(0);
 
@@ -203,8 +210,13 @@ pub fn parallel_inmemory_retrospective_bfs(
         if is_leaf(*state, leafnode, discs) {
             return SearchResult::Found;
         }
-        if get_moves(state[1], state[0]) == 0 {
-            let pass = Board::new(state[1], state[0]).unique();
+        if get_moves(state.board.opponent, state.board.player) == 0
+            && get_moves(state.board.player, state.board.opponent) != 0
+        {
+            let pass = Position {
+                board: state.board.swapped(),
+                side_to_move: state.side_to_move.opposite(),
+            };
             if is_leaf(pass, leafnode, discs) {
                 return SearchResult::Found;
             }
@@ -215,9 +227,9 @@ pub fn parallel_inmemory_retrospective_bfs(
 }
 
 struct ThreadLocal {
-    next: Vec<[u64; 2]>,
+    next: Vec<Position>,
     retroflips: Box<[u64; 10_000]>,
-    prev_buf: Vec<[u64; 2]>,
+    prev_buf: Vec<Position>,
 }
 
 impl ThreadLocal {
@@ -230,7 +242,7 @@ impl ThreadLocal {
     }
 
     /// 入力したノードを処理して1手前を展開する
-    fn expand_next_layer(&mut self, node: [u64; 2], ctx: &SearchContext) {
+    fn expand_next_layer(&mut self, node: Position, ctx: &SearchContext) {
         if ctx.should_stop() {
             return;
         }
@@ -242,8 +254,13 @@ impl ThreadLocal {
         }
 
         // 直前手がパスだった場合は石数が変わらないので同じlayerに加える
-        if get_moves(node[1], node[0]) == 0 {
-            let pass = Board::new(node[1], node[0]).unique();
+        if get_moves(node.board.opponent, node.board.player) == 0
+            && get_moves(node.board.player, node.board.opponent) != 0
+        {
+            let pass = Position {
+                board: node.board.swapped(),
+                side_to_move: node.side_to_move.opposite(),
+            };
 
             // 重複回避
             if !ctx.closed.insert(pass) {
@@ -266,7 +283,7 @@ impl ThreadLocal {
     }
 
     /// 1手前のノードを生成する
-    fn generate_predecessors(&mut self, node: [u64; 2], ctx: &SearchContext) {
+    fn generate_predecessors(&mut self, node: Position, ctx: &SearchContext) {
         prev_states_with_buffer(node, &mut *self.retroflips, &mut self.prev_buf);
         for prev in self.prev_buf.iter().copied() {
             if ctx.should_stop() {
@@ -274,15 +291,25 @@ impl ThreadLocal {
             }
 
             // 枝刈り
-            if !check_edge_patterns(prev[0], prev[1])
-                || !check_occupancy(prev[0] | prev[1])
-                || !check_seg3_more(prev[0], prev[1], ctx.use_occupancy_cache)
-                || (ctx.use_lp && !check_lp(prev[0], prev[1], false, ctx.use_occupancy_cache))
+            if !check_edge_patterns(prev.board.player, prev.board.opponent)
+                || !check_occupancy(prev.board.player | prev.board.opponent)
+                || !check_seg3_more(
+                    prev.board.player,
+                    prev.board.opponent,
+                    ctx.use_occupancy_cache,
+                )
+                || (ctx.use_lp
+                    && !check_lp(
+                        prev.board.player,
+                        prev.board.opponent,
+                        false,
+                        ctx.use_occupancy_cache,
+                    ))
             {
                 continue;
             }
 
-            let unique = Board::new(prev[0], prev[1]).unique();
+            let unique = prev;
 
             // 重複回避
             if !ctx.closed.insert(unique) {

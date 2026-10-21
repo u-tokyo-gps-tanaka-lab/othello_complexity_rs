@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::othello::{get_moves, Board, CENTER_MASK};
+use crate::othello::{get_moves, Position, CENTER_MASK};
 use crate::prunings::impossible_edges::check_edge_patterns;
 use crate::prunings::seg3::check_seg3_more;
 use crate::prunings::{linear_programming::check_lp, occupancy::check_occupancy};
@@ -24,11 +24,11 @@ const STATE_LIMIT_REACHED: u8 = 3;
 thread_local! {
     static RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
     static PREV_RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
-    static PREV_STATES_BUF: RefCell<Vec<[u64; 2]>> = RefCell::new(Vec::new());
+    static PREV_STATES_BUF: RefCell<Vec<Position>> = RefCell::new(Vec::new());
 }
 
-fn heuristic_function(x: [u64; 2]) -> f64 {
-    let board = Board::new(x[0], x[1]);
+fn heuristic_function(x: Position) -> f64 {
+    let board = x.board;
     RETROFLIPS_BUF.with(|buf| {
         let mut buf = buf.borrow_mut();
         let mut op = board.opponent & !CENTER_MASK;
@@ -58,16 +58,18 @@ fn heuristic_function(x: [u64; 2]) -> f64 {
 /// 並列 Greedy Best-First Search
 /// - use_lp : 線形計画ソルバの枝刈りの有効化
 pub fn parallel_retrospective_greedy_best_first_search(
-    board: &Board,
+    position: &Position,
     discs: i32,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
     node_limit: usize,
     use_lp: bool,
     num_threads: usize,
 ) -> SearchResult {
+    let board = &position.board;
+    let discs = discs.min(board.popcount() as i32);
     // 共有データ構造
-    let open: Arc<SkipSet<(NotNan<f64>, [u64; 2])>> = Arc::new(SkipSet::new());
-    let visited: Arc<DashSet<[u64; 2]>> = Arc::new(DashSet::with_capacity(node_limit + 100));
+    let open: Arc<SkipSet<(NotNan<f64>, Position)>> = Arc::new(SkipSet::new());
+    let visited: Arc<DashSet<Position>> = Arc::new(DashSet::with_capacity(node_limit + 100));
     let visited_count = Arc::new(AtomicUsize::new(0));
 
     // 終了状態: 0=実行中, 1=発見, 2=未発見, 3=制限到達
@@ -76,13 +78,16 @@ pub fn parallel_retrospective_greedy_best_first_search(
     let inflight = Arc::new(AtomicUsize::new(0));
 
     // 初期ノードを登録
-    let mut starts = vec![[board.player, board.opponent]];
-    if get_moves(board.opponent, board.player) == 0 {
-        starts.push([board.opponent, board.player]);
+    let mut starts = vec![*position];
+    if get_moves(board.opponent, board.player) == 0 && get_moves(board.player, board.opponent) != 0
+    {
+        starts.push(Position {
+            board: board.swapped(),
+            side_to_move: position.side_to_move.opposite(),
+        });
     }
     for s in starts {
-        let unique = Board::new(s[0], s[1]).unique();
-        let start = [unique[0], unique[1]];
+        let start = s;
         if visited.insert(start) {
             visited_count.fetch_add(1, Ordering::Relaxed);
             let h = NotNan::new(heuristic_function(start)).expect("heuristic returned NaN");
@@ -133,12 +138,12 @@ pub fn parallel_retrospective_greedy_best_first_search(
 
 /// ワーカースレッドのメインループ
 fn worker_loop(
-    open: &SkipSet<(NotNan<f64>, [u64; 2])>,
-    visited: &DashSet<[u64; 2]>,
+    open: &SkipSet<(NotNan<f64>, Position)>,
+    visited: &DashSet<Position>,
     visited_count: &AtomicUsize,
     state: &AtomicU8,
     inflight: &AtomicUsize,
-    leafnode: &Vec<[u64; 2]>,
+    leafnode: &Vec<Position>,
     discs: i32,
     node_limit: usize,
     use_lp: bool,
@@ -176,7 +181,7 @@ fn worker_loop(
         inflight.fetch_add(1, Ordering::AcqRel);
 
         // 目標到達判定
-        let num_disc = (node[0] | node[1]).count_ones() as i32;
+        let num_disc = (node.board.player | node.board.opponent).count_ones() as i32;
         if num_disc == discs {
             if is_leaf(node, leafnode, discs) {
                 let _ = state.compare_exchange(
@@ -194,7 +199,7 @@ fn worker_loop(
         }
 
         // LP枝刈り
-        if use_lp && !check_lp(node[0], node[1], false, false) {
+        if use_lp && !check_lp(node.board.player, node.board.opponent, false, false) {
             inflight.fetch_sub(1, Ordering::AcqRel);
             continue;
         }
@@ -208,9 +213,9 @@ fn worker_loop(
 
 /// ノードを展開し、子ノードをキューに追加
 fn expand_node(
-    node: [u64; 2],
-    open: &SkipSet<(NotNan<f64>, [u64; 2])>,
-    visited: &DashSet<[u64; 2]>,
+    node: Position,
+    open: &SkipSet<(NotNan<f64>, Position)>,
+    visited: &DashSet<Position>,
     visited_count: &AtomicUsize,
     state: &AtomicU8,
     node_limit: usize,
@@ -227,17 +232,16 @@ fn expand_node(
                 }
 
                 // 枝刈りチェック
-                let oc = prev[0] | prev[1];
+                let oc = prev.board.player | prev.board.opponent;
                 if !check_occupancy(oc)
-                    || !check_seg3_more(prev[0], prev[1], false)
-                    || !check_edge_patterns(prev[0], prev[1])
+                    || !check_seg3_more(prev.board.player, prev.board.opponent, false)
+                    || !check_edge_patterns(prev.board.player, prev.board.opponent)
                 {
                     continue;
                 }
 
-                // 正規化して重複チェック
-                let unique = Board::new(prev[0], prev[1]).unique();
-                let child = [unique[0], unique[1]];
+                // 絶対手番を含む局面で重複チェック
+                let child = prev;
 
                 if visited.insert(child) {
                     let new_count = visited_count.fetch_add(1, Ordering::Relaxed) + 1;
@@ -260,7 +264,7 @@ fn expand_node(
 }
 
 /// 探索が枯渇したか判定（キューが空かつ処理中ノードがない）
-fn is_search_exhausted(open: &SkipSet<(NotNan<f64>, [u64; 2])>, inflight: &AtomicUsize) -> bool {
+fn is_search_exhausted(open: &SkipSet<(NotNan<f64>, Position)>, inflight: &AtomicUsize) -> bool {
     if inflight.load(Ordering::Acquire) == 0 {
         thread::sleep(Duration::from_micros(50));
         open.is_empty() && inflight.load(Ordering::Acquire) == 0
