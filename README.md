@@ -27,6 +27,37 @@ cargo build --release
 残りの桁はA1からH8の順に、中央4マスを2進数、それ以外を3進数として解釈します。
 母集団の大きさは `2^5 × 3^60` です。
 
+### 旧形式の変換
+
+`convert_boards` は、手番を持たない64文字の盤面を、用途を明示して新形式へ変換します。
+元データを変更せず、新しい出力ディレクトリへ局面、全入力行の採択・棄却と対応表、抽出方法とハッシュ値の記録を保存します。
+
+- `raw` は、代表選別前の一様な相対盤面標本に、公平な絶対手番を割り当てます。
+- `representatives` は、占有マスク、Xの石集合の順で選ばれた対称代表を変換します。重複を除いた対称像と手番の候補数をmとし、受理確率m/16で自己対称性の偏りを補正します。
+- `fixed-turn` は、既知の手番を指定して付与します。この出力を母集団からの一様抽出とは記録しません。
+
+```sh
+target/release/convert_boards raw \
+  --input old-unfiltered-sample.txt --seed 42 \
+  --source-sampling without-replacement --provenance input-audit.md \
+  --out-dir converted/raw
+
+target/release/convert_boards representatives \
+  --input old-representatives.txt --seed 42 \
+  --source-sampling without-replacement --provenance input-audit.md \
+  --out-dir converted/representatives
+
+target/release/convert_boards fixed-turn \
+  --input old-research.txt --turn b --out-dir converted/research
+```
+
+`--source-sampling` には元標本の抽出法を指定し、復元抽出なら `with-replacement`、非復元抽出なら `without-replacement` を使います。
+`--provenance` には、その抽出法と代表選別の有無を確認できる記録ファイルを指定します。
+`raw` と `representatives` は過去の手番を復元する操作ではなく、指定した抽出設計に従って絶対局面を選ぶ操作です。
+
+出力は `positions.txt`、`mapping.jsonl`、`sampling.json` です。
+乱数シード、乱数生成器の版、入力と出力のハッシュ値を記録し、変換の再現と行ごとの追跡に使います。
+
 ### 到達不能局面のチェック
 
 ```

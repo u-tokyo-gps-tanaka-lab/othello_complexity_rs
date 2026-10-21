@@ -1,4 +1,7 @@
 //! The mixed-radix population definition is the decoding oracle.
+#[allow(dead_code)]
+mod support;
+
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{position_from_rank, rank_of_position, POPULATION_SIZE};
@@ -85,4 +88,102 @@ fn changing_the_suffix_exchanges_absolute_colors_together_with_the_turn() {
         rank_of_position(turn_only).unwrap(),
         rank_of_position(color_exchanged).unwrap()
     );
+}
+
+// Append to tests/sampling_test.rs; its crate root must declare mod support once.
+mod conversion_contracts {
+    use super::support::ArrayPosition;
+    use othello_complexity_rs::othello::{Board, Position, CENTER_MASK};
+    use othello_complexity_rs::sampling::{
+        is_representative, representative_candidates, select_representative,
+    };
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn each_orbit_size_has_exactly_m_accepted_draws_out_of_sixteen() {
+        for (board, expected) in [
+            (Board::new(CENTER_MASK, 0), 2),
+            (Board::initial(), 4),
+            (Board::new(CENTER_MASK | 1, 0), 8),
+            (Board::new(CENTER_MASK | (1 << 8), 0), 16),
+        ] {
+            let candidates = representative_candidates(board);
+            assert_eq!(candidates.len(), expected);
+            let oracle = ArrayPosition::from_relative(&board.to_string(), true);
+            let expected_positions: HashSet<_> = oracle
+                .orbit()
+                .flat_map(|p| [p, p.color_exchanged()])
+                .map(|p| p.position())
+                .collect();
+            assert_eq!(
+                candidates.iter().map(|(_, p)| *p).collect::<HashSet<_>>(),
+                expected_positions
+            );
+            let accepted: Vec<_> = (0..16)
+                .filter_map(|draw| select_representative(&candidates, draw).unwrap())
+                .collect();
+            assert_eq!(accepted.len(), expected);
+            assert_eq!(
+                accepted
+                    .iter()
+                    .map(|(_, p)| p)
+                    .collect::<HashSet<_>>()
+                    .len(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn exhaustive_two_by_two_model_gives_each_absolute_candidate_the_same_rational_mass() {
+        // The four corners form a 2×2 ternary model; the central all-X block is fixed
+        // by every square symmetry. There are 3^4 boards, and 2 absolute turns.
+        let mut masses: HashMap<Position, usize> = HashMap::new();
+        let mut trials = 0;
+        let mut rejects = 0;
+        let mut representative_count = 0;
+        for mut rank in 0..81 {
+            let mut board = Board::new(CENTER_MASK, 0);
+            for square in [0, 7, 56, 63] {
+                match rank % 3 {
+                    1 => board.player |= 1 << square,
+                    2 => board.opponent |= 1 << square,
+                    _ => (),
+                }
+                rank /= 3;
+            }
+            let oracle = ArrayPosition::from_relative(&board.to_string(), true);
+            let minimum = oracle
+                .orbit()
+                .map(|p| {
+                    let b = p.position().board;
+                    (b.player | b.opponent, b.player)
+                })
+                .min()
+                .unwrap();
+            let retained = (board.player | board.opponent, board.player) == minimum;
+            assert_eq!(is_representative(board), retained);
+            if !retained {
+                continue;
+            }
+            representative_count += 1;
+            let candidates = representative_candidates(board);
+            for draw in 0..16 {
+                trials += 1;
+                if let Some((_, position)) = select_representative(&candidates, draw).unwrap() {
+                    *masses.entry(position).or_default() += 1;
+                } else {
+                    rejects += 1;
+                }
+            }
+        }
+        // Each original representative has weight 1/r; each draw weight 1/16.
+        // Integer numerator 1 for every candidate proves equality without a
+        // frequency tolerance. Conditional on acceptance, the mass is 1/(2*81).
+        assert_eq!(trials, 16 * representative_count);
+        assert_eq!(masses.len(), 2 * 81);
+        assert!(masses.values().all(|&numerator| numerator == 1));
+        assert_eq!(trials - rejects, 162);
+        assert!(rejects > 0);
+    }
 }
