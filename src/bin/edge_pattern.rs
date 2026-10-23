@@ -1,104 +1,61 @@
 use clap::Parser;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::fs::{self, OpenOptions};
+use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
 use othello_complexity_rs::io::{format_position, parse_file_to_positions};
-use othello_complexity_rs::othello::Position;
-use othello_complexity_rs::prunings::impossible_edges::{
-    check_edge_patterns,
-    // check_virtual_edge_patterns,
-};
+use othello_complexity_rs::prunings::impossible_edges::check_edge_patterns;
 
-/// 盤面集合を読み込み、四辺に IMPOSSIBLE_PATTERNS があるかで仕分ける
+/// Split positions by the necessary condition on physical edge patterns.
 #[derive(Parser, Debug)]
 #[command(
     name = "edge_pattern",
-    about = "Read boards from text and split into edge_OK.txt / edge_NG.txt depending on edge patterns"
+    about = "Classify absolute positions; OK is filter passage only"
 )]
 struct Cli {
-    /// 局面が並ぶファイルのパス（各行は64文字のX/O/-、空白、b/w）
+    /// One input file, with 64 X/O/- cells followed by a space and b or w per line
     #[arg(value_name = "INPUT")]
     input: PathBuf,
 
-    /// 出力先ディレクトリ（デフォルト: crate 直下の result/）
+    /// Directory for new edge_OK.txt and edge_NG.txt files
     #[arg(short = 'o', long = "out-dir", value_name = "DIR")]
-    out_dir: Option<PathBuf>,
+    out_dir: PathBuf,
 }
 
-fn write_board(writer: &mut BufWriter<File>, b: &Position) -> std::io::Result<()> {
-    writeln!(writer, "{}", format_position(*b))
-}
-
-fn main() -> std::io::Result<()> {
+fn main() -> io::Result<()> {
     let args = Cli::parse();
-    let boards = parse_file_to_positions(&args.input.to_string_lossy())?;
-
-    let out_dir = args
-        .out_dir
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result"));
-    fs::create_dir_all(&out_dir)?;
-
-    let mut edge_ok = BufWriter::new(File::create(out_dir.join("edge_OK.txt"))?);
-    let mut edge_ng = BufWriter::new(File::create(out_dir.join("edge_NG.txt"))?);
-    // let mut virtual_edge_ok = BufWriter::new(File::create(out_dir.join("virtual_edge_OK.txt"))?);
-    // let mut virtual_edge_ng = BufWriter::new(File::create(out_dir.join("virtual_edge_NG.txt"))?);
-    // let mut summary = BufWriter::new(File::create(out_dir.join("edge_summary.txt"))?);
-
-    let mut ok_cnt = 0usize;
-    let mut ng_cnt = 0usize;
-    // let mut virtual_ok_cnt = 0usize;
-    // let mut virtual_ng_cnt = 0usize;
-
-    for b in &boards {
-        let edge_is_ok = check_edge_patterns(b.board.player, b.board.opponent);
-        // let virtual_edge_is_ok = check_virtual_edge_patterns(b.board.player, b.board.opponent);
-
-        if edge_is_ok {
-            write_board(&mut edge_ok, b)?;
-            ok_cnt += 1;
-        } else {
-            write_board(&mut edge_ng, b)?;
-            println!("{}", b.board.show());
-            println!("{}", format_position(*b));
-            println!("==========\n");
-            ng_cnt += 1;
+    let positions = parse_file_to_positions(&args.input.to_string_lossy())?;
+    let ok_path = args.out_dir.join("edge_OK.txt");
+    let ng_path = args.out_dir.join("edge_NG.txt");
+    for path in [&ok_path, &ng_path] {
+        if path.try_exists()? {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("output already exists: {}", path.display()),
+            ));
         }
-        // if virtual_edge_is_ok {
-        //     write_board(&mut virtual_edge_ok, b)?;
-        //     virtual_ok_cnt += 1;
-        // } else {
-        //     write_board(&mut virtual_edge_ng, b)?;
-        //     virtual_ng_cnt += 1;
-        // }
-
-        // writeln!(
-        //     summary,
-        //     "{}, {}, {}",
-        //     format_position(*b),
-        //     if edge_is_ok { "ok" } else { "ng" },
-        //     if virtual_edge_is_ok { "ok" } else { "ng" }
-        // )?;
     }
-
-    edge_ok.flush()?;
-    edge_ng.flush()?;
-    // virtual_edge_ok.flush()?;
-    // virtual_edge_ng.flush()?;
-    // summary.flush()?;
-
-    println!(
-        "edge done: {} boards (OK: {}, NG: {})",
-        boards.len(),
-        ok_cnt,
-        ng_cnt
+    fs::create_dir_all(&args.out_dir)?;
+    let mut ok = BufWriter::new(
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(ok_path)?,
     );
-
-    // println!(
-    //     "virtual_edge done: {} boards (OK: {}, NG: {})",
-    //     boards.len(),
-    //     virtual_ok_cnt,
-    //     virtual_ng_cnt
-    // );
-    Ok(())
+    let mut ng = BufWriter::new(
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(ng_path)?,
+    );
+    for position in positions {
+        let passes = check_edge_patterns(position.board.player, position.board.opponent);
+        writeln!(
+            if passes { &mut ok } else { &mut ng },
+            "{}",
+            format_position(position)
+        )?;
+    }
+    ok.flush()?;
+    ng.flush()
 }

@@ -1,14 +1,18 @@
+use clap::Parser;
 use othello_complexity_rs::othello::CENTER_MASK;
 use othello_complexity_rs::prunings::occupancy::{occupancy_order, occupancy_order_naive};
 use rand::{Rng, SeedableRng};
 use std::time::Instant;
 
-fn parse_bool(s: &str) -> Option<bool> {
-    match s {
-        "1" | "true" | "True" | "TRUE" | "yes" | "Yes" | "YES" => Some(true),
-        "0" | "false" | "False" | "FALSE" | "no" | "No" | "NO" => Some(false),
-        _ => None,
-    }
+/// Benchmark occupancy masks. No color or absolute-turn information is sampled.
+#[derive(Parser)]
+struct Cli {
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    samples: u64,
+    #[arg(long)]
+    with_center: bool,
+    #[arg(long)]
+    seed: u64,
 }
 
 fn fold_checksum(mut acc: u64, values: &[u64; 64]) -> u64 {
@@ -19,26 +23,22 @@ fn fold_checksum(mut acc: u64, values: &[u64; 64]) -> u64 {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let samples: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(20_000);
-    let with_center: bool = args.get(2).and_then(|s| parse_bool(s)).unwrap_or(true);
-    let seed: u64 = args
-        .get(3)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x0cc5eedu64);
-
-    let mut boards = Vec::with_capacity(samples);
+    let cli = Cli::parse();
+    let samples = cli.samples as usize;
+    let with_center = cli.with_center;
+    let seed = cli.seed;
+    let mut masks = Vec::with_capacity(samples);
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     for _ in 0..samples {
         let mut occupied = rng.random::<u64>();
         if with_center {
             occupied |= CENTER_MASK;
         }
-        boards.push(occupied);
+        masks.push(occupied);
     }
 
     // Correctness check before timing.
-    for &occupied in &boards {
+    for &occupied in &masks {
         let naive = occupancy_order_naive(occupied);
         let bitparallel = occupancy_order(occupied);
         assert_eq!(
@@ -51,7 +51,7 @@ fn main() {
     let mut naive_checksum = 0u64;
 
     let start = Instant::now();
-    for &occupied in &boards {
+    for &occupied in &masks {
         let out = occupancy_order_naive(occupied);
         naive_checksum = fold_checksum(naive_checksum, &out);
     }
@@ -59,7 +59,7 @@ fn main() {
 
     let mut bitparallel_checksum = 0u64;
     let start = Instant::now();
-    for &occupied in &boards {
+    for &occupied in &masks {
         let out = occupancy_order(occupied);
         bitparallel_checksum = fold_checksum(bitparallel_checksum, &out);
     }
@@ -74,9 +74,9 @@ fn main() {
         "samples={}, with_center={}, seed={}",
         samples, with_center, seed
     );
-    println!("naive total={:?}, {:.1} ns/board", naive_elapsed, naive_ns);
+    println!("naive total={:?}, {:.1} ns/mask", naive_elapsed, naive_ns);
     println!(
-        "bitparallel total={:?}, {:.1} ns/board",
+        "bitparallel total={:?}, {:.1} ns/mask",
         bitparallel_elapsed, bitparallel_ns
     );
     println!(

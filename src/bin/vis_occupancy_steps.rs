@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
-use othello_complexity_rs::io::parse_position;
+use clap::Parser;
+use othello_complexity_rs::io::{format_position, parse_position};
+
 use othello_complexity_rs::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 use othello_complexity_rs::prunings::occupancy::{occupied_to_string, reachable_occupancy};
 
@@ -15,7 +17,7 @@ use othello_complexity_rs::prunings::occupancy::{occupied_to_string, reachable_o
 /// # 戻り値
 /// - タプルの最初の要素: 中央4マスから到達可能なマス目を表すビットマスク（最終結果）
 /// - タプルの2番目の要素: 中央からBFS順に外側へ広がるよう更新された`explained`の履歴（初期値を含む）
-fn reachable_occupancy_with_steps(occupied: u64) -> (u64, Vec<u64>) {
+fn reachable_occupancy_with_steps(occupied: u64) -> io::Result<(u64, Vec<u64>)> {
     let final_explained = reachable_occupancy(occupied);
     let mut steps = Vec::new();
     let mut visited = CENTER_MASK & final_explained;
@@ -24,7 +26,7 @@ fn reachable_occupancy_with_steps(occupied: u64) -> (u64, Vec<u64>) {
     steps.push(visited);
 
     if visited == final_explained {
-        return (final_explained, steps);
+        return Ok((final_explained, steps));
     }
 
     let mut queue = VecDeque::new();
@@ -50,20 +52,12 @@ fn reachable_occupancy_with_steps(occupied: u64) -> (u64, Vec<u64>) {
         }
     }
 
-    // 念のため、BFSで拾えなかったマスがあれば補完（理論上は空のはず）
     if visited != final_explained {
-        eprint!("warning: some squares were not reached in BFS, completing remaining squares...\n");
-        let mut remaining = final_explained & !visited;
-        while remaining != 0 {
-            let tz = remaining.trailing_zeros();
-            let bit = 1u64 << tz;
-            visited |= bit;
-            steps.push(visited);
-            remaining &= remaining - 1;
-        }
+        return Err(io::Error::other(
+            "occupancy traversal did not reach every explained square",
+        ));
     }
-
-    (final_explained, steps)
+    Ok((final_explained, steps))
 }
 
 /// 指定したマスの8近傍を返す（盤面外は0）
@@ -80,7 +74,7 @@ fn neighbors(bit: u64) -> [u64; 8] {
     ]
 }
 
-/// 診断用G/-形式の文字列をu64ビットボードに変換
+/// 診断用G/-形式の占有ビットマスクを読む。局面形式とは区別する。
 /// - G: 占有マス (bit = 1)
 /// - -: 非占有マス (bit = 0)
 fn parse_mask(s: &str) -> Result<u64, String> {
@@ -105,12 +99,18 @@ fn parse_mask(s: &str) -> Result<u64, String> {
             }
         }
     }
+    if occupied & CENTER_MASK != CENTER_MASK {
+        return Err("the centre four squares must be occupied".to_owned());
+    }
     Ok(occupied)
 }
 
 /// stepsをファイルに書き込む（G/-形式の文字列のみ、1行に1ステップ）
 fn write_steps_to_file(path: &Path, steps: &[u64]) -> std::io::Result<()> {
-    let mut file = fs::File::create(path)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
     for &explained in steps {
         let line = occupied_to_string(explained);
         writeln!(file, "{}", line)?;
@@ -118,94 +118,68 @@ fn write_steps_to_file(path: &Path, steps: &[u64]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
+#[derive(Parser)]
+#[command(about = "Visualize diagnostic occupancy masks; outputs are not position files")]
+struct Cli {
+    /// Diagnostic mask: exactly 64 G/- cells
+    #[arg(
+        long,
+        allow_hyphen_values = true,
+        conflicts_with = "position",
+        required_unless_present = "position"
+    )]
+    mask: Option<String>,
+    /// Absolute position; its correspondence with the masks is recorded
+    #[arg(long, allow_hyphen_values = true)]
+    position: Option<String>,
+    #[arg(short = 'o', long)]
+    out_dir: PathBuf,
+}
 
-    if args.len() < 2 {
-        eprintln!("Usage: {} <position> [output_dir]", args[0]);
-        eprintln!("       {} --mask <mask_string> [output_dir]", args[0]);
-        eprintln!("  <position>: 64 X/O/- cells, one space, and b or w");
-        eprintln!("  <mask_string>: 64 G/- cells (G = occupied, - = empty)");
-        eprintln!("  [output_dir]: Optional output directory (default: current directory)");
-        eprintln!();
-        eprintln!("  Output format: G/- (G = reachable, - = unreachable)");
-        eprintln!("  Output file: <occupied_hex>_steps.txt");
-        eprintln!();
-        eprintln!(
-            "Example: {} --mask \"-------------------GG-----GGGG----GGGG-----GG-------------------\"",
-            args[0]
-        );
-        eprintln!(
-            "Example: {} --mask \"-------------------GG-----GGGG----GGGG-----GG-------------------\" output/",
-            args[0]
-        );
-        std::process::exit(1);
-    }
-
-    // 局面と診断用マスクを明示的に区別してoccupiedを取得する。
-    let mask_input = args[1] == "--mask";
-    let input_index = if mask_input { 2 } else { 1 };
-    let Some(board_str) = args.get(input_index) else {
-        eprintln!("--mask requires a 64-character G/- string");
-        std::process::exit(1);
-    };
-    let parsed = if mask_input {
-        parse_mask(board_str)
+fn main() -> io::Result<()> {
+    let cli = Cli::parse();
+    let (occupied, source_kind, source_value) = if let Some(text) = cli.position {
+        let position = parse_position(&text)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        (
+            position.board.player | position.board.opponent,
+            "position",
+            format_position(position),
+        )
     } else {
-        parse_position(board_str).map(|position| position.board.player | position.board.opponent)
+        let text = cli.mask.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a mask or position is required",
+            )
+        })?;
+        let mask = parse_mask(&text)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        (mask, "mask", text)
     };
-    let occupied = match parsed {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("Error parsing board: {}", e);
-            std::process::exit(1);
+    let (explained, steps) = reachable_occupancy_with_steps(occupied)?;
+    let steps_path = cli.out_dir.join(format!("0x{occupied:016x}_steps.txt"));
+    let input_path = cli.out_dir.join(format!("0x{occupied:016x}_input.csv"));
+    for path in [&steps_path, &input_path] {
+        if path.try_exists()? {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("output already exists: {}", path.display()),
+            ));
         }
-    };
-
-    // 出力ディレクトリを取得（指定がなければ現在のディレクトリ）
-    let output_dir = if args.len() > input_index + 1 {
-        &args[input_index + 1]
-    } else {
-        "."
-    };
-
-    println!("Input:    {}", board_str);
-    println!("Occupied: 0x{:016x}", occupied);
-    println!();
-
-    let (final_result, steps) = reachable_occupancy_with_steps(occupied);
-
-    // 標準出力に表示
-    for (i, &explained) in steps.iter().enumerate() {
-        let line = occupied_to_string(explained);
-        println!("Step {}: {}", i, line);
     }
-
-    println!();
-    println!("Final result: 0x{:016x}", final_result);
-    println!(
-        "All squares reachable: {}",
-        if final_result == occupied {
-            "Yes"
-        } else {
-            "No"
-        }
+    fs::create_dir_all(&cli.out_dir)?;
+    write_steps_to_file(&steps_path, &steps)?;
+    let mut input = csv::Writer::from_writer(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(input_path)?,
     );
-
-    // ファイル名を生成: 0x{occupied:016x}_steps.txt
-    let filename = format!("0x{:016x}_steps.txt", occupied);
-    let output_path = Path::new(output_dir).join(&filename);
-
-    // ファイルに書き込み
-    match write_steps_to_file(&output_path, &steps) {
-        Ok(_) => {
-            println!();
-            println!("Steps written to: {}", output_path.display());
-        }
-        Err(e) => {
-            eprintln!();
-            eprintln!("Error writing to file: {}", e);
-            std::process::exit(1);
-        }
-    }
+    input.write_record(["source_kind", "source_value", "occupied_mask_G_dash"])?;
+    input.write_record([source_kind, &source_value, &occupied_to_string(occupied)])?;
+    input.flush()?;
+    println!("Explained occupancy: {}", occupied_to_string(explained));
+    println!("Diagnostic steps: {}", steps_path.display());
+    Ok(())
 }
