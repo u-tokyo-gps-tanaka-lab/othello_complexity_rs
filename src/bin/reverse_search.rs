@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "reverse_to_initial",
+    name = "reverse_search",
     version,
     about = "Prove position or equivalence-class reachability with reverse search"
 )]
@@ -220,7 +220,7 @@ mod tests {
 
     fn parse_defaults(command: &str) -> Strategy {
         let (strategy, input, out_dir, mode) = parse(&[
-            "reverse_to_initial",
+            "reverse_search",
             command,
             "input.txt",
             "--mode",
@@ -296,7 +296,7 @@ mod tests {
     fn assert_explicit_options() {
         assert_eq!(
             parse(&[
-                "reverse_to_initial",
+                "reverse_search",
                 "dfs-parallel",
                 "boards.txt",
                 "-o",
@@ -326,7 +326,7 @@ mod tests {
         );
         assert_eq!(
             parse(&[
-                "reverse_to_initial",
+                "reverse_search",
                 "gbfs-parallel",
                 "boards.txt",
                 "--out-dir",
@@ -355,7 +355,7 @@ mod tests {
         );
         assert_eq!(
             parse(&[
-                "reverse_to_initial",
+                "reverse_search",
                 "bfs-inmemory-parallel",
                 "boards.txt",
                 "--out-dir",
@@ -386,7 +386,7 @@ mod tests {
         );
         assert_eq!(
             parse(&[
-                "reverse_to_initial",
+                "reverse_search",
                 "bfs-external",
                 "boards.txt",
                 "-o",
