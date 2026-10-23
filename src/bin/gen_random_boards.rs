@@ -1,7 +1,7 @@
 use clap::Parser;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::sampling::{
-    artifact, create_output_dir, rank_of_position, write_sampling_record, Population,
+    artifact, create_output_dir, rank_of_position, write_sampling_record, Population, DEFAULT_SEED,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -22,7 +22,7 @@ struct Args {
     discs: Option<u32>,
     #[arg(short = 'c', long)]
     count: usize,
-    #[arg(long)]
+    #[arg(long, default_value_t = DEFAULT_SEED)]
     seed: u64,
     /// New output directory
     #[arg(short = 'o', long)]

@@ -30,8 +30,8 @@ foldhash = "0.2.0"
 ahash = "0.8.12"
 
 [[bin]]
-name = "reverse_to_initial"
-path = "src/bin/reverse_to_initial.rs"
+name = "reverse_search"
+path = "src/bin/reverse_search.rs"
 
 [[bin]]
 name = "run_filters"

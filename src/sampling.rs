@@ -19,6 +19,7 @@ use std::path::Path;
 
 pub const POPULATION_SIZE: u128 = 32 * 3_u128.pow(60);
 pub const POPULATION_DEFINITION: &str = "absolute_positions_center_occupied";
+pub const DEFAULT_SEED: u64 = 42; // Default random seed for reproducible sampling.
 pub const CLASS_POPULATION_SIZE: u128 =
     (16 * 3_u128.pow(60) + 4 * 3_u128.pow(15) + 12 * 3_u128.pow(30) + 16 * 3_u128.pow(33)) / 8;
 
