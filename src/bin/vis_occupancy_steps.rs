@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use othello_complexity_rs::io::{format_position, parse_position};
 
-use othello_complexity_rs::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 use othello_complexity_rs::filters::occupancy::{occupied_to_string, reachable_occupancy};
+use othello_complexity_rs::othello::{east, ne, north, nw, se, south, sw, west, CENTER_MASK};
 
 /// 中央4マスから到達可能なoccupied bitboardを計算し、各ステップの途中経過を返す
 ///

@@ -1,6 +1,6 @@
 use clap::Parser;
-use othello_complexity_rs::othello::CENTER_MASK;
 use othello_complexity_rs::filters::occupancy::{occupancy_order, occupancy_order_naive};
+use othello_complexity_rs::othello::CENTER_MASK;
 use rand::{Rng, SeedableRng};
 use std::time::Instant;
 

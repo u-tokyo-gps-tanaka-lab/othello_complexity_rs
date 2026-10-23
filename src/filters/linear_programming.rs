@@ -1,6 +1,6 @@
-use crate::othello::{validate_board, Board, Direction, CENTER_MASK};
 use crate::filters::occupancy::{occupancy_order, occupancy_order_cached};
 use crate::filters::FilterResult;
+use crate::othello::{validate_board, Board, Direction, CENTER_MASK};
 use highs::{HighsModelStatus, RowProblem, Sense};
 use std::io;
 

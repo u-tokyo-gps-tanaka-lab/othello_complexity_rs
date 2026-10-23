@@ -1,9 +1,9 @@
 use clap::Parser;
+use othello_complexity_rs::filters::layer_sat::{run_with_options, RunOptions};
 use othello_complexity_rs::io::{
     ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
 };
 use othello_complexity_rs::othello::Position;
-use othello_complexity_rs::filters::layer_sat::{run_with_options, RunOptions};
 use othello_complexity_rs::record::GoalMatch;
 use std::fs::File;
 use std::io::{BufWriter, Write};

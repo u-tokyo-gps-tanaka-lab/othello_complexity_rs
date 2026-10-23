@@ -3,11 +3,11 @@ use std::collections::BinaryHeap;
 use std::io;
 use std::sync::{Condvar, Mutex};
 
-use crate::othello::{get_last_moves, Position};
 use crate::filters::{
     impossible_edges::check_edge_patterns, linear_programming::check_lp,
     occupancy::check_occupancy, seg3::check_seg3_more, FilterResult,
 };
+use crate::othello::{get_last_moves, Position};
 use crate::record::PlyAction;
 use crate::search::{
     core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},

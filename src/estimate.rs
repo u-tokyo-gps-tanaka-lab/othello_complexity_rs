@@ -7,11 +7,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::filters::layer_sat::{run_with_options, RunOptions};
+use crate::filters::{Filter, FilterResult};
 use crate::interval::{self, Interval};
 use crate::io::{format_position, parse_file_to_positions};
 use crate::othello::Position;
-use crate::filters::layer_sat::{run_with_options, RunOptions};
-use crate::filters::{Filter, FilterResult};
 use crate::query::GoalClassification;
 use crate::record::{GoalMatch, ReachabilityRecord};
 use crate::sampling::{create_output_dir, read_sample_dir, Population, Sample};

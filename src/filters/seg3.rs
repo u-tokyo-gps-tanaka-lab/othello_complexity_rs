@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use crate::{
-    othello::{Direction, CENTER_MASK},
     filters::occupancy::{check_occupancy, occupancy_order, occupancy_order_cached},
+    othello::{Direction, CENTER_MASK},
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {

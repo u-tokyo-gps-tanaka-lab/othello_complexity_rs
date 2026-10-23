@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 use rayon::prelude::*;
 
-use othello_complexity_rs::io::{format_position, parse_file_to_positions, parse_position};
-use othello_complexity_rs::othello::{Board, Position};
 use othello_complexity_rs::filters::{
     flip_sat::check_flip_sat,
     linear_programming::check_lp,
     occupancy::{occupied_to_string, reachable_occupancy},
     Filter, FilterResult,
 };
+use othello_complexity_rs::io::{format_position, parse_file_to_positions, parse_position};
+use othello_complexity_rs::othello::{Board, Position};
 
 #[derive(Parser, Debug)]
 #[command(

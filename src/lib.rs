@@ -1,9 +1,9 @@
 pub mod estimate;
+pub mod filters;
 pub mod hash;
 pub mod interval;
 pub mod io;
 pub mod othello;
-pub mod filters;
 pub mod query;
 pub mod record;
 pub mod sampling;

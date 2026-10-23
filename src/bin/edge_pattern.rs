@@ -3,8 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
-use othello_complexity_rs::io::{format_position, parse_file_to_positions};
 use othello_complexity_rs::filters::impossible_edges::check_edge_patterns;
+use othello_complexity_rs::io::{format_position, parse_file_to_positions};
 
 /// Split positions by the necessary condition on physical edge patterns.
 #[derive(Parser, Debug)]
