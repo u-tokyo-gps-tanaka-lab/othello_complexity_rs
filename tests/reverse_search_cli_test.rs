@@ -9,7 +9,7 @@ impl TestDirectory {
     fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
-            "reverse-to-initial-cli-{}-{}",
+            "reverse-search-cli-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed),
         ));
@@ -36,7 +36,7 @@ fn dfs_writes_only_classification_and_record_files_and_reports_nodes() {
     let position = "-------------------O-------OO------OX--------------------------- w";
     fs::write(&input, format!("{position}\n")).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_reverse_to_initial"))
+    let output = Command::new(env!("CARGO_BIN_EXE_reverse_search"))
         .arg("dfs")
         .arg(&input)
         .arg("--out-dir")

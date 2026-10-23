@@ -237,7 +237,7 @@ pub(crate) fn append_placement_predecessors(
 }
 
 pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) -> io::Result<bool> {
-    use crate::prunings::{
+    use crate::filters::{
         impossible_edges::check_edge_patterns, linear_programming::check_lp,
         occupancy::check_occupancy, seg3::check_seg3_more,
     };
@@ -250,7 +250,7 @@ pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) ->
     }
     if use_lp {
         let result = check_lp(player, opponent, false, occupancy_cache)?;
-        if let crate::prunings::FilterResult::Undetermined { reason } = &result {
+        if let crate::filters::FilterResult::Undetermined { reason } = &result {
             eprintln!(
                 "info: LP undetermined for {}: {}; retaining this search node",
                 crate::io::format_position(position),

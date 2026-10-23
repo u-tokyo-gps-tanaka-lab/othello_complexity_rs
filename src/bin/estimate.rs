@@ -7,6 +7,8 @@ use clap::{Args, Parser, Subcommand};
 use othello_complexity_rs::estimate;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
+const DEFAULT_ALPHA: f64 = 0.005;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "estimate",
@@ -37,7 +39,8 @@ struct FiltersArgs {
     #[arg(long, value_name = "DIR")]
     out_dir: PathBuf,
 
-    #[arg(long, value_name = "A")]
+    /// Significance level (two-sided alpha); 0.005 gives a 99.5% CI
+    #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
 }
 
@@ -49,7 +52,8 @@ struct LayerSatArgs {
     #[arg(long, value_name = "DIR")]
     out_dir: PathBuf,
 
-    #[arg(long, value_name = "A")]
+    /// Significance level (two-sided alpha); 0.005 gives a 99.5% CI
+    #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
 
     #[arg(long, value_name = "N")]
@@ -67,7 +71,8 @@ struct ReverseSearchArgs {
     #[arg(long, value_name = "DIR")]
     out_dir: PathBuf,
 
-    #[arg(long, value_name = "A")]
+    /// Significance level (two-sided alpha); 0.005 gives a 99.5% CI
+    #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
 
     #[command(subcommand)]
@@ -314,6 +319,56 @@ mod tests {
                 threads: 2,
             }
         );
+    }
+
+    #[test]
+    fn alpha_defaults_to_0_005_for_all_subcommands() {
+        let filters =
+            Cli::try_parse_from(["estimate", "filters", "--sample", "a", "--out-dir", "b"])
+                .unwrap();
+        match filters.command {
+            Command::Filters(args) => assert_eq!(args.alpha, 0.005),
+            _ => panic!("expected filters command"),
+        }
+
+        let layer_sat = Cli::try_parse_from([
+            "estimate",
+            "layer-sat",
+            "--from",
+            "a",
+            "--out-dir",
+            "b",
+            "--parallel-goals",
+            "1",
+        ])
+        .unwrap();
+        match layer_sat.command {
+            Command::LayerSat(args) => assert_eq!(args.alpha, 0.005),
+            _ => panic!("expected layer-sat command"),
+        }
+
+        let reverse_search = Cli::try_parse_from([
+            "estimate",
+            "reverse-search",
+            "--from",
+            "a",
+            "--out-dir",
+            "b",
+            "dfs-parallel",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--table-size",
+            "100000",
+            "--threads",
+            "2",
+        ])
+        .unwrap();
+        match reverse_search.command {
+            Command::ReverseSearch(args) => assert_eq!(args.alpha, 0.005),
+            _ => panic!("expected reverse-search command"),
+        }
     }
 
     #[test]

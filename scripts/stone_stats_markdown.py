@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a Markdown stone-count distribution table from absolute positions."""
+"""Generate disc-count tables from fully validated absolute-position files."""
 
 import argparse
 import sys
@@ -12,12 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-try:
-    from stone_stats import summarize  # type: ignore
-except ImportError as exc:  # pragma: no cover - guard for misconfigured PYTHONPATH
-    raise SystemExit(
-        "Failed to import stone_stats. Run this script from the repository root."
-    ) from exc
+from stone_stats import summarize
 
 
 def iter_stone_counts(counters: Iterable[dict[int, int]]) -> list[int]:
@@ -50,6 +45,8 @@ def load_stats(paths: list[Path]) -> "OrderedDict[str, tuple[int, dict[int, int]
     """Read each path and collect board counts and per-stone frequencies."""
     stats: "OrderedDict[str, tuple[int, dict[int, int]]]" = OrderedDict()
     for path in paths:
+        if path.name in stats:
+            raise ValueError(f"duplicate table column name: {path.name}")
         with path.open("r", encoding="utf-8") as handle:
             board_count, counter, _ = summarize(handle)
         stats[path.name] = (board_count, dict(counter))
@@ -107,8 +104,12 @@ def main() -> None:
     stats = load_stats(input_paths)
     markdown = generate_markdown(stats, args.title)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(markdown, encoding="utf-8")
+    with args.output.open("x", encoding="utf-8") as handle:
+        handle.write(markdown)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"error: {error}") from error

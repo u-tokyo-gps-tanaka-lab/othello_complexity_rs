@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect stone statistics from Othello positions with an absolute turn."""
+"""Count discs in validated absolute positions, preserving duplicates and turns."""
 
 import argparse
 import sys
@@ -8,7 +8,7 @@ from typing import Iterable, Optional, TextIO, List
 
 
 def parse_position(text: str) -> str:
-    """Validate all fields and return the 64 relative board cells."""
+    """Validate the entire position and return only its 64 relative board cells."""
     if len(text) != 66 or text[64] != " " or text[65] not in ("b", "w"):
         raise ValueError("expected exactly 64 X/O/- cells, one space, and b or w")
     board = text[:64]
@@ -19,8 +19,8 @@ def parse_position(text: str) -> str:
     return board
 
 
-def iter_boards(handle: TextIO) -> Iterable[str]:
-    """Yield validated positions, retaining their order and absolute turns."""
+def iter_positions(handle: TextIO) -> Iterable[str]:
+    """Validate every physical line, including blank lines, before yielding it."""
     for line_number, raw_line in enumerate(handle, 1):
         text = raw_line.removesuffix("\n").removesuffix("\r")
         try:
@@ -31,7 +31,7 @@ def iter_boards(handle: TextIO) -> Iterable[str]:
 
 
 def count_stones(position: str) -> int:
-    """Return the stone count after validating the complete position."""
+    """Count only board cells after validating the absolute turn as well."""
     board = parse_position(position)
     return sum(cell in ("O", "X") for cell in board)
 
@@ -43,12 +43,12 @@ def summarize(
     counter = Counter()
     board_count = 0
     matches: List[str] = []
-    for board in iter_boards(handle):
-        stones = count_stones(board)
+    for position in iter_positions(handle):
+        stones = count_stones(position)
         counter[stones] += 1
         board_count += 1
         if target is not None and stones == target:
-            matches.append(board)
+            matches.append(position)
     return board_count, counter, matches
 
 
@@ -59,7 +59,7 @@ def main() -> None:
     parser.add_argument(
         "path",
         nargs="?",
-        help="手番付き局面を含むファイル。省略時は標準入力を読み取ります。",
+        help="1行に1局面を含むファイル。省略時は標準入力を読み取ります。",
     )
     parser.add_argument(
         "--stones",
@@ -68,6 +68,8 @@ def main() -> None:
         help="石数Nの局面を手番と重複を保って列挙します。",
     )
     args = parser.parse_args()
+    if args.stones is not None and not 4 <= args.stones <= 64:
+        parser.error("--stones must be between 4 and 64")
 
     if args.path:
         with open(args.path, "r", encoding="utf-8") as handle:
@@ -97,4 +99,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"error: {error}") from error
