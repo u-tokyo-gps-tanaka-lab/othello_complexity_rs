@@ -266,6 +266,35 @@ fn known_single_pass_is_legal_in_both_absolute_colors() {
 }
 
 #[test]
+fn one_placement_can_require_both_a_leading_and_a_trailing_pass() {
+    let start = ArrayPosition::from_relative(
+        "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+        false,
+    );
+    assert!(start.moves().is_empty());
+    let after_leading_pass = start.apply(PlyAction::Pass).unwrap();
+    assert_eq!(after_leading_pass.moves(), vec![0, 8]); // A1, A2
+    let after_placement = after_leading_pass.apply(PlyAction::Play(8)).unwrap();
+    assert!(after_placement.moves().is_empty());
+    let goal = after_placement.apply(PlyAction::Pass).unwrap();
+    assert_eq!(goal.moves(), vec![0]); // A1
+    assert_eq!(goal.discs(), start.discs() + 1);
+    assert_eq!(
+        goal,
+        ArrayPosition::from_relative(
+            "-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            true,
+        ),
+    );
+
+    let outcomes = classify(start, &[goal], GoalMatch::Exact, |_| true);
+    assert_eq!(
+        outcomes[0].record().unwrap().actions,
+        vec![PlyAction::Pass, PlyAction::Play(8), PlyAction::Pass],
+    );
+}
+
+#[test]
 fn full_and_nonfull_terminal_positions_allow_only_zero_length() {
     for start in [
         ArrayPosition::from_relative(&"X".repeat(64), true),
