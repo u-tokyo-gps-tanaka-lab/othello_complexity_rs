@@ -1,13 +1,9 @@
-#[allow(unused_imports)]
-use crate::othello::{Board, Direction, CENTER_MASK};
+use crate::othello::{validate_board, Board, Direction, CENTER_MASK};
 use crate::prunings::occupancy::{occupancy_order, occupancy_order_cached};
+use crate::prunings::FilterResult;
 use highs::{HighsModelStatus, RowProblem, Sense};
-use std::ffi::CString;
-use std::fs::File;
-use std::io::{self, BufWriter, Write};
-use std::path::Path;
+use std::io;
 
-#[allow(dead_code)]
 /// 制約の種類
 #[derive(Clone, Copy)]
 enum CstrSense {
@@ -24,36 +20,19 @@ struct SparseConstraint {
     rhs: f64,         // 右辺
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FeasResult {
-    Feasible,
-    Infeasible,
-    Unknown,
+struct VarMaker {
+    count: usize,
 }
 
-pub struct VarMaker {
-    count: usize,
-    symbols: Vec<String>,
-}
-// no var isize: -1
 impl VarMaker {
-    pub fn new() -> Self {
-        VarMaker {
-            count: 0,
-            symbols: vec![],
-        }
+    fn new() -> Self {
+        Self { count: 0 }
     }
-    fn mk_var(&mut self, sym: String) -> i32 {
-        let ans = self.count;
-        self.symbols.push(sym);
+
+    fn mk_var(&mut self) -> i32 {
+        let index = self.count;
         self.count += 1;
-        ans as i32
-    }
-    fn count(&self) -> i32 {
-        self.count as i32
-    }
-    fn get_symbol(&self, i: usize) -> String {
-        self.symbols[i].to_string()
+        index as i32
     }
 }
 
@@ -61,57 +40,13 @@ impl VarMaker {
 fn xy2sq(x: i32, y: i32) -> usize {
     (y * 8 + x) as usize
 }
-/// 解の列変数値をファイルに書き出す。
-/// - `round_binary`: 0/1 変数を 0/1 に丸めて出力したいとき true（許容誤差は 1e-9）
-/// 出力形式: `<col_index>\t<value>\n`
-pub fn dump_solution_columns<P: AsRef<Path>>(
-    solved: &highs::SolvedModel, // model.solve() の返り値への参照
-    out_path: P,
-    round_binary: bool,
-    vm: &VarMaker,
-) -> io::Result<()> {
-    // ステータス確認（必要に応じて緩めてもよい）
-    match solved.status() {
-        HighsModelStatus::Optimal
-        | HighsModelStatus::ObjectiveTarget
-        | HighsModelStatus::ObjectiveBound
-        | HighsModelStatus::Unbounded => {} // 可行解がある
-        st => eprintln!("warning: model status = {:?}", st),
-    }
-
-    let sol = solved.get_solution();
-    let cols = sol.columns(); // 変数値（f64）のスライス
-
-    let f = File::create(out_path)?;
-    let mut w = BufWriter::new(f);
-
-    for (i, &x) in cols.iter().enumerate() {
-        let v = if round_binary {
-            // 0/1 を想定した丸め（適宜調整）
-            if (x - 0.0).abs() < 1e-9 {
-                0.0
-            } else if (x - 1.0).abs() < 1e-9 {
-                1.0
-            } else {
-                x
-            } // 大きく外れていたらそのまま出す／あるいはエラーにする
-        } else {
-            x
-        };
-        writeln!(w, "{}\t{}", vm.get_symbol(i), v)?;
-    }
-    w.flush()?;
-    Ok(())
-}
-
 /// 連続緩和(0<=x<=1)で可否のみ判定 (HiGHS 1.12.0 API)
 /// by_ip_solver: falseが望ましい
 fn check_feasibility(
     n_vars: usize,
     constraints: &[SparseConstraint],
     by_ip_solver: bool,
-    vm: &VarMaker,
-) -> FeasResult {
+) -> io::Result<FilterResult> {
     // 変数→制約の順に作るので RowProblem を使う
     let mut pb = RowProblem::default();
 
@@ -149,59 +84,61 @@ fn check_feasibility(
         }
     }
 
-    // モデル化 → オプション設定 → 解く
-    let mut model = pb.optimise(Sense::Minimise);
-    unsafe {
-        // モデル名
-        let mptr = model.as_mut_ptr();
-        // 列（変数）名：生成順の index を使う
-        for i in 0..n_vars {
-            let col_name = vm.get_symbol(i);
-            highs_sys::Highs_passColName(mptr, i as i32, CString::new(col_name).unwrap().as_ptr());
-        }
-    }
-
-    // ログ表示
-    // model.set_option("output_flag", true);
-    // model.set_option("log_dev_level", 1)
-    // model.set_option("write_model_file", "debug.lp");
-    // model.set_option("write_model_to_file", true);
-
+    let mut model = pb
+        .try_optimise(Sense::Minimise)
+        .map_err(|status| io::Error::other(format!("HiGHS model creation failed: {status:?}")))?;
+    model.make_quiet();
     model.set_option("threads", 1);
     model.set_option("presolve", "on");
+    let solved = model
+        .try_solve()
+        .map_err(|status| io::Error::other(format!("HiGHS solve failed: {status:?}")))?;
+    classify_highs_status(solved.status())
+}
 
-    // model.set_option("time_limit", 5.0);    // 早期打切り
-
-    // 高速な設定としてChatGPTが提案してきたが、むしろ遅くなった
-    // if !by_ip_solver {
-    // model.set_option("solver", "ipm");
-    // model.set_option("run_crossover", "off");
-    // }
-
-    let solved = model.solve();
-    //dump_solution_columns(&solved, "vars.tsv", /*round_binary=*/true, &vm);
-
-    match solved.status() {
-        // 実行可能（最適・目標到達・下界到達・非有界は可行点が存在）
+fn classify_highs_status(status: HighsModelStatus) -> io::Result<FilterResult> {
+    match status {
         HighsModelStatus::Optimal
         | HighsModelStatus::ObjectiveTarget
         | HighsModelStatus::ObjectiveBound
-        | HighsModelStatus::Unbounded => FeasResult::Feasible,
-
-        // 非実行可能（または非有界/非実行可能の二者不定）
-        HighsModelStatus::Infeasible | HighsModelStatus::UnboundedOrInfeasible => {
-            FeasResult::Infeasible
-        }
-
-        // それ以外は不明（時間制限・反復上限・ロード/ソルブエラー等）
-        _ => FeasResult::Unknown,
+        | HighsModelStatus::Unbounded => Ok(FilterResult::Pass),
+        HighsModelStatus::Infeasible => Ok(FilterResult::Rejected {
+            reason: "HiGHS proved the relaxation infeasible".to_owned(),
+        }),
+        HighsModelStatus::UnboundedOrInfeasible
+        | HighsModelStatus::ReachedTimeLimit
+        | HighsModelStatus::ReachedIterationLimit
+        | HighsModelStatus::Unknown => Ok(FilterResult::Undetermined {
+            reason: format!("HiGHS status: {status:?}"),
+        }),
+        HighsModelStatus::NotSet
+        | HighsModelStatus::LoadError
+        | HighsModelStatus::ModelError
+        | HighsModelStatus::PresolveError
+        | HighsModelStatus::SolveError
+        | HighsModelStatus::PostsolveError
+        | HighsModelStatus::ModelEmpty => Err(io::Error::other(format!(
+            "HiGHS did not solve the relaxation: {status:?}"
+        ))),
     }
 }
 
-/// by_ip_solver: falseが望ましい
-pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_cache: bool) -> bool {
-    //let b = Board::new(player, opponent);
-    //println!("b={}", b.to_string());
+/// 手番と配置の向きを固定しない反転整合性の緩和を解く。
+///
+/// 確定した実行不能性だけで棄却し、時間上限などの未確定には理由を付ける。
+/// モデルの構築や求解の失敗は、到達不能判定に変換せずエラーとして返す。
+pub fn check_lp(
+    player: u64,
+    opponent: u64,
+    by_ip_solver: bool,
+    use_occupancy_cache: bool,
+) -> io::Result<FilterResult> {
+    validate_board(&Board::new(player, opponent)).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid board: {error:?}"),
+        )
+    })?;
     let occupied = player | opponent;
     let order: [u64; 64] = if use_occupancy_cache {
         occupancy_order_cached(occupied)
@@ -213,8 +150,8 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_ca
     // First[sq][col] : sqにcolの石を置いたかを表す論理変数
     let mut first: Vec<Vec<i32>> = vec![vec![-1; 2]; 64];
     // center
-    first[3 * 8 + 3][0] = vm.mk_var(format!("first_{}_{}", 3 * 8 + 3, 0));
-    first[3 * 8 + 3][1] = vm.mk_var(format!("first_{}_{}", 3 * 8 + 3, 1));
+    first[3 * 8 + 3][0] = vm.mk_var();
+    first[3 * 8 + 3][1] = vm.mk_var();
     let vals = vec![1.0, 1.0];
     let cols = vec![first[3 * 8 + 3][0], first[3 * 8 + 3][1]];
     constraints.push(SparseConstraint {
@@ -243,8 +180,8 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_ca
     while b != 0 {
         let sq = b.trailing_zeros() as usize; // 0..=63
         b &= b - 1;
-        first[sq][0] = vm.mk_var(format!("first_{}_{}", sq, 0));
-        first[sq][1] = vm.mk_var(format!("first_{}_{}", sq, 1));
+        first[sq][0] = vm.mk_var();
+        first[sq][1] = vm.mk_var();
         let vals = vec![1.0, 1.0];
         let cols = vec![first[sq][0], first[sq][1]];
         constraints.push(SparseConstraint {
@@ -271,7 +208,7 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_ca
                     //    println!("x={}, y={}, sq={}, o={}, x1={}, y1={}, dir={}, rl={}", x, y, sq, o, x1, y1, dir, rl)    ;
                     //}
                     if rl >= 3 {
-                        let v = vm.mk_var(format!("f_{}_{}_{}_{}", sq, col, dir, rl));
+                        let v = vm.mk_var();
                         samedir.push(v);
                         for &sq2 in &sqs {
                             flip[sq2][col].push(v);
@@ -283,7 +220,7 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_ca
                     y1 += dy;
                 }
                 if samedir.len() > 0 {
-                    fdir[sq][col][dir] = vm.mk_var(format!("fdir_{}_{}_{}", sq, col, dir));
+                    fdir[sq][col][dir] = vm.mk_var();
                     let mut vals = vec![];
                     let mut cols = vec![];
                     for &v in &samedir {
@@ -384,12 +321,39 @@ pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool, use_occupancy_ca
             }
         }
     }
-    let n = vm.count() as usize;
-    let res = check_feasibility(n, &constraints, by_ip_solver, &vm);
-    //println!("Feasibility (continuous relaxation): {:?}", res);
-    if res == FeasResult::Infeasible {
-        false
-    } else {
-        true
+    check_feasibility(vm.count, &constraints, by_ip_solver)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_proven_infeasibility_rejects_a_relaxation() {
+        assert!(!classify_highs_status(HighsModelStatus::Infeasible)
+            .unwrap()
+            .passes());
+        for status in [
+            HighsModelStatus::UnboundedOrInfeasible,
+            HighsModelStatus::ReachedTimeLimit,
+            HighsModelStatus::ReachedIterationLimit,
+            HighsModelStatus::Unknown,
+        ] {
+            let result = classify_highs_status(status).unwrap();
+            assert!(result.passes());
+            assert_eq!(result.status(), "undetermined");
+            assert!(!result.reason().is_empty());
+        }
+        for status in [
+            HighsModelStatus::NotSet,
+            HighsModelStatus::LoadError,
+            HighsModelStatus::ModelError,
+            HighsModelStatus::PresolveError,
+            HighsModelStatus::SolveError,
+            HighsModelStatus::PostsolveError,
+            HighsModelStatus::ModelEmpty,
+        ] {
+            assert!(classify_highs_status(status).is_err());
+        }
     }
 }

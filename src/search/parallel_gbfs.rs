@@ -1,275 +1,247 @@
-use crossbeam_skiplist::SkipSet;
-use dashmap::DashSet;
-use ordered_float::NotNan;
-use rayon::ThreadPoolBuilder;
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+use std::io;
+use std::sync::{Condvar, Mutex};
 
-use crate::othello::{get_moves, Position, CENTER_MASK};
-use crate::prunings::impossible_edges::check_edge_patterns;
-use crate::prunings::seg3::check_seg3_more;
-use crate::prunings::{linear_programming::check_lp, occupancy::check_occupancy};
-use crate::search::core::{prev_states_with_buffer, retrospective_flip, SearchResult};
-use crate::search::forward::is_leaf;
+use crate::othello::{get_last_moves, Position};
+use crate::prunings::{
+    impossible_edges::check_edge_patterns, linear_programming::check_lp,
+    occupancy::check_occupancy, seg3::check_seg3_more, FilterResult,
+};
+use crate::record::PlyAction;
+use crate::search::{
+    core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},
+    forward::ForwardTable,
+    transposition::Visited,
+};
 
-// 探索の終了状態
-const STATE_RUNNING: u8 = 0;
-const STATE_FOUND: u8 = 1;
-const STATE_NOT_FOUND: u8 = 2;
-const STATE_LIMIT_REACHED: u8 = 3;
-
-thread_local! {
-    static RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
-    static PREV_RETROFLIPS_BUF: RefCell<[u64; 10_000]> = RefCell::new([0u64; 10_000]);
-    static PREV_STATES_BUF: RefCell<Vec<Position>> = RefCell::new(Vec::new());
+fn heuristic_function(position: Position) -> usize {
+    // Placement predecessors retain a bounding stone in each flipped ray.
+    // Their replay check rejects exactly the extra captures excluded by the
+    // retrospective-flip precheck, so this is its nonempty combination count.
+    let mut previous = Vec::new();
+    append_placement_predecessors(position, u64::MAX, &mut previous);
+    let branching = previous.len();
+    if branching == 0 {
+        usize::MAX // Infinity for this bounded integer priority: dead ends go last.
+    } else {
+        branching
+    }
 }
 
-fn heuristic_function(x: Position) -> f64 {
-    let board = x.board;
-    RETROFLIPS_BUF.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        let mut op = board.opponent & !CENTER_MASK;
+struct Entry {
+    priority: usize,
+    node: SearchNode,
+}
+impl PartialEq for Entry {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority && self.node.position == other.node.position
+    }
+}
+impl Eq for Entry {}
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Entry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .priority
+            .cmp(&self.priority)
+            .then_with(|| other.node.position.cmp(&self.node.position))
+    }
+}
 
-        // retrospective_flip の総分岐を小さく保つ局面を優先
-        // - retrospective_flip は「そのマスが直前手だった」と仮定したときの flip パターン数を返す
-        // - 返り値は 1..num の範囲なので、実際の分岐数は (num - 1)
-        let mut branching: usize = 0;
-        while op != 0 {
-            let index = op.trailing_zeros() as usize;
-            op &= op - 1;
-            let num = retrospective_flip(index, board.player, board.opponent, &mut *buf);
-            if num > 1 {
-                branching += num - 1;
+struct Work {
+    open: BinaryHeap<Entry>,
+    visited: Visited,
+    active: usize,
+    /// Distinct registered positions, including both possible initial states.
+    nodes: usize,
+    result: Option<io::Result<SearchOutcome>>,
+}
+
+impl Work {
+    /// Removing a task and counting it as active are one locked operation.
+    fn take(&mut self) -> Option<SearchNode> {
+        let entry = self.open.pop()?;
+        self.active += 1;
+        Some(entry.node)
+    }
+
+    fn exhausted(&self) -> bool {
+        self.open.is_empty() && self.active == 0
+    }
+}
+
+struct Shared {
+    work: Mutex<Work>,
+    changed: Condvar,
+}
+impl Shared {
+    fn claim(&self, node_limit: usize) -> Option<SearchNode> {
+        let mut work = self.work.lock().expect("search mutex poisoned");
+        loop {
+            if work.result.is_some() {
+                return None;
+            }
+            // The original bound applies before removing another state,
+            // including before its meeting-table lookup.
+            if work.nodes >= node_limit {
+                work.result = Some(Ok(SearchOutcome::Unknown { nodes: work.nodes }));
+                self.changed.notify_all();
+                return None;
+            }
+            if let Some(node) = work.take() {
+                return Some(node);
+            }
+            if work.exhausted() {
+                work.result = Some(Ok(SearchOutcome::NotFound { nodes: work.nodes }));
+                self.changed.notify_all();
+                return None;
+            }
+            work = self.changed.wait(work).expect("search mutex poisoned");
+        }
+    }
+}
+
+fn expand_node(node: &SearchNode, shared: &Shared, node_limit: usize) {
+    let board = node.position.board;
+    let mut previous = Vec::new();
+    append_placement_predecessors(
+        node.position,
+        get_last_moves(board.opponent, board.player),
+        &mut previous,
+    );
+    for (position, action) in previous {
+        let child = node.preceding(position, action);
+        // A frontier step removes one placement. Its predecessor before a
+        // legal pass is also registered in that same stone-count layer; the
+        // certificate still stores the placement and pass as separate actions.
+        let before_pass =
+            pass_predecessor(position).map(|previous| child.preceding(previous, PlyAction::Pass));
+        for child in std::iter::once(child).chain(before_pass) {
+            if shared
+                .work
+                .lock()
+                .expect("search mutex poisoned")
+                .result
+                .is_some()
+            {
+                return;
+            }
+            let board = child.position.board;
+            if !check_occupancy(board.player | board.opponent)
+                || !check_seg3_more(board.player, board.opponent, false)
+                || !check_edge_patterns(board.player, board.opponent)
+            {
+                continue;
+            }
+            let mut work = shared.work.lock().expect("search mutex poisoned");
+            if work.result.is_some() {
+                return;
+            }
+            if work.visited.insert(child.position) {
+                work.nodes += 1;
+                if work.nodes > node_limit {
+                    work.result = Some(Ok(SearchOutcome::Unknown { nodes: work.nodes }));
+                    shared.changed.notify_all();
+                    return;
+                }
+                work.open.push(Entry {
+                    priority: heuristic_function(child.position),
+                    node: child,
+                });
+                shared.changed.notify_one();
             }
         }
-
-        // 前局面が生成できない(=分岐0)ものは探索上ほぼ行き止まりなので後回し
-        if branching == 0 {
-            f64::INFINITY
-        } else {
-            branching as f64
-        }
-    })
+    }
 }
 
-/// 並列 Greedy Best-First Search
-/// - use_lp : 線形計画ソルバの枝刈りの有効化
+/// Greedy best-first search ranks nonzero placement-branch counts ascending,
+/// with zero last and no contribution from passes. Queue and in-flight
+/// accounting share a mutex, including exhaustion. The node limit counts
+/// distinct registered positions, including the initial state and reverse pass.
 pub fn parallel_retrospective_greedy_best_first_search(
-    position: &Position,
-    discs: i32,
-    leafnode: &Vec<Position>,
+    goal: Position,
+    table: &ForwardTable,
     node_limit: usize,
     use_lp: bool,
-    num_threads: usize,
-) -> SearchResult {
-    let board = &position.board;
-    let discs = discs.min(board.popcount() as i32);
-    // 共有データ構造
-    let open: Arc<SkipSet<(NotNan<f64>, Position)>> = Arc::new(SkipSet::new());
-    let visited: Arc<DashSet<Position>> = Arc::new(DashSet::with_capacity(node_limit + 100));
-    let visited_count = Arc::new(AtomicUsize::new(0));
-
-    // 終了状態: 0=実行中, 1=発見, 2=未発見, 3=制限到達
-    let state = Arc::new(AtomicU8::new(STATE_RUNNING));
-    // 現在処理中のノード数（探索枯渇の検出に使用）
-    let inflight = Arc::new(AtomicUsize::new(0));
-
-    // 初期ノードを登録
-    let mut starts = vec![*position];
-    if get_moves(board.opponent, board.player) == 0 && get_moves(board.player, board.opponent) != 0
-    {
-        starts.push(Position {
-            board: board.swapped(),
-            side_to_move: position.side_to_move.opposite(),
-        });
-    }
-    for s in starts {
-        let start = s;
-        if visited.insert(start) {
-            visited_count.fetch_add(1, Ordering::Relaxed);
-            let h = NotNan::new(heuristic_function(start)).expect("heuristic returned NaN");
-            open.insert((h, start));
+    threads: usize,
+) -> io::Result<SearchOutcome> {
+    table.validate_goal(goal)?;
+    let workers = if threads == 0 { 1 } else { threads };
+    let mut open = BinaryHeap::new();
+    let root = SearchNode::root(goal);
+    let before_pass =
+        pass_predecessor(goal).map(|previous| root.preceding(previous, PlyAction::Pass));
+    let mut visited = Visited::default();
+    for node in std::iter::once(root).chain(before_pass) {
+        if visited.insert(node.position) {
+            open.push(Entry {
+                priority: heuristic_function(node.position),
+                node,
+            });
         }
     }
-
-    // スレッドプール構築
-    let num_threads = if num_threads == 0 { 1 } else { num_threads };
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .thread_name(|i| format!("gbfs-worker-{i}"))
-        .build()
-        .expect("failed to build thread pool");
-
-    // ワーカースレッドを起動
-    pool.scope(|scope| {
-        for _ in 0..num_threads {
-            let open = Arc::clone(&open);
-            let visited = Arc::clone(&visited);
-            let visited_count = Arc::clone(&visited_count);
-            let state = Arc::clone(&state);
-            let inflight = Arc::clone(&inflight);
-
-            scope.spawn(move |_| {
-                worker_loop(
-                    &open,
-                    &visited,
-                    &visited_count,
-                    &state,
-                    &inflight,
-                    leafnode,
-                    discs,
-                    node_limit,
-                    use_lp,
-                );
+    let nodes = visited.len();
+    let shared = Shared {
+        work: Mutex::new(Work {
+            open,
+            visited,
+            active: 0,
+            nodes,
+            result: None,
+        }),
+        changed: Condvar::new(),
+    };
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while let Some(node) = shared.claim(node_limit) {
+                    let expansion = (|| -> io::Result<()> {
+                        if table.contains(node.position) {
+                            let mut work = shared.work.lock().expect("search mutex poisoned");
+                            if !matches!(work.result, Some(Err(_))) {
+                                work.result = Some(found(table, goal, &node, work.nodes));
+                            }
+                            return Ok(());
+                        }
+                        if node.position.board.popcount() <= table.discs() {
+                            return Ok(());
+                        }
+                        if use_lp {
+                            let board = node.position.board;
+                            let result = check_lp(board.player, board.opponent, false, false)?;
+                            if let FilterResult::Undetermined { reason } = &result {
+                                eprintln!(
+                                    "info: LP undetermined for {}: {}; retaining this search node",
+                                    crate::io::format_position(node.position),
+                                    reason
+                                );
+                            }
+                            if !result.passes() {
+                                return Ok(());
+                            }
+                        }
+                        expand_node(&node, &shared, node_limit);
+                        Ok(())
+                    })();
+                    let mut work = shared.work.lock().expect("search mutex poisoned");
+                    work.active -= 1;
+                    if let Err(error) = expansion {
+                        work.result = Some(Err(error));
+                    }
+                    shared.changed.notify_all();
+                }
             });
         }
     });
-
-    // 探索結果を返す
-    match state.load(Ordering::Acquire) {
-        STATE_FOUND => SearchResult::Found,
-        STATE_NOT_FOUND => SearchResult::NotFound,
-        _ => SearchResult::Unknown,
-    }
-}
-
-/// ワーカースレッドのメインループ
-fn worker_loop(
-    open: &SkipSet<(NotNan<f64>, Position)>,
-    visited: &DashSet<Position>,
-    visited_count: &AtomicUsize,
-    state: &AtomicU8,
-    inflight: &AtomicUsize,
-    leafnode: &Vec<Position>,
-    discs: i32,
-    node_limit: usize,
-    use_lp: bool,
-) {
-    while state.load(Ordering::Acquire) == STATE_RUNNING {
-        // ノード制限チェック
-        if visited_count.load(Ordering::Relaxed) >= node_limit {
-            let _ = state.compare_exchange(
-                STATE_RUNNING,
-                STATE_LIMIT_REACHED,
-                Ordering::AcqRel,
-                Ordering::Relaxed,
-            );
-            break;
-        }
-
-        // 優先度キューから最小コストのノードを取得
-        let entry = match open.pop_front() {
-            Some(e) => e,
-            None => {
-                // キューが空の場合、探索枯渇を判定
-                if is_search_exhausted(open, inflight) {
-                    let _ = state.compare_exchange(
-                        STATE_RUNNING,
-                        STATE_NOT_FOUND,
-                        Ordering::AcqRel,
-                        Ordering::Relaxed,
-                    );
-                }
-                continue;
-            }
-        };
-
-        let node = entry.value().1;
-        inflight.fetch_add(1, Ordering::AcqRel);
-
-        // 目標到達判定
-        let num_disc = (node.board.player | node.board.opponent).count_ones() as i32;
-        if num_disc == discs {
-            if is_leaf(node, leafnode, discs) {
-                let _ = state.compare_exchange(
-                    STATE_RUNNING,
-                    STATE_FOUND,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                );
-                inflight.fetch_sub(1, Ordering::AcqRel);
-                break;
-            }
-            // 目標leaf nodeではなくても、目標と同じ石数に至ったならそれ以上展開しない
-            inflight.fetch_sub(1, Ordering::AcqRel);
-            continue;
-        }
-
-        // LP枝刈り
-        if use_lp && !check_lp(node.board.player, node.board.opponent, false, false) {
-            inflight.fetch_sub(1, Ordering::AcqRel);
-            continue;
-        }
-
-        // 子ノードを展開
-        expand_node(node, open, visited, visited_count, state, node_limit);
-
-        inflight.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-/// ノードを展開し、子ノードをキューに追加
-fn expand_node(
-    node: Position,
-    open: &SkipSet<(NotNan<f64>, Position)>,
-    visited: &DashSet<Position>,
-    visited_count: &AtomicUsize,
-    state: &AtomicU8,
-    node_limit: usize,
-) {
-    PREV_RETROFLIPS_BUF.with(|retroflips| {
-        PREV_STATES_BUF.with(|prev_buf| {
-            let mut retroflips = retroflips.borrow_mut();
-            let mut prev_buf = prev_buf.borrow_mut();
-            prev_states_with_buffer(node, &mut *retroflips, &mut *prev_buf);
-
-            for prev in prev_buf.iter().copied() {
-                if state.load(Ordering::Acquire) != STATE_RUNNING {
-                    break;
-                }
-
-                // 枝刈りチェック
-                let oc = prev.board.player | prev.board.opponent;
-                if !check_occupancy(oc)
-                    || !check_seg3_more(prev.board.player, prev.board.opponent, false)
-                    || !check_edge_patterns(prev.board.player, prev.board.opponent)
-                {
-                    continue;
-                }
-
-                // 絶対手番を含む局面で重複チェック
-                let child = prev;
-
-                if visited.insert(child) {
-                    let new_count = visited_count.fetch_add(1, Ordering::Relaxed) + 1;
-                    if new_count > node_limit {
-                        let _ = state.compare_exchange(
-                            STATE_RUNNING,
-                            STATE_LIMIT_REACHED,
-                            Ordering::AcqRel,
-                            Ordering::Relaxed,
-                        );
-                        break;
-                    }
-                    if let Ok(h) = NotNan::new(heuristic_function(child)) {
-                        open.insert((h, child));
-                    }
-                }
-            }
-        });
-    });
-}
-
-/// 探索が枯渇したか判定（キューが空かつ処理中ノードがない）
-fn is_search_exhausted(open: &SkipSet<(NotNan<f64>, Position)>, inflight: &AtomicUsize) -> bool {
-    if inflight.load(Ordering::Acquire) == 0 {
-        thread::sleep(Duration::from_micros(50));
-        open.is_empty() && inflight.load(Ordering::Acquire) == 0
-    } else {
-        thread::sleep(Duration::from_micros(50));
-        false
-    }
+    shared
+        .work
+        .into_inner()
+        .expect("search mutex poisoned")
+        .result
+        .ok_or_else(|| io::Error::other("workers stopped without a result"))?
 }

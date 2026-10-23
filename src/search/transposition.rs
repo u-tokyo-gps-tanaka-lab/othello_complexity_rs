@@ -1,55 +1,14 @@
+//! Exact position identity for reverse-search visited sets.
+
+use crate::hash::CustomHash;
+use crate::othello::Position;
 use std::collections::HashSet;
 
-use crate::{othello::Position, search::forward::fwd_search};
+/// The key includes the relative board, its orientation and the absolute turn.
+pub type Visited = HashSet<Position, CustomHash>;
 
-/// table for forward leaf nodes
-pub struct LeafCache {
-    searched: HashSet<Position>,
-    leaf: HashSet<Position>,
-}
-
-impl LeafCache {
-    pub fn new(discs: i32) -> Self {
-        let mut searched: HashSet<Position> = HashSet::new();
-        let mut leafnode: HashSet<Position> = HashSet::new();
-        let initial = Position::initial();
-        fwd_search(&initial, &mut searched, &mut leafnode, discs);
-        leafnode.extend(searched.iter().copied());
-        for i in 4..9 {
-            let mut ans = vec![];
-            for s in &searched {
-                if s.board.popcount() == i {
-                    ans.push(s);
-                }
-            }
-            println!("i={}, ans.len()={}", i, ans.len());
-            ans.sort();
-            for j in 0..ans.len() {
-                println!("{}", crate::io::format_position(*ans[j]));
-            }
-        }
-        LeafCache {
-            searched,
-            leaf: leafnode,
-        }
-    }
-
-    pub fn searched_count(&self) -> usize {
-        self.searched.len()
-    }
-
-    pub fn leaf_count(&self) -> usize {
-        self.leaf.len()
-    }
-
-    pub fn leaf(&self) -> &HashSet<Position> {
-        &self.leaf
-    }
-}
-
-// Transposition table for retrospective search.
-// tableをsorted arrayとして持つと存在チェックが二分探索でできる
-// hashsetとarrayを組み合わせることで、挿入性能と読み取り性能の両方をそこそこ高く保つ
+/// A bounded sorted table with a separate insertion cache.
+/// When a full cache would exceed the table limit, only that cache is forgotten.
 pub struct Btable {
     table_size: usize,
     cache_size: usize,
@@ -59,59 +18,54 @@ pub struct Btable {
 
 impl Btable {
     pub fn new(table_size: usize, cache_size: usize) -> Self {
-        Btable {
+        Self {
             table_size,
-            cache_size: cache_size,
+            cache_size,
             table: Vec::new(),
             cache: HashSet::new(),
         }
     }
 
+    /// Forget the previous query while retaining both allocations for reuse.
     pub fn clear(&mut self) {
         self.table.clear();
         self.cache.clear();
     }
 
     pub fn len(&self) -> usize {
-        let ans = self.cache.len() + self.table.len();
-        ans
+        self.table.len() + self.cache.len()
     }
 
-    /// Returns true if inserted, false if already present.
-    /// まずcacheを調べ、なかったらtableを調べる。
-    /// cacheのサイズが上限に達したら、マージソートを行いtableに中身を移す。
-    pub fn insert(&mut self, uni: Position) -> bool {
-        if self.cache.contains(&uni) {
+    /// Return false only when the position is still remembered.
+    pub fn insert(&mut self, position: Position) -> bool {
+        if self.cache.contains(&position) || self.table.binary_search(&position).is_ok() {
             return false;
         }
-        if let Ok(_) = self.table.binary_search(&uni) {
-            return false;
-        }
-        self.cache.insert(uni);
+        self.cache.insert(position);
         if self.cache.len() >= self.cache_size {
             if self.table.len() + self.cache.len() > self.table_size {
                 self.cache.clear();
                 return true;
             }
-            let mut c2v: Vec<Position> = self.cache.iter().map(|x| *x).collect();
+            let mut pending: Vec<Position> = self.cache.iter().copied().collect();
             self.cache.clear();
-            c2v.sort();
+            pending.sort();
             let mut i = self.table.len();
-            let mut j = c2v.len();
-            // Reserve only this merge; resize must not grow capacity geometrically
-            // beyond the configured table limit.
+            let mut j = pending.len();
+            // Reserve only this merge so resize cannot geometrically exceed
+            // the specified table limit.
             self.table.reserve_exact(j);
-            self.table.resize(i + j, uni);
+            self.table.resize(i + j, position);
             for k in (0..(i + j)).rev() {
-                if j == 0 || (i > 0 && self.table[i - 1] >= c2v[j - 1]) {
+                if j == 0 || (i > 0 && self.table[i - 1] >= pending[j - 1]) {
                     self.table[k] = self.table[i - 1];
                     i -= 1;
                 } else {
-                    self.table[k] = c2v[j - 1];
+                    self.table[k] = pending[j - 1];
                     j -= 1;
                 }
             }
         }
-        return true;
+        true
     }
 }

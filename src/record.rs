@@ -4,6 +4,7 @@
 
 use crate::othello::{flip, get_moves, validate_board, Board, BoardSymmetry, Position};
 use std::fmt;
+use std::str::FromStr;
 
 pub use crate::io::{format_actions, parse_actions};
 
@@ -16,6 +17,8 @@ pub enum GoalMatch {
     ///
     /// 開始と終了の向きを独立に変えてよい到達判定と同値である。
     SymmetryOrbit,
+    /// 目標の8対称像と、各像の絶対色・手番をともに交換した局面のいずれかに一致する。
+    EquivalenceClass,
 }
 
 impl GoalMatch {
@@ -23,13 +26,80 @@ impl GoalMatch {
         match self {
             Self::Exact => "exact",
             Self::SymmetryOrbit => "symmetry",
+            Self::EquivalenceClass => "equivalence",
         }
+    }
+
+    /// 問い合わせが許す変換を列挙する。色交換は幾何変換の後に適用する。
+    pub fn transforms(self) -> impl Iterator<Item = PositionTransform> {
+        [false, true]
+            .into_iter()
+            .flat_map(|exchange_colors| {
+                BoardSymmetry::ALL
+                    .into_iter()
+                    .map(move |symmetry| PositionTransform {
+                        symmetry,
+                        exchange_colors,
+                    })
+            })
+            .filter(move |transform| match self {
+                Self::Exact => *transform == PositionTransform::IDENTITY,
+                Self::SymmetryOrbit => !transform.exchange_colors,
+                Self::EquivalenceClass => true,
+            })
     }
 }
 
 impl fmt::Display for GoalMatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
+    }
+}
+
+/// 幾何変換と、任意の絶対色・手番の同時交換。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct PositionTransform {
+    pub symmetry: BoardSymmetry,
+    pub exchange_colors: bool,
+}
+
+impl PositionTransform {
+    pub const IDENTITY: Self = Self {
+        symmetry: BoardSymmetry::Identity,
+        exchange_colors: false,
+    };
+
+    pub fn apply_position(self, position: Position) -> Position {
+        let mut transformed = self.symmetry.apply_position(position);
+        if self.exchange_colors {
+            transformed.side_to_move = transformed.side_to_move.opposite();
+        }
+        transformed
+    }
+}
+
+impl fmt::Display for PositionTransform {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.symmetry)?;
+        if self.exchange_colors {
+            formatter.write_str("+color_exchange")?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for PositionTransform {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (symmetry, exchange_colors) = match value.strip_suffix("+color_exchange") {
+            Some(symmetry) => (symmetry, true),
+            None => (value, false),
+        };
+        Ok(Self {
+            symmetry: symmetry.parse()?,
+            exchange_colors,
+        })
     }
 }
 
@@ -43,14 +113,14 @@ pub enum PlyAction {
 /// 問い合わせと、それを満たす手順を対応づける到達証跡。
 ///
 /// `input_index` は入力局面ファイルの1から始まる行番号。
-/// `symmetry` は要求した `goal` を実際の終点へ写し、完全一致では恒等変換に限る。
+/// `transform` は要求した `goal` を実際の終点へ写し、完全一致では恒等変換に限る。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReachabilityRecord {
     pub input_index: usize,
     pub start: Position,
     pub goal: Position,
     pub goal_match: GoalMatch,
-    pub symmetry: BoardSymmetry,
+    pub transform: PositionTransform,
     pub actions: Vec<PlyAction>,
 }
 
@@ -62,27 +132,42 @@ impl ReachabilityRecord {
         }
         validate_board(&self.goal.board)
             .map_err(|error| format!("invalid goal board: {error:?}"))?;
-        if self.goal_match == GoalMatch::Exact && self.symmetry != BoardSymmetry::Identity {
-            return Err("exact matching requires the identity symmetry".to_owned());
+        if !self
+            .goal_match
+            .transforms()
+            .any(|transform| transform == self.transform)
+        {
+            return Err(format!(
+                "{} matching does not allow transform {}",
+                self.goal_match, self.transform
+            ));
         }
         let positions = replay(self.start, &self.actions)?;
-        let expected = self.symmetry.apply_position(self.goal);
+        let expected = self.transform.apply_position(self.goal);
         if positions.last() != Some(&expected) {
             return Err("record endpoint does not match the selected goal position".to_owned());
         }
         Ok(positions)
     }
 
-    /// 6列のタブ区切りで保存する。空手順では末尾の空欄を保持する。
-    pub fn to_tsv(&self) -> String {
+    /// 見出しと改行を含まない6列のCSVを返す。空手順では末尾の空欄を保持する。
+    pub fn to_csv(&self) -> String {
         crate::io::format_reachability_record(self)
     }
 
-    /// 6列を読み込み、局面と識別名の構文を検査する。
+    /// 6列のCSVを1レコード読み込み、局面と識別名の構文を検査する。
     ///
     /// 行動の合法性と実際の終点は [`Self::verify`] で検証する。
-    pub fn from_tsv(line: &str) -> Result<Self, String> {
-        crate::io::parse_reachability_record(line)
+    pub fn from_csv(text: &str) -> Result<Self, String> {
+        crate::io::parse_reachability_record(text)
+    }
+}
+
+impl TryFrom<&csv::StringRecord> for ReachabilityRecord {
+    type Error = String;
+
+    fn try_from(fields: &csv::StringRecord) -> Result<Self, Self::Error> {
+        crate::io::parse_reachability_fields(fields)
     }
 }
 
@@ -154,7 +239,7 @@ mod tests {
             start,
             goal,
             goal_match: GoalMatch::Exact,
-            symmetry: BoardSymmetry::Identity,
+            transform: PositionTransform::IDENTITY,
             actions,
         }
     }
@@ -236,7 +321,7 @@ mod tests {
         ];
         for (start, goal, actions) in cases {
             let record = exact_record(start, goal, actions);
-            let parsed = ReachabilityRecord::from_tsv(&record.to_tsv()).unwrap();
+            let parsed = ReachabilityRecord::from_csv(&record.to_csv()).unwrap();
             assert_eq!(parsed, record);
             assert_eq!(parsed.verify().unwrap().last(), Some(&goal));
         }
@@ -281,13 +366,16 @@ mod tests {
         };
         let mut record = ReachabilityRecord {
             goal_match: GoalMatch::SymmetryOrbit,
-            symmetry: BoardSymmetry::MirrorHorizontal,
+            transform: PositionTransform {
+                symmetry: BoardSymmetry::MirrorHorizontal,
+                exchange_colors: false,
+            },
             ..exact_record(initial, reflected, Vec::new())
         };
         assert_eq!(record.verify().unwrap(), vec![initial]);
-        record.symmetry = BoardSymmetry::Identity;
+        record.transform.symmetry = BoardSymmetry::Identity;
         assert!(record.verify().is_err());
-        record.symmetry = BoardSymmetry::MirrorHorizontal;
+        record.transform.symmetry = BoardSymmetry::MirrorHorizontal;
         record.goal_match = GoalMatch::Exact;
         assert!(record.verify().is_err());
         record.goal_match = GoalMatch::SymmetryOrbit;

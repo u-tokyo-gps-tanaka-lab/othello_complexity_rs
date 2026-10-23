@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use crate::{
-    othello::{Board, Direction, CENTER_MASK},
-    prunings::occupancy::{occupancy_order, occupancy_order_cached},
+    othello::{Direction, CENTER_MASK},
+    prunings::occupancy::{check_occupancy, occupancy_order, occupancy_order_cached},
 };
 
 pub fn no_cycle(g: Vec<Vec<usize>>) -> bool {
@@ -166,13 +166,15 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
     (canput, canflip)
 }
 
-/// 反転整合性のチェック
+/// 反転整合性の必要条件を検査する。
+///
+/// 占有到達性が満たされない場合も到達不能であるため `false` を返す。
+/// 呼出し元で占有到達性を検査しておく必要はない。
 pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) -> bool {
-    //if !check_seg3_more(player, opponent) {
-    //    return false;
-    //}
-
     let occupied = player | opponent;
+    if !check_occupancy(occupied) {
+        return false;
+    }
     let order = if use_occupancy_cache {
         occupancy_order_cached(occupied)
     } else {
@@ -192,9 +194,7 @@ pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) ->
                     continue;
                 }
                 if canput[i as usize] == 0 {
-                    eprintln!("canput = 0, i={}, x={}, y={}", i, x, y);
-                    eprintln!("{}", Board::new(player, opponent).show());
-                    panic!("inconsistent");
+                    return false;
                 }
                 // putの方向が1方向で後でflipされた可能性がない．
                 if canflip[i as usize] != 0 {

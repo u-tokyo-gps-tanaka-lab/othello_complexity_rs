@@ -1,197 +1,68 @@
 use clap::Parser;
-use rand::rngs::ThreadRng;
-use rand::Rng;
-use std::cmp::min;
-use std::fs;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-
 use othello_complexity_rs::io::format_position;
-use othello_complexity_rs::othello::{Board, Color, Position};
+use othello_complexity_rs::sampling::{
+    artifact, create_output_dir, rank_of_position, write_sampling_record, Population,
+};
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use serde_json::json;
+use std::error::Error;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "gen_random_boards",
-    about = "Generate uniform absolute Othello positions"
-)]
+#[derive(Parser)]
+#[command(about = "Sample Othello positions or equivalence classes uniformly with replacement")]
 struct Args {
-    /// 中心4マス以外に石を置くマス数 (0ならばマス数を限定しない全状態から抽出)
-    #[arg(short = 'n', long, default_value_t = 0)]
-    stone_count: usize,
-
-    /// 生成個数
-    #[arg(short = 'c', long, default_value_t = 50)]
-    gen_count: usize,
-
-    /// 出力先ディレクトリ
-    #[arg(short = 'o', long = "out-dir", value_name = "DIR")]
-    out_dir: Option<PathBuf>,
+    /// Exact positions, or equivalence classes represented with Black to move
+    #[arg(long, value_enum)]
+    mode: Population,
+    /// Total occupied squares; omit to sample the whole population
+    #[arg(long, value_parser = clap::value_parser!(u32).range(4..=64))]
+    discs: Option<u32>,
+    #[arg(short = 'c', long)]
+    count: usize,
+    #[arg(long)]
+    seed: u64,
+    /// New output directory
+    #[arg(short = 'o', long)]
+    out_dir: PathBuf,
 }
-
-/// nCk を u128 で返す。u128 を超える場合は None。
-pub fn combination_u128(n: usize, k: usize) -> Option<u128> {
-    if k > n {
-        return Some(0); // 慣習的に n < k なら 0
-    }
-    let k = min(k, n - k);
-    if k == 0 {
-        return Some(1);
-    }
-
-    let mut res: u128 = 1;
-
-    for i in 1..=k {
-        // 分子 (n - k + i), 分母 i
-        let mut a = (n - k + i) as u128;
-        let mut b = i as u128;
-
-        // 分子と分母でまず約分
-        let g1 = gcd_u128(a, b);
-        a /= g1;
-        b /= g1;
-
-        // さらに現在の res と分母 b を約分（分母をできるだけ 1 に近づける）
-        let g2 = gcd_u128(res, b);
-        res /= g2;
-        b /= g2;
-
-        // ここまでで b は通常 1 になる（ならなくても整数結果は保たれる）
-        // まず掛け算でオーバーフロー検出
-        res = res.checked_mul(a)?;
-        if b != 1 {
-            // 念のため（整数性は保たれているはず）
-            debug_assert!(res % b == 0);
-            res /= b;
-        }
-    }
-    Some(res)
-}
-
-#[inline]
-fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
-    while b != 0 {
-        let r = a % b;
-        a = b;
-        b = r;
-    }
-    a
-}
-
-/// 区間 0..lim から乱数を生成
-fn mk_rand(rng: &mut ThreadRng, lim: u128) -> u128 {
-    let maxv: u128 = (u128::MAX / lim) * lim; // u128::MAX以下で最大のlimの倍数
-
-    // 乱数の範囲を [0, maxv) に制限し, [maxv, u128::MAX] の値を棄却する
-    loop {
-        let x: u128 = rng.random();
-        if x < maxv {
-            return x % lim;
-        }
-    }
-}
-
-/// n+4マス埋まりの盤面と独立な絶対手番を一様に生成する（到達可能とは限らない）。
-/// - rng: 疑似乱数生成器
-/// - n: 中心4マス以外に石を置くマス数 (n==0ならばマス数を限定しない全状態から抽出)
-fn mk_rand_position(rng: &mut ThreadRng, n: usize) -> Position {
-    let mut player: u64 = 0;
-    let mut opponent: u64 = 0;
-
-    if n == 0 {
-        let lim: u128 = 3_u128.pow(60) * 2_u128.pow(4);
-        let mut v = mk_rand(rng, lim);
-        for y in 0..8 {
-            for x in 0..8 {
-                let i = y * 8 + x;
-                let sq = if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
-                    let ans = (v % 2) + 1;
-                    v /= 2;
-                    ans
-                } else {
-                    let ans = v % 3;
-                    v /= 3;
-                    ans
-                };
-                if sq == 1 {
-                    player |= 1u64 << i;
-                } else if sq == 2 {
-                    opponent |= 1u64 << i;
-                }
-            }
-        }
-    } else {
-        let mut rest_stone = n; //置くべき石が残りいくつあるか
-        let mut rest_sq = 60; //まだ石を置いていないマスの数
-
-        for y in 0..8 {
-            for x in 0..8 {
-                let i = y * 8 + x;
-                if 3 <= x && x <= 4 && 3 <= y && y <= 4 {
-                    let v = mk_rand(rng, 2);
-                    if v == 0 {
-                        player |= 1u64 << i;
-                    } else {
-                        opponent |= 1u64 << i;
-                    }
-                } else {
-                    rest_sq -= 1;
-                    let mut set_count: u128 = 0;
-                    let mut blank_count: u128 = 0;
-                    if rest_sq < rest_stone {
-                        // always set
-                        set_count = 1;
-                    } else if rest_stone == 0 {
-                        blank_count = 1;
-                    } else {
-                        set_count = combination_u128(rest_sq, rest_stone - 1).unwrap();
-                        blank_count = combination_u128(rest_sq, rest_stone).unwrap();
-                    }
-                    let v = mk_rand(rng, set_count + blank_count);
-                    if v < set_count {
-                        rest_stone -= 1;
-                        let v = mk_rand(rng, 2);
-                        if v == 0 {
-                            player |= 1u64 << i;
-                        } else {
-                            opponent |= 1u64 << i;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Position {
-        board: Board::new(player, opponent),
-        side_to_move: if mk_rand(rng, 2) == 0 {
-            Color::Black
-        } else {
-            Color::White
-        },
-    }
-}
-
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let mut rng = rand::rng();
-
-    let out_dir = args.out_dir.unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("result")
-            .join("random_board")
-    });
-    if !out_dir.exists() {
-        fs::create_dir_all(&out_dir)?;
+    if args.count == 0 {
+        return Err("count must be positive".into());
     }
-
-    let file_path = out_dir.join(format!(
-        "result_n{}_c{}.txt",
-        args.stone_count, args.gen_count
-    ));
-    let mut file = File::create(&file_path)?;
-    for _ in 0..args.gen_count {
-        let position = mk_rand_position(&mut rng, args.stone_count);
-        writeln!(file, "{}", format_position(position))?;
+    let population = args.mode.metadata(args.discs)?;
+    create_output_dir(&args.out_dir)?;
+    let positions_path = args.out_dir.join("positions.txt");
+    let mapping_path = args.out_dir.join("mapping.jsonl");
+    let mut output = BufWriter::new(File::create_new(&positions_path)?);
+    let mut mapping = BufWriter::new(File::create_new(&mapping_path)?);
+    let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
+    for index in 1..=args.count {
+        let position = args.mode.sample(&mut rng, args.discs)?;
+        writeln!(output, "{}", format_position(position))?;
+        serde_json::to_writer(
+            &mut mapping,
+            &json!({
+                "input_line": index, "output_line": index, "accepted": true,
+                "position": format_position(position), "absolute_rank": rank_of_position(position)?.to_string(),
+            }),
+        )?;
+        writeln!(mapping)?;
     }
+    output.flush()?;
+    mapping.flush()?;
+    write_sampling_record(
+        &args.out_dir,
+        json!({
+            "method": if args.discs.is_some() { "fixed-discs" } else { "uniform" },
+            "population": population, "uniform": true, "with_replacement": true,
+            "seed": args.seed, "input": null, "input_count": args.count,
+            "accepted_count": args.count, "output": artifact(&positions_path)?,
+            "mapping": artifact(&mapping_path)?,
+        }),
+    )?;
     Ok(())
 }

@@ -1,316 +1,167 @@
-use dashmap::DashSet;
-use rayon::ThreadPoolBuilder;
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
-use crate::othello::{get_moves, Board, Position};
-use crate::prunings::occupancy::check_occupancy;
-use crate::prunings::seg3::check_seg3_more;
-use crate::search::core::{retrospective_flip, SearchResult};
-use crate::search::move_ordering::h_function;
+use ordered_float::OrderedFloat;
 
-// 並列パラメータ（必要なら調整）
-const PAR_MAX_DEPTH: usize = 12; // この深さまでは spawn を許可
-const PAR_MIN_CHILDREN: usize = 4; // 子の数がこの数以上なら分割を検討
+use crate::othello::Position;
+use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
+use crate::record::PlyAction;
+use crate::search::{
+    core::{found, predecessors, SearchNode, SearchOutcome},
+    forward::ForwardTable,
+    move_ordering::h_function,
+    transposition::Visited,
+};
 
-#[inline]
-fn should_split(depth: usize, children: usize) -> bool {
-    depth < PAR_MAX_DEPTH && children >= PAR_MIN_CHILDREN
+struct Progress {
+    visited: Visited,
+    table_attempts: usize,
+    nodes: usize,
+    limited: bool,
 }
 
-// thread-local retroflips バッファ
-thread_local! {
-    static TL_RETRO: RefCell<Vec<[u64; 10_000]>> = RefCell::new(Vec::new());
-}
-
-// 並列探索用の共有状態
-struct ParShared<'a> {
-    leafnode: &'a std::collections::HashSet<Position>, // 読み取り専用
-    visited: &'a DashSet<Position>,                    // 既訪問ユニーク局面
-    discs: i32,
+struct Context<'a> {
+    table: &'a ForwardTable,
     node_limit: usize,
     table_limit: usize,
-    node_count: &'a AtomicUsize, // 走査ノード数
-    node_per_stone: &'a [AtomicUsize; 65],
-    done_per_stone: &'a [AtomicUsize; 65],
-    table_count: &'a AtomicUsize, // 走査ノード数
-
-    // 早期停止フラグ: 0=進行中, 1=Found, 2=Unknown(上限超過)
-    stop: &'a AtomicUsize,
+    progress: Mutex<Progress>,
+    stopped: AtomicBool,
 }
 
-// ユーティリティ：スレッドプール初期化（必要なら呼ぶ）
-pub fn init_rayon(num_threads: Option<usize>) {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let mut b = ThreadPoolBuilder::new();
-        if let Some(n) = num_threads {
-            b = b.num_threads(n);
-        }
-        b.build_global().expect("failed to init global rayon pool");
-    });
+fn order_children(children: &mut [(Position, PlyAction)]) {
+    // Stable sorting preserves the established generation order on score ties.
+    children.sort_by_cached_key(|(position, _)| OrderedFloat(h_function(&position.board)));
 }
 
-pub fn retrospective_search_parallel(
-    position: &Position,
-    from_pass: bool,
-    discs: i32,
-    leafnode: &std::collections::HashSet<Position>,
-    node_limit: usize,
-    table_limit: usize,
-) -> SearchResult {
-    let visited = DashSet::new();
-    let node_count = AtomicUsize::new(0);
-    let table_count = AtomicUsize::new(0);
-    let node_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
-    let done_per_stone: [AtomicUsize; 65] = std::array::from_fn(|_| AtomicUsize::new(0));
-    let stop = AtomicUsize::new(0);
-
-    let shared = ParShared {
-        leafnode,
-        visited: &visited,
-        discs,
-        node_limit,
-        table_limit,
-        node_count: &node_count,
-        table_count: &table_count,
-        node_per_stone: &node_per_stone,
-        done_per_stone: &done_per_stone,
-        stop: &stop,
-    };
-
-    // ルート呼び出し
-    let res = par_retro_core(position, from_pass, &shared, 0);
-    for i in 0..=64 {
-        eprintln!(
-            "{}: {} / {}",
-            i,
-            done_per_stone[i].load(Ordering::Relaxed),
-            node_per_stone[i].load(Ordering::Relaxed)
-        );
-    }
-    res
-}
-
-// 動的並列コア
-fn par_retro_core(
-    position: &Position,
-    from_pass: bool,
-    sh: &ParShared,
-    depth: usize,
-) -> SearchResult {
-    // 全体の早期停止を確認
-    match sh.stop.load(Ordering::Relaxed) {
-        1 => return SearchResult::Found,
-        2 => return SearchResult::Unknown,
-        _ => {}
-    }
-
-    let board = &position.board;
-    let uni = *position;
-    let num_disc = board.popcount() as usize;
-
-    // カウンターの変更
-    sh.done_per_stone[num_disc].fetch_add(1, Ordering::Relaxed);
-
-    // しきい以下なら leafnode 照合のみ
-    if (num_disc as i32) <= sh.discs {
-        let r = if sh.leafnode.contains(&uni) {
-            SearchResult::Found
-        } else {
-            SearchResult::NotFound
-        };
-        if r == SearchResult::Found {
-            let _ = sh
-                .stop
-                .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
+impl Context<'_> {
+    fn visit(&self, node: SearchNode, depth: usize) -> io::Result<Option<SearchNode>> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Ok(None);
         }
-        return r;
-    }
-
-    // 再訪防止
-    let n = sh.table_count.fetch_add(1, Ordering::Relaxed) + 1;
-    if n < sh.table_limit {
-        if !sh.visited.insert(uni) {
-            return SearchResult::NotFound;
+        // A task that has already started can still supply an actual witness
+        // while another task reaches the resource limit.
+        if self.table.contains(node.position) {
+            self.stopped.store(true, Ordering::Release);
+            return Ok(Some(node));
         }
-    } else {
-        if sh.visited.contains(&uni) {
-            return SearchResult::NotFound;
+        if node.position.board.popcount() <= self.table.discs() {
+            return Ok(None);
         }
-    }
-
-    // ノード数制限
-    let n = sh.node_count.fetch_add(1, Ordering::Relaxed) + 1;
-    if n > sh.node_limit {
-        // Unknown（上限超過）を全体に通知
-        let _ = sh
-            .stop
-            .compare_exchange(0, 2, Ordering::Relaxed, Ordering::Relaxed);
-        return SearchResult::Unknown;
-    }
-
-    // 形状フィルタ
-    let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent, false) {
-        // !is_connected(occupied) || !check_seg3(occupied)
-        return SearchResult::NotFound;
-    }
-
-    // ---- 子ノード列挙（パス + 直前着手候補からの retroflips）----
-    // 1) パス枝（from_pass==false かつ 相手に合法手無し）
-    let mut children: Vec<(Position, bool)> = Vec::new(); // (prev_board, from_pass_prev)
-    if !from_pass
-        && get_moves(board.opponent, board.player) == 0
-        && get_moves(board.player, board.opponent) != 0
-    {
-        children.push((
-            Position {
-                board: Board {
-                    player: board.opponent,
-                    opponent: board.player,
-                },
-                side_to_move: position.side_to_move.opposite(),
-            },
-            true,
-        ));
-    }
-
-    // 2) 直前着手位置ごとの “可能 flip 集合” 展開
-    let b = board.opponent & !0x0000_0018_1800_0000u64;
-    if b == 0 && children.is_empty() {
-        return SearchResult::NotFound;
-    }
-
-    TL_RETRO.with(|tl| {
-        let mut retro = tl.borrow_mut();
-        if retro.len() <= num_disc {
-            retro.resize(num_disc + 1, [0u64; 10_000]);
-        }
-
-        let mut bb = b;
-        while bb != 0 {
-            let index = bb.trailing_zeros() as usize;
-            bb &= bb - 1;
-
-            let num = retrospective_flip(index, board.player, board.opponent, &mut retro[num_disc]);
-            for i in 1..num {
-                let flipped = retro[num_disc][i];
-                debug_assert!(flipped != 0);
-                let prev = Board {
-                    player: board.opponent ^ (flipped | (1u64 << index)),
-                    opponent: board.player ^ flipped,
-                };
-                children.push((
-                    Position {
-                        board: prev,
-                        side_to_move: position.side_to_move.opposite(),
-                    },
-                    false,
-                ));
+        {
+            let mut progress = self.progress.lock().expect("search mutex poisoned");
+            if self.stopped.load(Ordering::Acquire) {
+                return Ok(None);
+            }
+            progress.table_attempts += 1;
+            if progress.table_attempts < self.table_limit {
+                if !progress.visited.insert(node.position) {
+                    return Ok(None);
+                }
+            } else if progress.visited.contains(&node.position) {
+                return Ok(None);
+            }
+            progress.nodes += 1;
+            if progress.nodes > self.node_limit {
+                progress.limited = true;
+                self.stopped.store(true, Ordering::Release);
+                return Ok(None);
             }
         }
-    });
-
-    if children.is_empty() {
-        return SearchResult::NotFound;
-    }
-    let csize = children.len();
-
-    // move ordering by handmade heuristic
-    let mut children_score: Vec<(f64, usize)> = vec![];
-    for i in 0..csize {
-        children_score.push((h_function(&children[i].0.board), i));
-    }
-    children_score.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    let mut new_children: Vec<(Position, bool)> = vec![];
-    for i in 0..csize {
-        let j = children_score[i].1;
-        new_children.push(children[j]);
-    }
-    children = new_children;
-
-    sh.node_per_stone[num_disc - 1].fetch_add(csize, Ordering::Relaxed);
-    // ---- 動的に並列 or 直列を選ぶ ----
-    if should_split(depth, children.len()) {
-        use std::sync::atomic::AtomicUsize;
-        let local_best = AtomicUsize::new(SearchResult::NotFound as usize);
-
-        rayon::scope_fifo(|s| {
-            // children を消費して所有権を取り出す
-            let mut it = children.into_iter();
-
-            // 先頭はこのスレッドで実行
-            if let Some((bd0, fp0)) = it.next() {
-                let r0 = par_retro_core(&bd0, fp0, sh, depth + 1);
-                match r0 {
-                    SearchResult::Found => {
-                        local_best.store(SearchResult::Found as usize, Ordering::Relaxed);
-                        let _ =
-                            sh.stop
-                                .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
-                    }
-                    SearchResult::Unknown => {
-                        if local_best.load(Ordering::Relaxed) == (SearchResult::NotFound as usize) {
-                            local_best.store(SearchResult::Unknown as usize, Ordering::Relaxed);
+        let board = node.position.board;
+        if !check_occupancy(board.player | board.opponent)
+            || !check_seg3_more(board.player, board.opponent, false)
+        {
+            return Ok(None);
+        }
+        let mut previous = predecessors(node.position);
+        order_children(&mut previous);
+        if depth < 12 && previous.len() >= 4 {
+            let mut children = previous.into_iter();
+            let (position, action) = children.next().expect("split has at least four children");
+            // Finish the best-ranked branch before issuing the remaining FIFO
+            // tasks, as in the original dynamic parallel DFS.
+            let first = self.visit(node.preceding(position, action), depth + 1)?;
+            if first.is_some() || self.stopped.load(Ordering::Acquire) {
+                return Ok(first);
+            }
+            let joined = Mutex::new(Ok(None));
+            rayon::scope_fifo(|scope| {
+                for (position, action) in children {
+                    let child = node.preceding(position, action);
+                    let joined = &joined;
+                    scope.spawn_fifo(move |_| {
+                        let outcome = self.visit(child, depth + 1);
+                        let mut joined = joined.lock().expect("search mutex poisoned");
+                        match outcome {
+                            Err(error) => {
+                                self.stopped.store(true, Ordering::Release);
+                                *joined = Err(error);
+                            }
+                            Ok(Some(meeting)) if matches!(*joined, Ok(None)) => {
+                                *joined = Ok(Some(meeting));
+                            }
+                            Ok(_) => {}
                         }
-                    }
-                    SearchResult::NotFound => {}
+                    });
+                }
+            });
+            joined.into_inner().expect("search mutex poisoned")
+        } else {
+            for (position, action) in previous {
+                if let Some(meeting) = self.visit(node.preceding(position, action), depth + 1)? {
+                    return Ok(Some(meeting));
+                }
+                if self.stopped.load(Ordering::Acquire) {
+                    break;
                 }
             }
-
-            // 残りはタスクとして spawn（move で所有権を渡す）
-            // 共有する参照は、参照値を変数に束ねて、それを move でキャプチャ
-            let lb_ref = &local_best;
-            let sh_ref = sh;
-
-            for (bd, fp) in it {
-                s.spawn_fifo(move |_| {
-                    // bd と fp は move 済み（所有）
-                    let r = par_retro_core(&bd, fp, sh_ref, depth + 1);
-
-                    match r {
-                        SearchResult::Found => {
-                            lb_ref.store(SearchResult::Found as usize, Ordering::Relaxed);
-                            let _ = sh_ref.stop.compare_exchange(
-                                0,
-                                1,
-                                Ordering::Relaxed,
-                                Ordering::Relaxed,
-                            );
-                        }
-                        SearchResult::Unknown => {
-                            if lb_ref.load(Ordering::Relaxed) == (SearchResult::NotFound as usize) {
-                                lb_ref.store(SearchResult::Unknown as usize, Ordering::Relaxed);
-                            }
-                        }
-                        SearchResult::NotFound => {}
-                    }
-                });
-            }
-        });
-
-        match local_best.load(Ordering::Relaxed) {
-            x if x == (SearchResult::Found as usize) => SearchResult::Found,
-            x if x == (SearchResult::Unknown as usize) => SearchResult::Unknown,
-            _ => SearchResult::NotFound,
+            Ok(None)
         }
+    }
+}
+
+/// Parallel depth-first exploration. Memoization is registered only while the
+/// nonboundary visit-attempt count is strictly below the table bound. The node
+/// bound counts visits not suppressed by that table and stops with UNKNOWN.
+pub fn retrospective_search_parallel(
+    goal: Position,
+    table: &ForwardTable,
+    node_limit: usize,
+    table_limit: usize,
+    threads: usize,
+) -> io::Result<SearchOutcome> {
+    table.validate_goal(goal)?;
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .map_err(io::Error::other)?;
+    let context = Context {
+        table,
+        node_limit,
+        table_limit,
+        progress: Mutex::new(Progress {
+            visited: Visited::default(),
+            table_attempts: 0,
+            nodes: 0,
+            limited: false,
+        }),
+        stopped: AtomicBool::new(false),
+    };
+    let meeting = pool.install(|| context.visit(SearchNode::root(goal), 0))?;
+    let progress = context
+        .progress
+        .into_inner()
+        .expect("search mutex poisoned");
+    if let Some(node) = meeting {
+        found(table, goal, &node, progress.nodes)
+    } else if progress.limited {
+        Ok(SearchOutcome::Unknown {
+            nodes: progress.nodes,
+        })
     } else {
-        // 直列分岐はそのまま
-        for (bd, fp) in children {
-            let r = par_retro_core(&bd, fp, sh, depth + 1);
-            match r {
-                SearchResult::Found => return SearchResult::Found,
-                SearchResult::Unknown => return SearchResult::Unknown,
-                SearchResult::NotFound => {}
-            }
-            match sh.stop.load(Ordering::Relaxed) {
-                1 => return SearchResult::Found,
-                2 => return SearchResult::Unknown,
-                _ => {}
-            }
-        }
-        SearchResult::NotFound
+        Ok(SearchOutcome::NotFound {
+            nodes: progress.nodes,
+        })
     }
 }

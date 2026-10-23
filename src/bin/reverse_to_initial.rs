@@ -1,288 +1,493 @@
+use clap::{Args, Parser, Subcommand};
+use othello_complexity_rs::record::GoalMatch;
+use othello_complexity_rs::search::run::{run_strategy, ExternalBfs, Strategy};
 use std::io;
 use std::path::PathBuf;
-
-use clap::{Args, Parser, Subcommand};
-
-use othello_complexity_rs::search::core::{
-    default_input_path, default_out_dir, read_env_with_default,
-};
-use othello_complexity_rs::search::external_bfs::Cfg as BfsCfg;
-use othello_complexity_rs::search::run::{
-    run_bfs, run_dfs, run_dfs_move_ordering, run_parallel_bfs, run_parallel_dfs, run_parallel_gbfs,
-    run_parallel_inmemory_bfs,
-};
 
 #[derive(Parser, Debug)]
 #[command(
     name = "reverse_to_initial",
-    author,
     version,
-    about = "Run reverse search strategies for Othello"
+    about = "Prove position or equivalence-class reachability with reverse search"
 )]
-pub struct Cli {
+struct Cli {
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Command {
-    /// Sequential depth-first reverse search (default implementation)
+enum Command {
+    /// Sequential depth-first reverse search.
     Dfs(BasicOpts),
-    /// Sequential reverse search with move ordering heuristics
+    /// Depth-first search with predecessor ordering.
     #[command(name = "dfs-move-ordering")]
     MoveOrdering(BasicOpts),
-    /// Parallel reverse search using rayon workers
+    /// Parallel depth-first reverse search.
     #[command(name = "dfs-parallel")]
     DfsPar(ParallelOpts),
-    /// Parallel greedy best-first search with priority queue
+    /// Parallel greedy best-first search.
     #[command(name = "gbfs-parallel")]
     GbfsPar(GbfsOpts),
-    /// BFS-based meet-in-the-middle search
+    /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     ExternalBfs(BfsArgs),
-    /// Parallel BFS search with resume support
+    /// Parallel external-memory breadth-first search.
     #[command(name = "bfs-external-parallel")]
     ExternalBfsPar(BfsArgs),
-    /// In-memory parallel BFS with DashSet visited tracking
+    /// Parallel in-memory breadth-first search.
     #[command(name = "bfs-inmemory-parallel")]
     InmemoryBfsPar(InmemoryBfsOpts),
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct BasicOpts {
-    /// Input file containing 64 X/O/- cells, a space, and b or w per line
-    #[arg(value_name = "INPUT")]
-    input: Option<PathBuf>,
-
-    /// Output directory for result files
-    #[arg(short, long, value_name = "DIR")]
-    out_dir: Option<PathBuf>,
-
-    /// Number of discs at which to stop the forward search
-    #[arg(long, value_name = "N")]
-    discs: Option<i32>,
-
-    /// Maximum number of nodes to explore in reverse search
-    #[arg(long = "max-nodes", value_name = "N")]
-    max_nodes: Option<usize>,
+struct BasicOpts {
+    /// File of 64-character relative boards followed by a required b/w turn.
+    input: PathBuf,
+    #[arg(short, long, default_value = "result")]
+    out_dir: PathBuf,
+    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    #[arg(long)]
+    mode: GoalMatch,
+    /// Forward-search boundary, including passes and terminals at this count.
+    #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
+    discs: u32,
+    /// Per-exact-candidate limit: visited nodes in DFS, registered positions in GBFS.
+    #[arg(long, env = "MAX_NODES", default_value_t = 1_000_000)]
+    max_nodes: usize,
 }
 
-impl BasicOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize) {
-        let input = self.input.clone().unwrap_or_else(default_input_path);
-        let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
-        let discs = self
-            .discs
-            .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        let max_nodes = self
-            .max_nodes
-            .unwrap_or_else(|| read_env_with_default("MAX_NODES", 1_000_000usize));
-        (input, out_dir, discs, max_nodes)
-    }
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ParallelOpts {
+#[derive(Args, Debug)]
+struct ParallelOpts {
     #[command(flatten)]
     basic: BasicOpts,
-
-    /// Table size hint for the internal transposition table
-    #[arg(long = "table-size", value_name = "N")]
-    table_size: Option<usize>,
-
-    /// Number of rayon worker threads (0 = library default)
-    #[arg(long, value_name = "N")]
-    threads: Option<usize>,
+    /// Stop memoization after this many visit attempts; search continues.
+    #[arg(long, env = "TABLE_SIZE", default_value_t = 100_000)]
+    table_size: usize,
+    /// Worker threads; zero selects the available parallelism.
+    #[arg(long, env = "RAYON_THREADS", default_value_t = 60)]
+    threads: usize,
 }
 
-impl ParallelOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, usize, Option<usize>) {
-        let (input, out_dir, discs, max_nodes) = self.basic.resolve();
-        let table_size = self
-            .table_size
-            .unwrap_or_else(|| read_env_with_default("TABLE_SIZE", 100_000usize));
-        let thread_setting = self
-            .threads
-            .unwrap_or_else(|| read_env_with_default("RAYON_THREADS", 60usize));
-        let threads = if thread_setting == 0 {
-            None
-        } else {
-            Some(thread_setting)
-        };
-        (input, out_dir, discs, max_nodes, table_size, threads)
-    }
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct GbfsOpts {
+#[derive(Args, Debug)]
+struct GbfsOpts {
     #[command(flatten)]
     basic: BasicOpts,
-
-    /// Use LP-solver for pruning
     #[arg(long)]
     use_lp: bool,
-
-    /// Number of rayon worker threads (0 = library default)
-    #[arg(long, value_name = "N")]
-    threads: Option<usize>,
+    /// Worker threads; zero selects available parallelism, capped at 64.
+    #[arg(long, env = "RAYON_THREADS", default_value_t = 60)]
+    threads: usize,
 }
 
-impl GbfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, Option<usize>) {
-        let (input, out_dir, discs, max_nodes) = self.basic.resolve();
-        let thread_setting = self
-            .threads
-            .unwrap_or_else(|| read_env_with_default("RAYON_THREADS", 60usize));
-        let threads = if thread_setting == 0 {
-            None
-        } else {
-            Some(thread_setting)
-        };
-        (input, out_dir, discs, max_nodes, self.use_lp, threads)
-    }
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct InmemoryBfsOpts {
-    /// Input file containing 64 X/O/- cells, a space, and b or w per line
-    #[arg(value_name = "INPUT")]
-    input: Option<PathBuf>,
-
-    /// Output directory for result files
-    #[arg(short, long, value_name = "DIR")]
-    out_dir: Option<PathBuf>,
-
-    /// Number of discs at which to stop the forward search
-    #[arg(long, value_name = "N")]
-    discs: Option<i32>,
-
-    /// Maximum estimated in-memory nodes for in-memory BFS (omitted = unlimited)
-    #[arg(long = "max-nodes", value_name = "N")]
-    max_nodes: Option<usize>,
-
-    /// Use LP-solver for pruning
+#[derive(Args, Debug)]
+struct InmemoryBfsOpts {
+    /// File of 64-character relative boards followed by a required b/w turn.
+    input: PathBuf,
+    #[arg(short, long, default_value = "result")]
+    out_dir: PathBuf,
+    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    #[arg(long)]
+    mode: GoalMatch,
+    /// Forward-search boundary, including passes and terminals at this count.
+    #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
+    discs: u32,
+    /// Per-exact-candidate maximum positions in the current and next layers.
+    #[arg(long, default_value_t = usize::MAX)]
+    max_nodes: usize,
     #[arg(long)]
     use_lp: bool,
-
-    /// Use cached occupancy order computation
     #[arg(long)]
     use_occupancy_cache: bool,
+    /// Worker threads; zero selects available parallelism, capped at 64.
+    #[arg(long, default_value_t = 0)]
+    threads: usize,
 }
 
-impl InmemoryBfsOpts {
-    fn resolve(&self) -> (PathBuf, PathBuf, i32, usize, bool, bool) {
-        let input = self.input.clone().unwrap_or_else(default_input_path);
-        let out_dir = self.out_dir.clone().unwrap_or_else(default_out_dir);
-        let discs = self
-            .discs
-            .unwrap_or_else(|| read_env_with_default("DISCS", 10));
-        let max_nodes = self.max_nodes.unwrap_or(usize::MAX);
-
-        (
-            input,
-            out_dir,
-            discs,
-            max_nodes,
-            self.use_lp,
-            self.use_occupancy_cache,
-        )
-    }
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct BfsArgs {
-    /// Input file containing 64 X/O/- cells, a space, and b or w per line
-    #[arg(value_name = "INPUT")]
+#[derive(Args, Debug)]
+struct BfsArgs {
+    /// File of 64-character relative boards followed by a required b/w turn.
     input: PathBuf,
-
-    /// Output directory for result files
-    #[arg(short, long, value_name = "DIR", default_value = "result")]
+    #[arg(short, long, default_value = "result")]
     out_dir: PathBuf,
-
-    /// Number of worker threads (0 = automatic)
+    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    #[arg(long)]
+    mode: GoalMatch,
+    /// Forward-search boundary, including passes and terminals at this count.
+    #[arg(short = 'd', long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
+    discs: u32,
     #[arg(short = 'j', long, default_value_t = 0)]
     jobs: usize,
-
-    /// Verbosity level
     #[arg(short, long, default_value_t = 0)]
     verbose: u8,
-
-    /// Block size for BFS batching
+    /// Maximum input positions expanded together before writing a sorted run.
     #[arg(short = 'b', long, default_value_t = 1_000_000)]
     block_size: usize,
-
-    /// Disc threshold for forward search
-    #[arg(short = 'd', long, default_value_t = 10)]
-    discs: usize,
-
-    /// Temporary directory for intermediate files
-    #[arg(short = 't', long, value_name = "DIR", default_value = "tmp")]
+    #[arg(short = 't', long, default_value = "tmp")]
     tmp_dir: PathBuf,
-
-    /// Resume from intermediate state
+    /// Resume the same input and settings from the committed checkpoint.
     #[arg(short = 'r', long)]
     resume: bool,
 }
 
-impl From<BfsArgs> for BfsCfg {
-    fn from(args: BfsArgs) -> Self {
-        BfsCfg {
-            input: args.input,
-            out_dir: args.out_dir,
-            jobs: args.jobs,
-            verbose: args.verbose,
-            block_size: args.block_size,
-            discs: args.discs,
-            tmp_dir: args.tmp_dir,
-            resume: args.resume,
+fn into_basic_strategy(
+    opts: BasicOpts,
+    make_strategy: impl FnOnce(u32, usize) -> Strategy,
+) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
+    (
+        make_strategy(opts.discs, opts.max_nodes),
+        opts.input,
+        opts.out_dir,
+        opts.mode,
+    )
+}
+
+fn into_external_strategy(
+    opts: BfsArgs,
+    make_strategy: impl FnOnce(ExternalBfs) -> Strategy,
+) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
+    let strategy = make_strategy(ExternalBfs {
+        discs: opts.discs,
+        jobs: opts.jobs,
+        verbose: opts.verbose,
+        block_size: opts.block_size,
+        tmp_dir: opts.tmp_dir,
+        resume: opts.resume,
+    });
+    (strategy, opts.input, opts.out_dir, opts.mode)
+}
+
+fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
+    match cli.command {
+        Command::Dfs(opts) => {
+            into_basic_strategy(opts, |discs, max_nodes| Strategy::Dfs { discs, max_nodes })
+        }
+        Command::MoveOrdering(opts) => into_basic_strategy(opts, |discs, max_nodes| {
+            Strategy::DfsMoveOrdering { discs, max_nodes }
+        }),
+        Command::DfsPar(opts) => {
+            into_basic_strategy(opts.basic, |discs, max_nodes| Strategy::DfsParallel {
+                discs,
+                max_nodes,
+                table_size: opts.table_size,
+                threads: opts.threads,
+            })
+        }
+        Command::GbfsPar(opts) => {
+            into_basic_strategy(opts.basic, |discs, max_nodes| Strategy::GbfsParallel {
+                discs,
+                max_nodes,
+                use_lp: opts.use_lp,
+                threads: opts.threads,
+            })
+        }
+        Command::ExternalBfs(opts) => into_external_strategy(opts, Strategy::BfsExternal),
+        Command::ExternalBfsPar(opts) => {
+            into_external_strategy(opts, Strategy::BfsExternalParallel)
+        }
+        Command::InmemoryBfsPar(opts) => {
+            let strategy = Strategy::BfsInmemoryParallel {
+                discs: opts.discs,
+                max_nodes: opts.max_nodes,
+                use_lp: opts.use_lp,
+                use_occupancy_cache: opts.use_occupancy_cache,
+                threads: opts.threads,
+            };
+            (strategy, opts.input, opts.out_dir, opts.mode)
         }
     }
 }
 
 fn dispatch(cli: Cli) -> io::Result<()> {
-    match cli.command {
-        Command::Dfs(opts) => {
-            let (input, out_dir, discs, max_nodes) = opts.resolve();
-            run_dfs(&input, &out_dir, discs, max_nodes)
-        }
-        Command::MoveOrdering(opts) => {
-            let (input, out_dir, discs, max_nodes) = opts.resolve();
-            run_dfs_move_ordering(&input, &out_dir, discs, max_nodes)
-        }
-        Command::DfsPar(opts) => {
-            let (input, out_dir, discs, max_nodes, table_size, threads) = opts.resolve();
-            run_parallel_dfs(&input, &out_dir, discs, max_nodes, table_size, threads)
-        }
-        Command::GbfsPar(opts) => {
-            let (input, out_dir, discs, max_nodes, use_lp, threads) = opts.resolve();
-            run_parallel_gbfs(&input, &out_dir, discs, max_nodes, use_lp, threads)
-        }
-        Command::ExternalBfs(args) => {
-            let cfg: BfsCfg = args.into();
-            run_bfs(&cfg)
-        }
-        Command::ExternalBfsPar(args) => {
-            let cfg: BfsCfg = args.into();
-            run_parallel_bfs(&cfg)
-        }
-        Command::InmemoryBfsPar(opts) => {
-            let (input, out_dir, discs, max_nodes, use_lp, use_occupancy_cache) = opts.resolve();
-            run_parallel_inmemory_bfs(
-                &input,
-                &out_dir,
-                discs,
-                max_nodes,
-                use_lp,
-                use_occupancy_cache,
-            )
-        }
-    }
+    let (strategy, input, out_dir, mode) = into_strategy(cli);
+    run_strategy(&strategy, &input, &out_dir, mode)?;
+    Ok(())
 }
 
 fn main() {
-    let cli = Cli::parse();
-    if let Err(e) = dispatch(cli) {
-        eprintln!("error: {}", e);
+    if let Err(error) = dispatch(Cli::parse()) {
+        eprintln!("error: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
+        into_strategy(Cli::try_parse_from(args).unwrap())
+    }
+
+    fn parse_defaults(command: &str) -> Strategy {
+        let (strategy, input, out_dir, mode) = parse(&[
+            "reverse_to_initial",
+            command,
+            "input.txt",
+            "--mode",
+            "exact",
+        ]);
+        assert_eq!(input, PathBuf::from("input.txt"));
+        assert_eq!(out_dir, PathBuf::from("result"));
+        assert_eq!(mode, GoalMatch::Exact);
+        strategy
+    }
+
+    fn assert_defaults() {
+        assert_eq!(
+            parse_defaults("dfs"),
+            Strategy::Dfs {
+                discs: 10,
+                max_nodes: 1_000_000,
+            }
+        );
+        assert_eq!(
+            parse_defaults("dfs-move-ordering"),
+            Strategy::DfsMoveOrdering {
+                discs: 10,
+                max_nodes: 1_000_000,
+            }
+        );
+        assert_eq!(
+            parse_defaults("dfs-parallel"),
+            Strategy::DfsParallel {
+                discs: 10,
+                max_nodes: 1_000_000,
+                table_size: 100_000,
+                threads: 60,
+            }
+        );
+        assert_eq!(
+            parse_defaults("gbfs-parallel"),
+            Strategy::GbfsParallel {
+                discs: 10,
+                max_nodes: 1_000_000,
+                use_lp: false,
+                threads: 60,
+            }
+        );
+        let external = ExternalBfs {
+            discs: 10,
+            jobs: 0,
+            verbose: 0,
+            block_size: 1_000_000,
+            tmp_dir: PathBuf::from("tmp"),
+            resume: false,
+        };
+        assert_eq!(
+            parse_defaults("bfs-external"),
+            Strategy::BfsExternal(external.clone())
+        );
+        assert_eq!(
+            parse_defaults("bfs-external-parallel"),
+            Strategy::BfsExternalParallel(external)
+        );
+        assert_eq!(
+            parse_defaults("bfs-inmemory-parallel"),
+            Strategy::BfsInmemoryParallel {
+                discs: 10,
+                max_nodes: usize::MAX,
+                use_lp: false,
+                use_occupancy_cache: false,
+                threads: 0,
+            }
+        );
+    }
+
+    fn assert_explicit_options() {
+        assert_eq!(
+            parse(&[
+                "reverse_to_initial",
+                "dfs-parallel",
+                "boards.txt",
+                "-o",
+                "dfs-out",
+                "--mode",
+                "symmetry",
+                "-d",
+                "12",
+                "--max-nodes",
+                "34",
+                "--table-size",
+                "56",
+                "--threads",
+                "7",
+            ]),
+            (
+                Strategy::DfsParallel {
+                    discs: 12,
+                    max_nodes: 34,
+                    table_size: 56,
+                    threads: 7,
+                },
+                PathBuf::from("boards.txt"),
+                PathBuf::from("dfs-out"),
+                GoalMatch::SymmetryOrbit,
+            )
+        );
+        assert_eq!(
+            parse(&[
+                "reverse_to_initial",
+                "gbfs-parallel",
+                "boards.txt",
+                "--out-dir",
+                "gbfs-out",
+                "--mode",
+                "equivalence",
+                "--discs",
+                "13",
+                "--max-nodes",
+                "35",
+                "--use-lp",
+                "--threads",
+                "8",
+            ]),
+            (
+                Strategy::GbfsParallel {
+                    discs: 13,
+                    max_nodes: 35,
+                    use_lp: true,
+                    threads: 8,
+                },
+                PathBuf::from("boards.txt"),
+                PathBuf::from("gbfs-out"),
+                GoalMatch::EquivalenceClass,
+            )
+        );
+        assert_eq!(
+            parse(&[
+                "reverse_to_initial",
+                "bfs-inmemory-parallel",
+                "boards.txt",
+                "--out-dir",
+                "inmemory-out",
+                "--mode",
+                "exact",
+                "--discs",
+                "14",
+                "--max-nodes",
+                "36",
+                "--use-lp",
+                "--use-occupancy-cache",
+                "--threads",
+                "9",
+            ]),
+            (
+                Strategy::BfsInmemoryParallel {
+                    discs: 14,
+                    max_nodes: 36,
+                    use_lp: true,
+                    use_occupancy_cache: true,
+                    threads: 9,
+                },
+                PathBuf::from("boards.txt"),
+                PathBuf::from("inmemory-out"),
+                GoalMatch::Exact,
+            )
+        );
+        assert_eq!(
+            parse(&[
+                "reverse_to_initial",
+                "bfs-external",
+                "boards.txt",
+                "-o",
+                "external-out",
+                "--mode",
+                "exact",
+                "-d",
+                "15",
+                "-j",
+                "10",
+                "-v",
+                "2",
+                "-b",
+                "37",
+                "-t",
+                "external-tmp",
+                "-r",
+            ]),
+            (
+                Strategy::BfsExternal(ExternalBfs {
+                    discs: 15,
+                    jobs: 10,
+                    verbose: 2,
+                    block_size: 37,
+                    tmp_dir: PathBuf::from("external-tmp"),
+                    resume: true,
+                }),
+                PathBuf::from("boards.txt"),
+                PathBuf::from("external-out"),
+                GoalMatch::Exact,
+            )
+        );
+    }
+
+    fn assert_environment_options() {
+        assert_eq!(
+            parse_defaults("dfs-parallel"),
+            Strategy::DfsParallel {
+                discs: 16,
+                max_nodes: 38,
+                table_size: 57,
+                threads: 11,
+            }
+        );
+        assert_eq!(
+            parse_defaults("gbfs-parallel"),
+            Strategy::GbfsParallel {
+                discs: 16,
+                max_nodes: 38,
+                use_lp: false,
+                threads: 11,
+            }
+        );
+        assert_eq!(
+            parse_defaults("bfs-inmemory-parallel"),
+            Strategy::BfsInmemoryParallel {
+                discs: 16,
+                max_nodes: usize::MAX,
+                use_lp: false,
+                use_occupancy_cache: false,
+                threads: 0,
+            }
+        );
+        assert_eq!(
+            parse_defaults("bfs-external"),
+            Strategy::BfsExternal(ExternalBfs {
+                discs: 10,
+                jobs: 0,
+                verbose: 0,
+                block_size: 1_000_000,
+                tmp_dir: PathBuf::from("tmp"),
+                resume: false,
+            })
+        );
+    }
+
+    #[test]
+    fn cli_arguments_defaults_and_environment_are_preserved() {
+        const VARIABLES: [&str; 4] = ["DISCS", "MAX_NODES", "TABLE_SIZE", "RAYON_THREADS"];
+
+        struct Cleanup;
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                for variable in VARIABLES {
+                    std::env::remove_var(variable);
+                }
+            }
+        }
+
+        for variable in VARIABLES {
+            std::env::remove_var(variable);
+        }
+        let _cleanup = Cleanup;
+
+        assert_defaults();
+        assert_explicit_options();
+
+        std::env::set_var("DISCS", "16");
+        std::env::set_var("MAX_NODES", "38");
+        std::env::set_var("TABLE_SIZE", "57");
+        std::env::set_var("RAYON_THREADS", "11");
+        assert_environment_options();
     }
 }
