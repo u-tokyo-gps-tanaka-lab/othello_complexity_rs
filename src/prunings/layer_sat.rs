@@ -1,16 +1,16 @@
 //! Reachability between absolute positions, using relative boards at every SAT layer.
-//! Exact queries solve one endpoint; symmetry queries enumerate representatives under
-//! the stabilizer of the start. Every SAT model is replayed before an OK is returned.
-use crate::io::{format_position, TriCategory, TriOutcome};
-use crate::othello::{get_moves, validate_board, Board, BoardSymmetry, Position};
-use crate::record::{format_actions, replay, GoalMatch, PlyAction, ReachabilityRecord};
+//! Query modes select exact endpoints through the shared driver. Every SAT model
+//! is replayed before an OK is returned.
+use crate::io::format_position;
+use crate::othello::{get_moves, validate_board, Board, Position};
+use crate::query::{solve_query, ExactOutcome, GoalClassification};
+use crate::record::{format_actions, replay, GoalMatch, PlyAction};
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
     solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
     types::{Clause, Lit, TernaryVal},
 };
-use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -173,72 +173,26 @@ pub struct RunOptions {
     pub sat_timeout_per_instance: Option<Duration>,
 }
 
-/// One classification per input occurrence, with a 1-based index.
-/// Reachable always carries a replay-verified record of the requested query.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GoalClassification {
-    Reachable {
-        record: ReachabilityRecord,
-    },
-    Unreachable {
-        input_index: usize,
-        goal: Position,
-        goal_match: GoalMatch,
-    },
-    Unknown {
-        input_index: usize,
-        goal: Position,
-        goal_match: GoalMatch,
-    },
-}
-
-impl GoalClassification {
-    pub fn goal(&self) -> Position {
-        match self {
-            Self::Reachable { record } => record.goal,
-            Self::Unreachable { goal, .. } | Self::Unknown { goal, .. } => *goal,
-        }
-    }
-
-    pub fn input_index(&self) -> usize {
-        match self {
-            Self::Reachable { record } => record.input_index,
-            Self::Unreachable { input_index, .. } | Self::Unknown { input_index, .. } => {
-                *input_index
-            }
-        }
-    }
-
-    pub fn goal_match(&self) -> GoalMatch {
-        match self {
-            Self::Reachable { record } => record.goal_match,
-            Self::Unreachable { goal_match, .. } | Self::Unknown { goal_match, .. } => *goal_match,
-        }
-    }
-
-    pub fn record(&self) -> Option<&ReachabilityRecord> {
-        match self {
-            Self::Reachable { record } => Some(record),
-            _ => None,
-        }
-    }
-}
-
-impl TriOutcome for GoalClassification {
-    fn category(&self) -> TriCategory {
-        match self {
-            Self::Reachable { .. } => TriCategory::Ok,
-            Self::Unreachable { .. } => TriCategory::Ng,
-            Self::Unknown { .. } => TriCategory::Unknown,
-        }
-    }
-}
-
 #[derive(Debug)]
 enum GoalSolveResult {
     Sat(SatWitness),
     Unsat,
     Unknown,
+}
+
+fn verified_outcome(
+    result: GoalSolveResult,
+    start: Position,
+    goal: Position,
+) -> Result<ExactOutcome, String> {
+    match result {
+        GoalSolveResult::Sat(witness) => {
+            verify_witness(&witness, start, goal)?;
+            Ok(ExactOutcome::Reachable(witness.actions))
+        }
+        GoalSolveResult::Unsat => Ok(ExactOutcome::Unreachable),
+        GoalSolveResult::Unknown => Ok(ExactOutcome::Unknown),
+    }
 }
 
 /// Validate all positions before any output is created. Callbacks run serially
@@ -303,9 +257,9 @@ where
                             goal,
                             index + 1,
                             opts.goal_match,
-                            |candidate, symmetry| {
+                            |candidate, transform| {
                                 let path = opts.cnf_dump_dir.as_ref().map(|dir| {
-                                    dir.join(format!("goal_{:04}_sym_{}.cnf", index + 1, symmetry))
+                                    dir.join(format!("goal_{:04}_{}.cnf", index + 1, transform))
                                 });
                                 check_exact_reachability(
                                     opts.start,
@@ -316,7 +270,9 @@ where
                                     opts.verbose,
                                     rays,
                                     flip_sources,
-                                )
+                                )?
+                                .map(|result| verified_outcome(result, opts.start, candidate))
+                                .transpose()
                             },
                         )
                         .map(|outcome| (index, outcome))
@@ -367,61 +323,6 @@ where
             })
             .collect()
     })
-}
-
-// None is reserved for CNF-only generation. Execution errors propagate even
-// when another candidate has already timed out.
-fn solve_query(
-    start: Position,
-    goal: Position,
-    input_index: usize,
-    goal_match: GoalMatch,
-    mut solve: impl FnMut(Position, BoardSymmetry) -> Result<Option<GoalSolveResult>, String>,
-) -> Result<Option<GoalClassification>, String> {
-    let candidates = match goal_match {
-        GoalMatch::Exact => vec![(BoardSymmetry::Identity, goal)],
-        GoalMatch::SymmetryOrbit => all_goals_to_solve(start, goal),
-    };
-    let mut unknown = false;
-    let mut classified = false;
-    for (symmetry, candidate) in candidates {
-        let Some(result) = solve(candidate, symmetry)? else {
-            continue;
-        };
-        classified = true;
-        match result {
-            GoalSolveResult::Sat(witness) => {
-                verify_witness(&witness, start, candidate)?;
-                let record = ReachabilityRecord {
-                    input_index,
-                    start,
-                    goal,
-                    goal_match,
-                    symmetry,
-                    actions: witness.actions,
-                };
-                record.verify()?;
-                return Ok(Some(GoalClassification::Reachable { record }));
-            }
-            GoalSolveResult::Unsat => {}
-            GoalSolveResult::Unknown => unknown = true,
-        }
-    }
-    if !classified {
-        Ok(None)
-    } else if unknown {
-        Ok(Some(GoalClassification::Unknown {
-            input_index,
-            goal,
-            goal_match,
-        }))
-    } else {
-        Ok(Some(GoalClassification::Unreachable {
-            input_index,
-            goal,
-            goal_match,
-        }))
-    }
 }
 
 // This core only knows the exact start and endpoint. No symmetry or match
@@ -518,28 +419,6 @@ fn max_plies_with_passes(start: Board, placements: usize) -> usize {
 
 fn endpoint_turn_matches(start: Position, goal: Position, layer: usize) -> bool {
     layer.is_multiple_of(2) == (start.side_to_move == goal.side_to_move)
-}
-
-fn all_goals_to_solve(start: Position, goal: Position) -> Vec<(BoardSymmetry, Position)> {
-    let stabilizer: Vec<_> = BoardSymmetry::ALL
-        .into_iter()
-        .filter(|symmetry| symmetry.apply_position(start) == start)
-        .collect();
-    let mut seen = HashSet::new();
-    let mut candidates = Vec::new();
-    for symmetry in BoardSymmetry::ALL {
-        let candidate = symmetry.apply_position(goal);
-        // Identity is in the stabilizer, so the minimum always exists.
-        let canonical = stabilizer
-            .iter()
-            .map(|sym| sym.apply(candidate.board))
-            .min()
-            .expect("identity fixes every start");
-        if seen.insert(canonical) {
-            candidates.push((symmetry, candidate));
-        }
-    }
-    candidates
 }
 
 fn encode_problem(
@@ -877,10 +756,10 @@ fn print_result(
     match outcome {
         GoalClassification::Reachable { record } => {
             println!(
-                "[{}] SAT (H={}, symmetry={})",
+                "[{}] SAT (H={}, transform={})",
                 record.input_index,
                 record.actions.len(),
-                record.symmetry
+                record.transform
             );
             if show_coords {
                 println!(
@@ -1006,6 +885,9 @@ fn bit_is_set(bb: u64, sq: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::io::{TriCategory, TriOutcome};
+    use crate::othello::BoardSymmetry;
+    use crate::record::PositionTransform;
 
     // The orbit of the reflected initial position has two representatives
     // under the stabilizer of the fixed standard initial position.
@@ -1018,7 +900,14 @@ mod tests {
             BoardSymmetry::MirrorHorizontal.apply_position(Position::initial()),
             1,
             GoalMatch::SymmetryOrbit,
-            |_, _| Ok(Some(results.pop().expect("candidate count")?)),
+            |candidate, _| {
+                verified_outcome(
+                    results.pop().expect("candidate count")?,
+                    Position::initial(),
+                    candidate,
+                )
+                .map(Some)
+            },
         )
     }
 
@@ -1057,7 +946,7 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.category(), TriCategory::Ok);
         let record = outcome.record().unwrap();
-        assert_ne!(record.symmetry, BoardSymmetry::Identity);
+        assert_ne!(record.transform, PositionTransform::IDENTITY);
         assert_eq!(record.verify().unwrap(), vec![Position::initial()]);
     }
 

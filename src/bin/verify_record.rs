@@ -1,9 +1,10 @@
 use clap::Parser;
 use othello_complexity_rs::io::{format_position, parse_position};
-use othello_complexity_rs::othello::{BoardSymmetry, Position};
-use othello_complexity_rs::record::{parse_actions, replay, GoalMatch, ReachabilityRecord};
+use othello_complexity_rs::othello::Position;
+use othello_complexity_rs::record::{
+    parse_actions, replay, GoalMatch, PositionTransform, ReachabilityRecord,
+};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
@@ -28,13 +29,17 @@ struct Cli {
     #[arg(long, value_name = "RECORD")]
     record: Option<String>,
 
-    /// Six-column TSV records emitted by layer_sat
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["from_initial", "start", "goal", "record", "check_symmetry"])]
+    /// Headerless six-column CSV reachability records
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["from_initial", "start", "goal", "record", "goal_match"])]
     input_file: Option<PathBuf>,
 
-    /// Require the final position to match some rotation or reflection of the goal
-    #[arg(long)]
-    check_symmetry: bool,
+    /// Reachability mode: exact, symmetry, or equivalence
+    #[arg(
+        long = "mode",
+        value_name = "MODE",
+        required_unless_present = "input_file"
+    )]
+    goal_match: Option<GoalMatch>,
 }
 
 fn main() {
@@ -67,13 +72,11 @@ fn run(cli: Cli) -> Result<(), String> {
         .record
         .as_deref()
         .ok_or("--record is required without --input-file")?;
-    let goal_match = if cli.check_symmetry {
-        GoalMatch::SymmetryOrbit
-    } else {
-        GoalMatch::Exact
-    };
-    let symmetry = verify_single(start, goal, record, goal_match)?;
-    println!("OK: {} ({goal_match}, {symmetry})", format_position(goal));
+    let goal_match = cli
+        .goal_match
+        .ok_or("--mode is required without --input-file")?;
+    let transform = verify_single(start, goal, record, goal_match)?;
+    println!("OK: {} ({goal_match}, {transform})", format_position(goal));
     Ok(())
 }
 
@@ -82,20 +85,15 @@ fn verify_single(
     goal: Position,
     record: &str,
     goal_match: GoalMatch,
-) -> Result<BoardSymmetry, String> {
+) -> Result<PositionTransform, String> {
     let actions = parse_actions(record)?;
     let positions = replay(start, &actions)?;
     let final_position = *positions
         .last()
         .ok_or("record replay returned no start position")?;
-    let candidates = match goal_match {
-        GoalMatch::Exact => &[BoardSymmetry::Identity][..],
-        GoalMatch::SymmetryOrbit => &BoardSymmetry::ALL[..],
-    };
-    candidates
-        .iter()
-        .copied()
-        .find(|symmetry| symmetry.apply_position(goal) == final_position)
+    goal_match
+        .transforms()
+        .find(|transform| transform.apply_position(goal) == final_position)
         .ok_or_else(|| {
             format!(
                 "record ends at {}, which does not match {} under {goal_match}",
@@ -107,24 +105,27 @@ fn verify_single(
 
 fn run_file(path: &Path) -> Result<(), String> {
     let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(file);
     let mut verified = 0;
-    for (line_no, line) in BufReader::new(file).lines().enumerate() {
-        let line = line.map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
-        if line.is_empty() {
-            continue;
-        }
-        // Keep the final tab: its empty field represents a zero-length record.
-        let record = ReachabilityRecord::from_tsv(&line)
-            .map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
+    for fields in reader.records() {
+        let fields = fields.map_err(|e| format!("{}: {e}", path.display()))?;
+        let line_no = fields
+            .position()
+            .ok_or("CSV reader did not report the record's source position")?
+            .line();
+        let record = ReachabilityRecord::try_from(&fields)
+            .map_err(|e| format!("{}: line {line_no}: {e}", path.display()))?;
         record
             .verify()
-            .map_err(|e| format!("{}: line {}: {e}", path.display(), line_no + 1))?;
+            .map_err(|e| format!("{}: line {line_no}: {e}", path.display()))?;
         println!(
             "OK: input {} {} ({}, {})",
             record.input_index,
             format_position(record.goal),
             record.goal_match,
-            record.symmetry
+            record.transform
         );
         verified += 1;
     }
@@ -135,7 +136,7 @@ fn run_file(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use othello_complexity_rs::othello::{Board, Color};
+    use othello_complexity_rs::othello::{Board, BoardSymmetry, Color};
 
     #[test]
     fn file_input_cannot_be_overridden_by_single_record_arguments() {
@@ -145,13 +146,13 @@ mod tests {
             vec!["--start", &position],
             vec!["--goal", &position],
             vec!["--record", ""],
-            vec!["--check-symmetry"],
+            vec!["--mode", "symmetry"],
         ] {
-            let mut command = vec!["verify_record", "--input-file", "records.tsv"];
+            let mut command = vec!["verify_record", "--input-file", "records.csv"];
             command.extend(args);
             assert!(Cli::try_parse_from(command).is_err());
         }
-        assert!(Cli::try_parse_from(["verify_record", "--input-file", "records.tsv"]).is_ok());
+        assert!(Cli::try_parse_from(["verify_record", "--input-file", "records.csv"]).is_ok());
     }
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
         let start = Position::initial();
         assert_eq!(
             verify_single(start, start, "", GoalMatch::Exact).unwrap(),
-            BoardSymmetry::Identity
+            PositionTransform::IDENTITY
         );
         let different_turn = Position {
             side_to_move: Color::White,

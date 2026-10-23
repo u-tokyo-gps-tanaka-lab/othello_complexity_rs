@@ -3,11 +3,10 @@ mod support;
 use std::collections::HashSet;
 
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
-use othello_complexity_rs::prunings::layer_sat::{
-    run_with_options, GoalClassification, RunOptions,
-};
+use othello_complexity_rs::prunings::layer_sat::{run_with_options, RunOptions};
+use othello_complexity_rs::query::GoalClassification;
 use othello_complexity_rs::record::{
-    format_actions, parse_actions, GoalMatch, PlyAction, ReachabilityRecord,
+    format_actions, parse_actions, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
 };
 
 use support::{enumerate, middle_pass_start, query_targets, ArrayPosition, ALL_SYMMETRIES};
@@ -48,11 +47,20 @@ fn verify_answer(
             assert_eq!(record.goal_match, goal_match);
             assert_eq!(record.input_index, input_index);
             if goal_match == GoalMatch::Exact {
-                assert_eq!(record.symmetry, BoardSymmetry::Identity);
+                assert_eq!(record.transform, PositionTransform::IDENTITY);
+            }
+            if goal_match != GoalMatch::EquivalenceClass {
+                assert!(!record.transform.exchange_colors);
             }
             let independent_trace = start.replay(&record.actions).unwrap();
             let endpoint = *independent_trace.last().unwrap();
-            assert_eq!(endpoint, goal.transformed(record.symmetry));
+            let image = goal.transformed(record.transform.symmetry);
+            let expected_endpoint = if record.transform.exchange_colors {
+                image.color_exchanged()
+            } else {
+                image
+            };
+            assert_eq!(endpoint, expected_endpoint);
             let independent_trace: Vec<_> = independent_trace
                 .into_iter()
                 .map(ArrayPosition::position)
@@ -114,7 +122,7 @@ fn exact_record(start: ArrayPosition, actions: &[PlyAction]) -> ReachabilityReco
         start: start.position(),
         goal: trace.last().unwrap().position(),
         goal_match: GoalMatch::Exact,
-        symmetry: BoardSymmetry::Identity,
+        transform: PositionTransform::IDENTITY,
         actions: actions.to_vec(),
     }
 }
@@ -143,10 +151,17 @@ fn all_seven_disc_targets_and_both_turns_agree_with_independent_enumeration() {
     let reachable = enumerate(start, 7);
     let goals = query_targets(&reachable);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    for goal_match in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
+    for goal_match in [
+        GoalMatch::Exact,
+        GoalMatch::SymmetryOrbit,
+        GoalMatch::EquivalenceClass,
+    ] {
         classify(start, &goals, goal_match, |goal| match goal_match {
             GoalMatch::Exact => reachable.contains(&goal),
             GoalMatch::SymmetryOrbit => goal.orbit().any(|image| reachable.contains(&image)),
+            GoalMatch::EquivalenceClass => goal.orbit().any(|image| {
+                reachable.contains(&image) || reachable.contains(&image.color_exchanged())
+            }),
         });
     }
 }
@@ -166,25 +181,57 @@ fn zero_length_and_reflected_initial_queries_preserve_absolute_turn() {
     let symmetric = classify(start, &goals, GoalMatch::SymmetryOrbit, |goal| {
         goal == start || goal == reflected
     });
-    for outcome in exact.iter().chain(&symmetric) {
+    let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true);
+    for outcome in exact.iter().chain(&symmetric).chain(&equivalent) {
         if let Some(record) = outcome.record() {
             assert!(record.actions.is_empty());
         }
     }
+    let record_of = |input_index| {
+        equivalent
+            .iter()
+            .find(|outcome| outcome.input_index() == input_index)
+            .unwrap()
+            .record()
+            .unwrap()
+    };
+    // Zero-length witnesses keep Black to move, so the turn fixes the exchange flag.
+    assert!(record_of(2).transform.exchange_colors);
+    let reflected_record = record_of(3);
+    assert_ne!(reflected_record.transform.symmetry, BoardSymmetry::Identity);
+    assert!(!reflected_record.transform.exchange_colors);
 }
 
 #[test]
 fn stone_count_cannot_decrease_and_opening_move_changes_turn() {
     let start = ArrayPosition::initial();
     let after_move = start.apply(PlyAction::Play(19)).unwrap();
-    classify(
-        start,
-        &[after_move, after_move.color_exchanged()],
-        GoalMatch::Exact,
-        |goal| goal == after_move,
+    let goals = [after_move, after_move.color_exchanged()];
+    classify(start, &goals, GoalMatch::Exact, |goal| goal == after_move);
+    let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true);
+    // Every five-disc position has White to move, so the Black-to-move board
+    // is reached only through the absolute color exchange.
+    let exchanged = equivalent
+        .iter()
+        .find(|outcome| outcome.input_index() == 2)
+        .unwrap()
+        .record()
+        .unwrap();
+    assert!(exchanged.transform.exchange_colors);
+    // The opening move always leaves both colors, so no image of this
+    // monochromatic board is reachable; the turn parity still admits one or
+    // two plies, so the query reaches the SAT encoding.
+    let monochromatic = ArrayPosition::from_relative(
+        "-------------------X-------XX------XX---------------------------",
+        true,
     );
-    for goal_match in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
+    for goal_match in [
+        GoalMatch::Exact,
+        GoalMatch::SymmetryOrbit,
+        GoalMatch::EquivalenceClass,
+    ] {
         classify(after_move, &[start], goal_match, |_| false);
+        classify(start, &[monochromatic], goal_match, |_| false);
     }
 }
 
@@ -325,14 +372,14 @@ fn record_roundtrips_preserve_pass_tokens_and_reject_illegal_steps() {
 fn recorded_symmetry_must_be_allowed_and_select_the_actual_endpoint() {
     let start = ArrayPosition::initial();
     let mut record = exact_record(start, &[]);
-    record.symmetry = BoardSymmetry::Rotate180;
+    record.transform.symmetry = BoardSymmetry::Rotate180;
     // Even an image equal to the endpoint is disallowed in an exact record.
-    assert_eq!(start.transformed(record.symmetry), start);
+    assert_eq!(start.transformed(record.transform.symmetry), start);
     assert!(record.verify().is_err());
     record.goal_match = GoalMatch::SymmetryOrbit;
     assert!(record.verify().is_ok());
-    record.symmetry = BoardSymmetry::Rotate90;
-    assert_ne!(start.transformed(record.symmetry), start);
+    record.transform.symmetry = BoardSymmetry::Rotate90;
+    assert_ne!(start.transformed(record.transform.symmetry), start);
     assert!(record.verify().is_err());
 }
 
@@ -357,6 +404,12 @@ fn simultaneous_geometry_and_absolute_color_exchange_preserve_reachability() {
                 &[target, target.color_exchanged()],
                 GoalMatch::Exact,
                 |goal| reachable.contains(&goal),
+            );
+            classify(
+                source,
+                &[target, target.color_exchanged()],
+                GoalMatch::EquivalenceClass,
+                |_| true,
             );
             assert!(reachable.contains(&target));
             assert!(!reachable.contains(&target.color_exchanged()));

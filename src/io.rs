@@ -87,7 +87,8 @@ impl FromStr for GoalMatch {
         match value {
             "exact" => Ok(Self::Exact),
             "symmetry" => Ok(Self::SymmetryOrbit),
-            _ => Err(format!("unknown goal matching condition: {value}")),
+            "equivalence" => Ok(Self::EquivalenceClass),
+            _ => Err(format!("unknown reachability mode: {value}")),
         }
     }
 }
@@ -131,24 +132,52 @@ pub fn format_actions(actions: &[PlyAction]) -> String {
 }
 
 pub(crate) fn format_reachability_record(record: &ReachabilityRecord) -> String {
-    format!(
-        "{}\t{}\t{}\t{}\t{}\t{}",
-        record.input_index,
-        format_position(record.start),
-        format_position(record.goal),
-        record.goal_match,
-        record.symmetry,
-        format_actions(&record.actions)
-    )
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .terminator(csv::Terminator::Any(b'\n'))
+        .from_writer(Vec::new());
+    writer
+        .write_record([
+            record.input_index.to_string(),
+            format_position(record.start),
+            format_position(record.goal),
+            record.goal_match.to_string(),
+            record.transform.to_string(),
+            format_actions(&record.actions),
+        ])
+        .expect("writing one CSV record to memory cannot fail");
+    let mut bytes = writer
+        .into_inner()
+        .expect("flushing a CSV record to memory cannot fail");
+    assert_eq!(bytes.pop(), Some(b'\n'), "CSV record must end in a newline");
+    String::from_utf8(bytes).expect("CSV record fields are valid UTF-8")
 }
 
-pub(crate) fn parse_reachability_record(line: &str) -> Result<ReachabilityRecord, String> {
-    let fields: Vec<_> = line.split('\t').collect();
+pub(crate) fn parse_reachability_record(text: &str) -> Result<ReachabilityRecord, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(text.as_bytes());
+    let mut records = reader.records();
+    let fields = records
+        .next()
+        .ok_or("expected one CSV record")?
+        .map_err(|error| format!("invalid CSV record: {error}"))?;
+    if records
+        .next()
+        .transpose()
+        .map_err(|error| format!("invalid CSV record: {error}"))?
+        .is_some()
+    {
+        return Err("expected one CSV record, found multiple records".to_owned());
+    }
+    ReachabilityRecord::try_from(&fields)
+}
+
+pub(crate) fn parse_reachability_fields(
+    fields: &csv::StringRecord,
+) -> Result<ReachabilityRecord, String> {
     if fields.len() != 6 {
-        return Err(format!(
-            "expected 6 tab-separated fields, found {}",
-            fields.len()
-        ));
+        return Err(format!("expected 6 CSV fields, found {}", fields.len()));
     }
     if fields[0].is_empty() || !fields[0].bytes().all(|byte| byte.is_ascii_digit()) {
         return Err("input index must be a positive integer".to_owned());
@@ -161,11 +190,11 @@ pub(crate) fn parse_reachability_record(line: &str) -> Result<ReachabilityRecord
     }
     Ok(ReachabilityRecord {
         input_index,
-        start: parse_position(fields[1]).map_err(|error| format!("invalid start: {error}"))?,
-        goal: parse_position(fields[2]).map_err(|error| format!("invalid goal: {error}"))?,
+        start: parse_position(&fields[1]).map_err(|error| format!("invalid start: {error}"))?,
+        goal: parse_position(&fields[2]).map_err(|error| format!("invalid goal: {error}"))?,
         goal_match: fields[3].parse()?,
-        symmetry: fields[4].parse()?,
-        actions: parse_actions(fields[5])?,
+        transform: fields[4].parse()?,
+        actions: parse_actions(&fields[5])?,
     })
 }
 
@@ -197,10 +226,11 @@ pub struct TriOutputs {
 
 impl TriOutputs {
     fn new(out_dir: &Path, prefix: &str) -> io::Result<Self> {
-        let ok = io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_OK.txt")))?);
-        let ng = io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_NG.txt")))?);
-        let unknown =
-            io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_UNKNOWN.txt")))?);
+        let ok = io::BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_OK.txt")))?);
+        let ng = io::BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_NG.txt")))?);
+        let unknown = io::BufWriter::new(File::create_new(
+            out_dir.join(format!("{prefix}_UNKNOWN.txt")),
+        )?);
         Ok(TriOutputs { ok, ng, unknown })
     }
 
@@ -338,7 +368,11 @@ mod tests {
                 symmetry
             );
         }
-        for condition in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
+        for condition in [
+            GoalMatch::Exact,
+            GoalMatch::SymmetryOrbit,
+            GoalMatch::EquivalenceClass,
+        ] {
             assert_eq!(condition.as_str().parse::<GoalMatch>().unwrap(), condition);
         }
         assert!("unknown".parse::<BoardSymmetry>().is_err());
@@ -353,22 +387,32 @@ mod tests {
             start: Position::initial(),
             goal: Position::initial(),
             goal_match: GoalMatch::Exact,
-            symmetry: BoardSymmetry::Identity,
+            transform: crate::record::PositionTransform::IDENTITY,
             actions: Vec::new(),
         };
-        let text = format!("2\t{INITIAL} b\t{INITIAL} b\texact\tidentity\t");
-        assert_eq!(record.to_tsv(), text);
-        assert_eq!(ReachabilityRecord::from_tsv(&text).unwrap(), record);
+        let text = format!("2,{INITIAL} b,{INITIAL} b,exact,identity,");
+        assert_eq!(record.to_csv(), text);
+        for valid in [
+            text.clone(),
+            format!("{text}\r\n"),
+            format!("\"2\",\"{INITIAL} b\",\"{INITIAL} b\",\"exact\",\"identity\",\"\""),
+        ] {
+            assert_eq!(ReachabilityRecord::from_csv(&valid).unwrap(), record);
+        }
         for invalid in [
-            text.trim_end_matches('\t').to_owned(),
-            format!("{text}\t"),
-            text.replacen("2\t", "0\t", 1),
-            text.replacen("2\t", "-1\t", 1),
+            String::new(),
+            text.trim_end_matches(',').to_owned(),
+            format!("{text},"),
+            format!("{text}\n{text}"),
+            text.replacen("2,", "0,", 1),
+            text.replacen("2,", "-1,", 1),
             text.replace("identity", "unknown"),
             text.replace("exact", "unknown"),
+            text.replace("identity", "\"identity,extra\""),
+            text.replace("identity", "\"iden\"\"tity\""),
         ] {
             assert!(
-                ReachabilityRecord::from_tsv(&invalid).is_err(),
+                ReachabilityRecord::from_csv(&invalid).is_err(),
                 "accepted {invalid:?}"
             );
         }

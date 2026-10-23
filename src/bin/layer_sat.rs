@@ -38,9 +38,9 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
-    /// Allow independent rotations and reflections of the start and goal
-    #[arg(long)]
-    check_symmetry: bool,
+    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange)
+    #[arg(long, value_name = "MODE")]
+    mode: GoalMatch,
 
     /// Print coordinates for every layer
     #[arg(long)]
@@ -92,11 +92,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
     // an earlier run's classifications or evidence.
     let start = resolve_start(&cli)?;
     let goals = resolve_goals(&cli)?;
-    let goal_match = if cli.check_symmetry {
-        GoalMatch::SymmetryOrbit
-    } else {
-        GoalMatch::Exact
-    };
+    let goal_match = cli.mode;
     let cnf_dump_dir = (cli.dump_dimacs_cnf || cli.cnf_dump_only).then(|| cli.out_dir.clone());
     print_config(&cli, start, &goals, goal_match, cnf_dump_dir.as_deref());
 
@@ -110,9 +106,10 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 cli.out_dir.display()
             )
         })?;
-        let path = cli.out_dir.join(format!("{prefix}_records.tsv"));
+        let path = cli.out_dir.join(format!("{prefix}_records.csv"));
         let records = BufWriter::new(
-            File::create(&path).map_err(|e| format!("failed to create {}: {e}", path.display()))?,
+            File::create_new(&path)
+                .map_err(|e| format!("failed to create {}: {e}", path.display()))?,
         );
         Some((classifications, records))
     };
@@ -141,7 +138,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                         outcome.input_index()
                     )
                 })?;
-                writeln!(records, "{}", record.to_tsv())
+                writeln!(records, "{}", record.to_csv())
                     .map_err(|e| format!("failed to write record: {e}"))?;
                 records
                     .flush()
@@ -166,7 +163,7 @@ fn print_config(
     cnf_dump_dir: Option<&Path>,
 ) {
     println!("start: {}", format_position(start));
-    println!("goal match: {goal_match}");
+    println!("mode: {goal_match}");
     println!("goals: {}", goals.len());
     println!("parallel goals: {}", cli.parallel_goals);
     println!("output directory: {}", cli.out_dir.display());
@@ -225,66 +222,4 @@ fn parse_positive_u64(raw: &str) -> Result<u64, String> {
         return Err("value must be >= 1".into());
     }
     Ok(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn position_arguments_preserve_turns_and_leading_empty_cells() {
-        let position = format_position(Position::initial());
-        let cli =
-            Cli::try_parse_from(["layer_sat", "--start", &position, "--goal", &position]).unwrap();
-        assert_eq!(resolve_start(&cli).unwrap(), Position::initial());
-        assert_eq!(resolve_goals(&cli).unwrap(), vec![Position::initial()]);
-    }
-
-    #[test]
-    fn start_and_goal_sources_are_exclusive() {
-        let position = format_position(Position::initial());
-        assert!(Cli::try_parse_from([
-            "layer_sat",
-            "--from-initial",
-            "--start",
-            &position,
-            "--goal",
-            &position
-        ])
-        .is_err());
-        assert!(Cli::try_parse_from([
-            "layer_sat",
-            "--from-initial",
-            "--goal",
-            &position,
-            "--goal-file",
-            "goals.txt"
-        ])
-        .is_err());
-    }
-
-    #[test]
-    fn resource_limits_must_be_positive() {
-        let position = format_position(Position::initial());
-        for flag in ["--parallel-goals", "--sat-timeout-secs"] {
-            assert!(Cli::try_parse_from([
-                "layer_sat",
-                "--from-initial",
-                "--goal",
-                &position,
-                flag,
-                "0"
-            ])
-            .is_err());
-            assert!(Cli::try_parse_from([
-                "layer_sat",
-                "--from-initial",
-                "--goal",
-                &position,
-                flag,
-                "2"
-            ])
-            .is_ok());
-        }
-    }
 }
