@@ -5,11 +5,11 @@
 #[allow(dead_code)]
 mod support;
 
-use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use othello_complexity_rs::filters::{
     connectivity::is_connected, flip_sat::check_flip_sat, impossible_edges::check_edge_patterns,
     linear_programming::check_lp, occupancy::check_occupancy, seg3::check_seg3_more,
 };
+use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use othello_complexity_rs::record::PlyAction;
 use support::{enumerate, ArrayPosition, ALL_SYMMETRIES};
 

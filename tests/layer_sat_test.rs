@@ -2,8 +2,8 @@ mod support;
 
 use std::collections::HashSet;
 
-use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::filters::layer_sat::{run_with_options, RunOptions};
+use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::query::GoalClassification;
 use othello_complexity_rs::record::{
     format_actions, parse_actions, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
