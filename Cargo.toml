@@ -15,7 +15,7 @@ csv = "1"
 sha2 = "0.10"
 rayon = "1.10"
 dashmap = "6"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 bytemuck= "1.23.2"
 statrs = "0.18.0"
 bigdecimal = "0.4"

@@ -1,384 +1,263 @@
+//! Exact reverse-search states and single-action transitions.
+
+use std::io;
+
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{flip, get_last_moves, get_moves, Board, Position};
+use crate::othello::{flip, get_moves, Board, Position, CENTER_MASK};
+use crate::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
+use crate::search::forward::ForwardTable;
 
-use std::{cmp::min, env, path::PathBuf, str::FromStr};
-
-/// Tri-state result for limited search.
+/// A resource stop is distinct from a proof that the search was exhausted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchResult {
     Found,
     NotFound,
-    Unknown, // node limit exceeded or resource constraint
+    Unknown,
 }
 
 impl TriOutcome for SearchResult {
     fn category(&self) -> TriCategory {
         match self {
-            SearchResult::Found => TriCategory::Ok,
-            SearchResult::NotFound => TriCategory::Ng,
-            SearchResult::Unknown => TriCategory::Unknown,
+            Self::Found => TriCategory::Ok,
+            Self::NotFound => TriCategory::Ng,
+            Self::Unknown => TriCategory::Unknown,
         }
     }
 }
 
-pub fn default_input_path() -> PathBuf {
-    PathBuf::from("board.txt")
+/// Every successful search carries a replayed certificate for its exact goal.
+#[derive(Debug, Clone)]
+pub enum SearchOutcome {
+    Found {
+        record: ReachabilityRecord,
+        nodes: usize,
+    },
+    NotFound {
+        nodes: usize,
+    },
+    Unknown {
+        nodes: usize,
+    },
 }
 
-pub fn default_out_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("result")
-}
-
-pub fn read_env_with_default<T>(key: &str, default: T) -> T
-where
-    T: FromStr,
-{
-    env::var(key)
-        .ok()
-        .and_then(|s| s.parse::<T>().ok())
-        .unwrap_or(default)
-}
-
-#[allow(dead_code)]
-fn mask_to_moves(m: u64) -> String {
-    let mut ans: Vec<String> = vec!["[".to_string()];
-    for i in 0..64 {
-        if m & (1 << i) != 0 {
-            let y = i / 8;
-            let x = i % 8;
-            ans.push(format!("({}, {})", x, y));
+impl SearchOutcome {
+    pub fn result(&self) -> SearchResult {
+        match self {
+            Self::Found { .. } => SearchResult::Found,
+            Self::NotFound { .. } => SearchResult::NotFound,
+            Self::Unknown { .. } => SearchResult::Unknown,
         }
     }
-    ans.push("]".to_string());
-    ans.join(",")
-}
 
-#[inline(always)]
-pub fn onebit(x: u8) -> bool {
-    x & (x - 1) == 0
-}
-
-/// pos は opponent が直前に置いた位置 (0..=63)。
-/// 「直前の着手が pos だった」と仮定したときに、
-/// その着手であり得る “ひっくり返り集合” を result に列挙して個数を返す。
-/// 返り値が非ゼロのとき `result[0] == 0`（便宜上）。反復時は 1 から使うこと。
-pub fn retrospective_flip(
-    pos: usize,
-    player: u64,
-    opponent: u64,
-    result: &mut [u64; 10_000],
-) -> usize {
-    assert!(pos < 64);
-    assert!(((1u64 << pos) & opponent) != 0); // posに相手石がある
-    assert!(((1u64 << pos) & 0x0000_0018_1800_0000u64) == 0); // posが中央4マスでない
-
-    // 直前にopponentがマスposに着手したという仮定が成り立つかチェック;
-    // posへの着手が本当に直前手ならば、その石だけを取り除いた盤面でopponentはplayerをflipできない
-    // flipできる場合、直前手でflipされなかった石があることになり矛盾
-    if flip(pos, opponent ^ (1u64 << pos), player) != 0 {
-        return 0;
-    }
-
-    let xpos = (pos % 8) as i32;
-    let ypos = (pos / 8) as i32;
-
-    let mut answer: usize = 0;
-
-    // ユーティリティ：answer==0 のとき初期化、それ以外は直積結合
-    #[inline]
-    fn add_direction_sets(
-        answer: &mut usize,
-        result: &mut [u64; 10_000],
-        acc_bits_seq: impl Iterator<Item = u64>,
-    ) {
-        if *answer == 0 {
-            // 初回：result[0] = 0、以後は累積ORで 1..n-1 を埋める
-            result[0] = 0;
-            *answer = 1;
-            for bits in acc_bits_seq {
-                debug_assert!(*answer < result.len());
-                result[*answer] = result[*answer - 1] | bits;
-                *answer += 1;
+    pub fn nodes(&self) -> usize {
+        match self {
+            Self::Found { nodes, .. } | Self::NotFound { nodes } | Self::Unknown { nodes } => {
+                *nodes
             }
+        }
+    }
+}
+
+/// A backward path stores actions from the goal towards this node. Reversing
+/// them gives the forward suffix from `position` to the requested goal.
+#[derive(Debug, Clone)]
+pub(crate) struct SearchNode {
+    pub position: Position,
+    pub reverse_actions: Vec<PlyAction>,
+}
+
+impl SearchNode {
+    pub fn root(position: Position) -> Self {
+        Self {
+            position,
+            reverse_actions: Vec::new(),
+        }
+    }
+
+    pub fn preceding(&self, position: Position, action: PlyAction) -> Self {
+        let mut reverse_actions = self.reverse_actions.clone();
+        reverse_actions.push(action);
+        Self {
+            position,
+            reverse_actions,
+        }
+    }
+}
+
+pub(crate) fn found(
+    table: &ForwardTable,
+    goal: Position,
+    node: &SearchNode,
+    nodes: usize,
+) -> io::Result<SearchOutcome> {
+    let mut actions = table.actions_to(node.position).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "meeting position has no forward path",
+        )
+    })?;
+    actions.extend(node.reverse_actions.iter().rev().copied());
+    let record = ReachabilityRecord {
+        input_index: 1,
+        start: table.start(),
+        goal,
+        goal_match: GoalMatch::Exact,
+        transform: PositionTransform::IDENTITY,
+        actions,
+    };
+    record
+        .verify()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    Ok(SearchOutcome::Found { record, nodes })
+}
+
+/// Each successor is exactly one placement or one legal pass. A terminal
+/// position has no successors, and its final absolute turn is preserved.
+pub fn successors(position: Position) -> Vec<(Position, PlyAction)> {
+    let Board { player, opponent } = position.board;
+    let side_to_move = position.side_to_move.opposite();
+    let mut moves = get_moves(player, opponent);
+    if moves == 0 {
+        return if get_moves(opponent, player) != 0 {
+            vec![(
+                Position {
+                    board: position.board.swapped(),
+                    side_to_move,
+                },
+                PlyAction::Pass,
+            )]
         } else {
-            // 2 回目以降：既存 0..old_answer-1 に対して各累積方向 bits を OR した新要素を追加
-            let old_answer = *answer;
-            let mut direction: u64 = 0;
-            for bits in acc_bits_seq {
-                direction |= bits;
-                for j in 0..old_answer {
-                    debug_assert!(*answer < result.len());
-                    result[*answer] = result[j] | direction;
-                    *answer += 1;
+            Vec::new()
+        };
+    }
+    let mut next = Vec::new();
+    while moves != 0 {
+        let square = moves.trailing_zeros() as usize;
+        moves &= moves - 1;
+        let flips = flip(square, player, opponent);
+        next.push((
+            Position {
+                board: Board::new(opponent & !flips, player | flips | (1 << square)),
+                side_to_move,
+            },
+            PlyAction::Play(square),
+        ));
+    }
+    next
+}
+
+/// Enumerate every one-action predecessor, without geometric or color
+/// canonicalization. A reverse pass requires that the current player can move
+/// and its opponent cannot; it cannot create a pass after termination.
+pub fn predecessors(position: Position) -> Vec<(Position, PlyAction)> {
+    let mut result = Vec::new();
+    if let Some(previous) = pass_predecessor(position) {
+        result.push((previous, PlyAction::Pass));
+    }
+    append_placement_predecessors(position, u64::MAX, &mut result);
+    result
+}
+
+pub(crate) fn pass_predecessor(position: Position) -> Option<Position> {
+    let Board { player, opponent } = position.board;
+    if get_moves(opponent, player) == 0 && get_moves(player, opponent) != 0 {
+        Some(Position {
+            board: position.board.swapped(),
+            side_to_move: position.side_to_move.opposite(),
+        })
+    } else {
+        None
+    }
+}
+
+pub(crate) fn append_placement_predecessors(
+    position: Position,
+    candidates: u64,
+    result: &mut Vec<(Position, PlyAction)>,
+) {
+    let Board { player, opponent } = position.board;
+    let side_to_move = position.side_to_move.opposite();
+    let mut squares = opponent & !CENTER_MASK & candidates;
+    while squares != 0 {
+        let square = squares.trailing_zeros() as usize;
+        squares &= squares - 1;
+        // A last move cannot have left any capture in its original colors.
+        if flip(square, opponent ^ (1 << square), player) != 0 {
+            continue;
+        }
+        // Every direction can undo a prefix of the current opponent's ray,
+        // leaving at least one bounding stone. The Cartesian product includes
+        // independently flipped directions; at least one must be nonempty.
+        let mut sets = vec![0_u64];
+        // Keep the placement DFS branch order: -8, +8, -1, +1, -9, +9, -7, +7.
+        for (dx, dy) in [
+            (0, -1),
+            (0, 1),
+            (-1, 0),
+            (1, 0),
+            (-1, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+        ] {
+            let mut ray = Vec::new();
+            let (mut x, mut y) = (square as i32 % 8 + dx, square as i32 / 8 + dy);
+            while (0..8).contains(&x) && (0..8).contains(&y) {
+                let bit = 1_u64 << (8 * y + x);
+                if opponent & bit == 0 {
+                    break;
+                }
+                ray.push(bit);
+                x += dx;
+                y += dy;
+            }
+            let previous_len = sets.len();
+            let mut prefix = 0;
+            for &bit in ray.iter().take(ray.len().saturating_sub(1)) {
+                prefix |= bit;
+                for index in 0..previous_len {
+                    sets.push(sets[index] | prefix);
                 }
             }
         }
-    }
-
-    // 上方向（-8）
-    if ypos >= 2 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 - ((length + 1) * 8);
-            if next < 0 {
-                break;
+        for flips in sets.into_iter().skip(1) {
+            let previous = Board::new(opponent & !(flips | (1 << square)), player | flips);
+            // An unflipped direction may otherwise imply another capture.
+            if flip(square, previous.player, previous.opponent) == flips {
+                result.push((
+                    Position {
+                        board: previous,
+                        side_to_move,
+                    },
+                    PlyAction::Play(square),
+                ));
             }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == ypos {
-                break;
-            }
-        }
-        if length >= 2 {
-            // 1..=length-1 個を候補として累積
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos - (i * 8)));
-            add_direction_sets(&mut answer, result, seq);
         }
     }
-
-    // 下方向（+8）
-    if ypos < 6 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 + ((length + 1) * 8);
-            if next > 63 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == 7 - ypos {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos + (i * 8)));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 右方向（-1）
-    if xpos >= 2 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 - (length + 1);
-            if next < 0 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == xpos {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos - i));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 左方向（+1）
-    if xpos < 6 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 + (length + 1);
-            if next > 63 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == 7 - xpos {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos + i));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 右上（-9）
-    if xpos >= 2 && ypos >= 2 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 - ((length + 1) * 9);
-            if next < 0 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == min(xpos, ypos) {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos - (i * 9)));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 左下（+9）
-    if xpos < 6 && ypos < 6 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 + ((length + 1) * 9);
-            if next > 63 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == min(7 - xpos, 7 - ypos) {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos + (i * 9)));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 左上（-7）
-    if xpos < 6 && ypos >= 2 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 - ((length + 1) * 7);
-            if next < 0 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == min(7 - xpos, ypos) {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos - (i * 7)));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    // 右下（+7）
-    if xpos >= 2 && ypos < 6 {
-        let mut length = 0;
-        loop {
-            let next = pos as i32 + ((length + 1) * 7);
-            if next > 63 {
-                break;
-            }
-            if ((1u64 << (next as u32)) & opponent) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-            if length == min(xpos, 7 - ypos) {
-                break;
-            }
-        }
-        if length >= 2 {
-            let len = length as usize;
-            let seq = (1..len).map(|i| 1u64 << (pos + (i * 7)));
-            add_direction_sets(&mut answer, result, seq);
-        }
-    }
-
-    answer
 }
 
-// retroflips やans のallocateでコストがかかっている．使いまわしをしたほうが節約はできるはず．
-pub fn prev_states(position: Position) -> Vec<Position> {
-    let mut retroflips: [u64; 10000] = [0u64; 10000];
-    let mut ans = vec![];
-
-    let board = position.board;
-    let mut op = get_last_moves(board.opponent, board.player);
-
-    while op != 0 {
-        let index = op.trailing_zeros() as usize;
-        op &= op - 1;
-        let num = retrospective_flip(index, board.player, board.opponent, &mut retroflips);
-        for i in 1..num {
-            let flipped = retroflips[i];
-            let prev = Board {
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-            ans.push(Position {
-                board: prev,
-                side_to_move: position.side_to_move.opposite(),
-            });
-            if get_moves(prev.opponent, prev.player) == 0
-                && get_moves(prev.player, prev.opponent) != 0
-            {
-                ans.push(Position {
-                    board: prev.swapped(),
-                    side_to_move: position.side_to_move,
-                });
-            }
-        }
+pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) -> io::Result<bool> {
+    use crate::prunings::{
+        impossible_edges::check_edge_patterns, linear_programming::check_lp,
+        occupancy::check_occupancy, seg3::check_seg3_more,
+    };
+    let Board { player, opponent } = position.board;
+    if !check_occupancy(player | opponent)
+        || !check_edge_patterns(player, opponent)
+        || !check_seg3_more(player, opponent, occupancy_cache)
+    {
+        return Ok(false);
     }
-    ans
-}
-
-// retroflipsを使い回すパターン
-pub fn prev_states_with_buffer(
-    position: Position,
-    retroflips: &mut [u64; 10_000],
-    out: &mut Vec<Position>,
-) {
-    out.clear();
-    let board = position.board;
-    let mut op = get_last_moves(board.opponent, board.player);
-
-    while op != 0 {
-        let index = op.trailing_zeros() as usize;
-        op &= op - 1;
-
-        let num = retrospective_flip(index, board.player, board.opponent, retroflips);
-        for i in 1..num {
-            let flipped = retroflips[i];
-            let prev = Board {
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-            out.push(Position {
-                board: prev,
-                side_to_move: position.side_to_move.opposite(),
-            });
-            if get_moves(prev.opponent, prev.player) == 0
-                && get_moves(prev.player, prev.opponent) != 0
-            {
-                out.push(Position {
-                    board: prev.swapped(),
-                    side_to_move: position.side_to_move,
-                });
-            }
+    if use_lp {
+        let result = check_lp(player, opponent, false, occupancy_cache)?;
+        if let crate::prunings::FilterResult::Undetermined { reason } = &result {
+            eprintln!(
+                "info: LP undetermined for {}: {}; retaining this search node",
+                crate::io::format_position(position),
+                reason
+            );
         }
+        return Ok(result.passes());
     }
+    Ok(true)
 }

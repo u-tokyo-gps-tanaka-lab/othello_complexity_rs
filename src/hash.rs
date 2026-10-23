@@ -1,3 +1,2 @@
-// pub type CustomHash = rapidhash::fast::RandomState;
+/// Hash builder for collections whose complete position key includes the turn.
 pub type CustomHash = ahash::RandomState;
-// pub type CustomHash = foldhash::fast::RandomState;

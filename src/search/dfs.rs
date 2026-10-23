@@ -1,185 +1,83 @@
-use std::collections::HashSet;
+use std::io;
 
-use crate::{
-    othello::{get_moves, Board, Position},
-    prunings::{occupancy::check_occupancy, seg3::check_seg3_more},
-    search::{
-        core::{retrospective_flip, SearchResult},
-        transposition::Btable,
-    },
+use crate::othello::Position;
+use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
+use crate::record::PlyAction;
+use crate::search::{
+    core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},
+    forward::ForwardTable,
+    transposition::Btable,
 };
 
-// translated with ChatGPT
-/**
- * retrospective-dfs-reversi
- *
- * https://github.com/eukaryo/retrospective-dfs-reversi
- *
- * @date 2020
- * @author Hiroki Takizawa
- */
-/// - `from_pass`: 直前にパスで1手分遡ったか否か
-/// - `discs`: 順方向探索の深さ（石数）
-/// - `leafnode`: 順方向探索で得た手番を含む合流局面の集合
-/// - `retrospective_searched`: 既訪問の絶対局面
-/// - `retroflips`: ディスク数ごとに使い回す作業バッファ（長さ 10_000 の配列を入れておく）
-///   インデックスは `num_disc as usize` を想定。必要に応じて拡張する。
+/// Depth-first search over exact one-action predecessors.
+/// Clear `visited` before each query; its allocated storage can be reused.
 pub fn retrospective_search(
-    position: &Position,
-    from_pass: bool,
-    discs: i32,
-    leafnode: &HashSet<Position>,
-    retrospective_searched: &mut Btable,
-    retroflips: &mut Vec<[u64; 10_000]>,
-    node_count: &mut usize,
+    goal: Position,
+    table: &ForwardTable,
+    visited: &mut Btable,
     node_limit: usize,
-) -> SearchResult {
-    let board = &position.board;
-    let uni = *position;
-    let num_disc = board.popcount() as usize;
+) -> io::Result<SearchOutcome> {
+    search(goal, table, visited, node_limit, false)
+}
 
-    // 順方向探索の leafnode に含まれているか確認
-    if (num_disc as i32) <= discs {
-        return if leafnode.contains(&uni) {
-            println!("info: found exact position in leafnodes:");
-            println!("unique player = {}", uni.board.player);
-            println!("unique opponent = {}", uni.board.opponent);
-            println!("board player = {}", board.player);
-            println!("board opponent = {}", board.opponent);
-            SearchResult::Found
-        } else {
-            SearchResult::NotFound
+pub(crate) fn search(
+    goal: Position,
+    table: &ForwardTable,
+    visited: &mut Btable,
+    node_limit: usize,
+    ordered: bool,
+) -> io::Result<SearchOutcome> {
+    enum Work {
+        Visit(SearchNode),
+        Placements(SearchNode),
+    }
+
+    table.validate_goal(goal)?;
+    let mut open = vec![Work::Visit(SearchNode::root(goal))];
+    let mut nodes = 0;
+    while let Some(work) = open.pop() {
+        let node = match work {
+            Work::Visit(node) => {
+                if table.contains(node.position) {
+                    return found(table, goal, &node, nodes);
+                }
+                if node.position.board.popcount() <= table.discs() {
+                    continue;
+                }
+                if !visited.insert(node.position) {
+                    continue;
+                }
+                nodes += 1;
+                if nodes > node_limit {
+                    return Ok(SearchOutcome::Unknown { nodes });
+                }
+                let board = node.position.board;
+                if !check_occupancy(board.player | board.opponent)
+                    || !check_seg3_more(board.player, board.opponent, false)
+                {
+                    continue;
+                }
+                if let Some(previous) = pass_predecessor(node.position) {
+                    let pass = node.preceding(previous, PlyAction::Pass);
+                    // Resume placements only if the entire pass branch fails.
+                    // A found path or node-limit stop returns before this work.
+                    open.push(Work::Placements(node));
+                    open.push(Work::Visit(pass));
+                    continue;
+                }
+                node
+            }
+            // The node was already counted and checked before its pass branch.
+            Work::Placements(node) => node,
         };
-    }
-
-    // 再訪防止
-    if !retrospective_searched.insert(uni) {
-        return SearchResult::NotFound;
-    }
-    *node_count += 1;
-    if *node_count > node_limit {
-        return SearchResult::Unknown;
-    }
-    //if retrospective_searched.len() > node_limit {
-    //    return SearchResult::Unknown;
-    //}
-    //if retrospective_searched.len() > 0x20000000 {
-    //    eprintln!(
-    //        "Memory overflow: visited={}, node_limit={}, discs={}, from_pass={}",
-    //        retrospective_searched.len(),
-    //        node_limit,
-    //        num_disc,
-    //        from_pass
-    //    );
-    //    return SearchResult::Unknown;
-    //}
-
-    let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) || !check_seg3_more(board.player, board.opponent, false) {
-        return SearchResult::NotFound;
-    }
-
-    // パスの処理
-    // from_pass==false かつ 相手に合法手が無いならば、1手前に相手がパスしたと仮定
-    if !from_pass {
-        if get_moves(board.opponent, board.player) == 0
-            && get_moves(board.player, board.opponent) != 0
-        {
-            let prev = Board {
-                player: board.opponent,
-                opponent: board.player,
-            };
-            match retrospective_search(
-                &Position {
-                    board: prev,
-                    side_to_move: position.side_to_move.opposite(),
-                },
-                true,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_count,
-                node_limit,
-            ) {
-                SearchResult::Found => {
-                    println!("pass found");
-                    return SearchResult::Found;
-                }
-                SearchResult::Unknown => {
-                    println!("pass found");
-                    return SearchResult::Unknown;
-                }
-                SearchResult::NotFound => {}
-            }
+        let mut previous = Vec::new();
+        append_placement_predecessors(node.position, u64::MAX, &mut previous);
+        if ordered {
+            crate::search::move_ordering::order_placements(&mut previous);
+        }
+        for (position, action) in previous.into_iter().rev() {
+            open.push(Work::Visit(node.preceding(position, action)));
         }
     }
-
-    // 相手石（中央4マス以外）を候補として走査
-    let mut b = board.opponent & !0x0000_0018_1800_0000u64;
-    if b == 0 {
-        return SearchResult::NotFound;
-    }
-
-    // retroflips[num_disc] を使うので、足りなければ拡張
-    if retroflips.len() <= num_disc {
-        retroflips.resize(num_disc + 1, [0u64; 10_000]);
-    }
-
-    // （デバッグ用カウンタ：C++ と同様に保持するが使っていない）
-    let mut _searched: i32 = 0;
-
-    while b != 0 {
-        let index = b.trailing_zeros() as usize; // 0..=63
-        b &= b - 1;
-
-        // “直前に相手が index に置いた” と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(
-            index,
-            board.player,
-            board.opponent,
-            &mut retroflips[num_disc],
-        );
-        if num > 0 {
-            // result[0] は 0（便宜上）なので、-1 した数だけ “実 flips” を見た回数として数える
-            _searched += (num - 1) as i32;
-        }
-
-        for i in 1..num {
-            let flipped = retroflips[num_disc][i];
-            debug_assert!(flipped != 0);
-
-            let prev = Board {
-                // 直前に相手が index に置き、flipped が返ったと仮定した局面の 1 手前
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-
-            match retrospective_search(
-                &Position {
-                    board: prev,
-                    side_to_move: position.side_to_move.opposite(),
-                },
-                false,
-                discs,
-                leafnode,
-                retrospective_searched,
-                retroflips,
-                node_count,
-                node_limit,
-            ) {
-                SearchResult::Found => {
-                    // println!("{}", index);
-                    return SearchResult::Found;
-                }
-                SearchResult::Unknown => {
-                    // println!("{}", index);
-                    return SearchResult::Unknown;
-                }
-                SearchResult::NotFound => {}
-            }
-        }
-    }
-
-    SearchResult::NotFound
+    Ok(SearchOutcome::NotFound { nodes })
 }

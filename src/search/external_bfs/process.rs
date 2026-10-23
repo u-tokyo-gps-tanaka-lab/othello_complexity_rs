@@ -1,152 +1,40 @@
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{self, BufReader, BufWriter, ErrorKind, Result, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use super::io::NodeWriter;
+use crate::record::PlyAction;
+use crate::search::core::{append_placement_predecessors, pass_predecessor, viable, SearchNode};
+use serde_json::Value;
+use std::io;
+use std::path::Path;
 
-use crate::othello::{get_moves, Board, Position, CENTER_MASK};
-use crate::prunings::impossible_edges::check_edge_patterns;
-use crate::prunings::linear_programming::check_lp;
-use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
-use crate::search::core::retrospective_flip;
-
-use super::io::{
-    read_header, read_position, validate_file_size, write_header, write_position, HEADER_SIZE,
-    RECORD_SIZE,
-};
-
-/// 単一盤面に対して後退展開を実行し、1手前の盤面集合を生成
-///
-/// # パラメータ
-/// - `board`: 処理対象の盤面 [player, opponent]
-/// - `prev_boards`: 生成された1手前の盤面を格納するHashSet
-/// - `retroflips`: retrospective_flip関数の作業用バッファ(10,000要素)
-///
-/// # アルゴリズム詳細
-/// - 中央4マス以外の全ての石について「相手が直前にここに置いた」と仮定
-/// - 各位置に対してretrospective_flip()で可能な反転パターンを列挙
-/// - 反転を適用して1手前の盤面を復元
-/// - occupancy検証とseg3枝刈りで到達不可能な盤面を除外
-/// - パス判定を行い、必要に応じて盤面を反転して追加
-///
-/// # 注意
-/// - 中央4マス(0x0000_0018_1800_0000)は初期配置なので対象外
-pub(in crate::search::external_bfs) fn process_board(
-    position: Position,
-    prev_boards: &mut HashSet<Position>,
-    retroflips: &mut [u64; 10_000],
-) {
-    let board = position.board;
-    let mut b = board.opponent & !CENTER_MASK;
-    if b == 0 {
-        return;
-    }
-    while b != 0 {
-        let index = b.trailing_zeros() as usize; // 0..=63
-        b &= b - 1;
-
-        // "直前に相手が index に置いた" と想定したときの可能 flip 集合を列挙
-        let num = retrospective_flip(index, board.player, board.opponent, retroflips);
-        for i in 1..num {
-            let flipped = retroflips[i];
-            debug_assert!(flipped != 0);
-
-            let prev = Board {
-                // 直前に相手が index に置き、flipped が返ったと仮定した局面の 1 手前
-                player: board.opponent ^ (flipped | (1u64 << index)),
-                opponent: board.player ^ flipped,
-            };
-            let occupied = prev.player | prev.opponent;
-            if !check_occupancy(occupied)
-                || !check_seg3_more(prev.player, prev.opponent, false)
-                || !check_edge_patterns(prev.player, prev.opponent)
-                || !check_lp(prev.player, prev.opponent, false, false)
-            {
-                continue;
-            }
-            let uni = Position {
-                board: prev,
-                side_to_move: position.side_to_move.opposite(),
-            };
-            prev_boards.insert(uni);
-            if get_moves(prev.opponent, prev.player) == 0
-                && get_moves(prev.player, prev.opponent) != 0
-            {
-                let uni = Position {
-                    board: prev.swapped(),
-                    side_to_move: position.side_to_move,
-                };
-                prev_boards.insert(uni);
-            }
+pub(super) fn process_node(node: &SearchNode) -> io::Result<Vec<SearchNode>> {
+    let mut previous = Vec::new();
+    append_placement_predecessors(node.position, node.position.board.opponent, &mut previous);
+    let mut children = Vec::new();
+    for (position, action) in previous {
+        // External BFS always applies LP pruning to each generated placement.
+        if !viable(position, true, false)? {
+            continue;
         }
+        let child = node.preceding(position, action);
+        let pass =
+            pass_predecessor(position).map(|position| child.preceding(position, PlyAction::Pass));
+        children.push(child);
+        children.extend(pass);
     }
+    Ok(children)
 }
 
-/// 指定されたブロックを読み込んで後退展開し、ソート済みファイルとして出力
-///
-/// # パラメータ
-/// - `num_disc`: 目標石数(出力ファイルの命名に使用)
-/// - `tmp_dir`: 一時ディレクトリのパス
-/// - `block_size`: 1ブロックあたりのレコード数
-/// - `block_number`: 処理するブロックのインデックス(0始まり)
-///
-/// # 戻り値
-/// - `Ok(true)`: ブロック処理が成功し、前段の盤面が見つかった
-/// - `Ok(false)`: 有効な前段盤面が生成されなかった
-/// - `Err`: ファイルアクセスエラーやブロック範囲外エラー
-///
-/// # アルゴリズム詳細
-/// - `r_{num_disc+1}.bin`から指定ブロックをシーク読み込み
-/// - 各レコードにprocess_board()を適用してHashSetに集約
-/// - HashSetをVecに変換してソート(マージ効率化のため)
-/// - `b_{num_disc}_{block_number}.bin`として出力
-///
-/// # メモリ効率
-/// - ブロック単位の処理により、全体をメモリに展開せず外部メモリ探索を実現
-pub(in crate::search::external_bfs) fn expand_single_block(
-    num_disc: i32,
-    tmp_dir: &PathBuf,
-    block_size: usize,
-    block_number: usize,
-) -> Result<bool> {
-    let rfilename = format!("r_{}.bin", num_disc + 1);
-    let mut file = File::open(&tmp_dir.join(rfilename))?;
-    let len = file.metadata()?.len();
-    validate_file_size(len, "expand_single_block")?;
-    read_header(&mut file)?;
-    let records = ((len - HEADER_SIZE) / RECORD_SIZE) as usize;
-
-    let first = block_size * block_number;
-    if first >= records {
-        return Err(io::Error::new(
-            ErrorKind::InvalidData,
-            format!(
-                "block_size {} x block_number {} is greater than file size {}",
-                block_size, block_number, len
-            ),
-        ));
+pub(super) fn write_run(
+    path: &Path,
+    context: &Value,
+    depth: usize,
+    mut nodes: Vec<SearchNode>,
+) -> io::Result<()> {
+    nodes.sort_by_key(|node| node.position);
+    nodes.dedup_by_key(|node| node.position);
+    let mut writer = NodeWriter::create(path, context, depth)?;
+    for node in nodes {
+        writer.push(&node)?;
     }
-    file.seek(SeekFrom::Start(HEADER_SIZE + first as u64 * RECORD_SIZE))?;
-    let mut r = BufReader::new(file);
-    let nrecs = std::cmp::min(block_size, records - first);
-    let mut prev_boards: HashSet<Position> = HashSet::new();
-    let mut retroflips: [u64; 10_000] = [0u64; 10_000];
-    for _ in 0..nrecs {
-        let position = read_position(&mut r)?
-            .ok_or_else(|| io::Error::new(ErrorKind::UnexpectedEof, "missing position in block"))?;
-        process_board(position, &mut prev_boards, &mut retroflips);
-    }
-    if prev_boards.len() == 0 {
-        return Ok(false);
-    }
-    let mut bvec: Vec<Position> = prev_boards.into_iter().collect();
-    bvec.sort();
-    let ofilename = format!("b_{}_{}.bin", num_disc, block_number);
-    let ofile = File::create(&tmp_dir.join(ofilename))?;
-    let mut w = BufWriter::new(ofile);
-    write_header(&mut w)?;
-    for position in bvec {
-        write_position(&mut w, position)?;
-    }
-    w.flush()?;
-    Ok(true)
+    writer.finish()?;
+    Ok(())
 }
