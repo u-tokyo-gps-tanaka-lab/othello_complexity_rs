@@ -1,125 +1,87 @@
 use clap::Parser;
-use rand::Rng;
-use std::fs;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-
 use othello_complexity_rs::io::format_position;
-use othello_complexity_rs::othello::{flip, get_moves, Board, Color, Position};
+use othello_complexity_rs::othello::{get_moves, Position};
+use othello_complexity_rs::record::{
+    replay, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
+};
+use othello_complexity_rs::sampling::{
+    artifact, create_output_dir, population, write_sampling_record,
+};
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
+use serde_json::json;
+use std::error::Error;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "random_play",
-    about = "Generate random Othello games from initial position"
-)]
+#[derive(Parser)]
+#[command(about = "Generate legal games with explicit passes and verified absolute endpoints")]
 struct Args {
-    /// ランダムに指す手数 (0ならば手数もランダム)
-    #[arg(short = 'n', long, default_value_t = 0)]
-    stone_count: usize,
-
-    /// 生成個数
-    #[arg(short = 'c', long, default_value_t = 50)]
-    gen_count: usize,
-
-    /// 出力先ディレクトリ
-    #[arg(short = 'o', long = "out-dir", value_name = "DIR")]
-    out_dir: Option<PathBuf>,
+    /// Maximum actions, counting passes; omit to play until the game ends
+    #[arg(long, value_parser = clap::value_parser!(u32).range(0..=120))]
+    plies: Option<u32>,
+    #[arg(short = 'c', long)]
+    count: usize,
+    #[arg(long)]
+    seed: u64,
+    #[arg(short = 'o', long)]
+    out_dir: PathBuf,
 }
-
-/// ビット位置 (0-63) を先手視点の座標文字列 (a1-h8) に変換
-#[inline]
-fn idx_to_coord(idx: usize) -> String {
-    let x = idx % 8;
-    let y = idx / 8;
-    let file = (b'a' + x as u8) as char;
-    format!("{}{}", file, y + 1)
-}
-
-/// 初期局面から nmoves 手ランダムに指した局面とその棋譜を返す
-/// nmoves == 0 の場合は手数自体もランダム（石5〜64個埋まり = 1〜60手）
-/// 最終局面は、パスを含む全手順から決まる絶対手番を保持する。
-fn do_random_play(nmoves: usize) -> (Position, String) {
-    let mut rng = rand::rng();
-    let mut b = Board::initial();
-    let mut record = String::new();
-    let mut is_player_black = true;
-    let max_moves = if nmoves == 0 {
-        rng.random_range(1..=60)
-    } else {
-        nmoves
-    };
-
-    let mut moves_played = 0;
-    while moves_played < max_moves {
-        let mut m = get_moves(b.player, b.opponent);
-        if m == 0 {
-            let m1 = get_moves(b.opponent, b.player);
-            if m1 == 0 {
-                break; // 両者パス → ゲーム終了
-            }
-            b = Board::new(b.opponent, b.player);
-            is_player_black = !is_player_black;
-            m = m1;
-        }
-        let cnt = m.count_ones();
-        let r = rng.random_range(0..cnt);
-        let mut idx = 0;
-        for _ in 0..=r {
-            idx = m.trailing_zeros();
-            m &= m - 1;
-        }
-        let flipped = flip(idx as usize, b.player, b.opponent);
-        if flipped == 0 {
-            continue;
-        }
-        record.push_str(&idx_to_coord(idx as usize));
-        b = Board {
-            player: b.opponent ^ flipped,
-            opponent: b.player ^ (flipped | (1u64 << idx)),
-        };
-        is_player_black = !is_player_black;
-        moves_played += 1;
-    }
-    (
-        Position {
-            board: b,
-            side_to_move: if is_player_black {
-                Color::Black
-            } else {
-                Color::White
-            },
-        },
-        record,
-    )
-}
-
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-
-    let out_dir = args.out_dir.unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("result")
-            .join("random_play")
-    });
-    if !out_dir.exists() {
-        fs::create_dir_all(&out_dir)?;
+    if args.count == 0 {
+        return Err("count must be positive".into());
     }
-
-    let position_path = out_dir.join(format!(
-        "random_play_n{}_c{}.txt",
-        args.stone_count, args.gen_count
-    ));
-    let record_path = out_dir.join(format!(
-        "random_play_n{}_c{}_record.txt",
-        args.stone_count, args.gen_count
-    ));
-    let mut position_file = File::create(&position_path)?;
-    let mut record_file = File::create(&record_path)?;
-    for _ in 0..args.gen_count {
-        let (position, record) = do_random_play(args.stone_count);
-        writeln!(position_file, "{}", format_position(position))?;
-        writeln!(record_file, "{record}")?;
+    create_output_dir(&args.out_dir)?;
+    let positions_path = args.out_dir.join("positions.txt");
+    let records_path = args.out_dir.join("records.csv");
+    let mut positions = BufWriter::new(File::create_new(&positions_path)?);
+    let mut records = BufWriter::new(File::create_new(&records_path)?);
+    let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
+    for input_index in 1..=args.count {
+        let mut current = Position::initial();
+        let mut actions = Vec::new();
+        while !args
+            .plies
+            .is_some_and(|limit| actions.len() >= limit as usize)
+        {
+            let mut moves = get_moves(current.board.player, current.board.opponent);
+            let action = if moves == 0 {
+                if get_moves(current.board.opponent, current.board.player) == 0 {
+                    break;
+                }
+                PlyAction::Pass
+            } else {
+                for _ in 0..rng.random_range(0..moves.count_ones()) {
+                    moves &= moves - 1;
+                }
+                PlyAction::Play(moves.trailing_zeros() as usize)
+            };
+            current = replay(current, &[action])?[1];
+            actions.push(action);
+        }
+        let record = ReachabilityRecord {
+            input_index,
+            start: Position::initial(),
+            goal: current,
+            goal_match: GoalMatch::Exact,
+            transform: PositionTransform::IDENTITY,
+            actions,
+        };
+        record.verify()?;
+        writeln!(positions, "{}", format_position(current))?;
+        writeln!(records, "{}", record.to_csv())?;
     }
+    positions.flush()?;
+    records.flush()?;
+    write_sampling_record(
+        &args.out_dir,
+        json!({
+            "method": "random-play", "population": population(), "uniform": false,
+            "with_replacement": null, "seed": args.seed, "plies": args.plies,
+            "accepted_count": args.count, "output": artifact(&positions_path)?, "records": artifact(&records_path)?,
+        }),
+    )?;
     Ok(())
 }

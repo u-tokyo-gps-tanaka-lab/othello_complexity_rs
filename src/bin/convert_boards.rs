@@ -93,6 +93,7 @@ fn read_relative_boards(path: &std::path::Path) -> Result<Vec<Board>, Box<dyn Er
         })
         .collect()
 }
+
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let (input, sample, method, fixed_turn) = match &cli.command {
