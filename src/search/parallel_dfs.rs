@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use ordered_float::OrderedFloat;
 
 use crate::othello::Position;
-use crate::prunings::{occupancy::check_occupancy, seg3::check_seg3_more};
+use crate::filters::{occupancy::check_occupancy, seg3::check_seg3_more};
 use crate::record::PlyAction;
 use crate::search::{
     core::{found, predecessors, SearchNode, SearchOutcome},

@@ -1,5 +1,5 @@
 use crate::othello::Direction;
-use crate::prunings::FilterResult;
+use crate::filters::FilterResult;
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
