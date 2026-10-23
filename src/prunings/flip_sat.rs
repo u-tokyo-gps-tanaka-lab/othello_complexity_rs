@@ -1,12 +1,12 @@
-use crate::othello::{Board, Direction};
+use crate::othello::Direction;
+use crate::prunings::FilterResult;
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Error, ErrorKind, Write};
+use std::io::{Error, ErrorKind};
 
 use rustsat::{
     instances::Cnf,
-    solvers::Solve,
+    solvers::{Solve, SolverResult},
     types::{Clause, Lit},
 };
 
@@ -614,7 +614,7 @@ fn add_before_constraints(builder: &mut ClauseBuilder, board: &BoardInfo, flip_i
     }
 }
 
-fn solve_by_kissat(vs: &Vec<Vec<i32>>, _num_var: usize, _comment: &HashMap<usize, String>) -> bool {
+fn solve_by_kissat(vs: &[Vec<i32>]) -> Result<FilterResult, Error> {
     let mut solver = rustsat_kissat::Kissat::default();
     let mut cnf = Cnf::new();
     for line in vs {
@@ -628,57 +628,28 @@ fn solve_by_kissat(vs: &Vec<Vec<i32>>, _num_var: usize, _comment: &HashMap<usize
         }
         cnf.add_clause(clause);
     }
-    if let Err(_) = solver.add_cnf(cnf) {
-        return false;
-    }
-    let result = match solver.solve() {
-        Ok(res) => res,
-        Err(_) => return false,
-    };
-    result == rustsat::solvers::SolverResult::Sat
+    solver
+        .add_cnf(cnf)
+        .map_err(|error| Error::other(format!("Kissat clause loading failed: {error}")))?;
+    classify_solver_result(solver.solve().map_err(|error| error.to_string()))
 }
 
-#[allow(dead_code)]
-fn output_cnf(
-    filename: usize,
-    vs: &Vec<Vec<i32>>,
-    num_var: usize,
-    comment: &HashMap<usize, String>,
-) -> Result<(), Error> {
-    let filename = format!("{}.cnf", filename);
-    let mut file = File::create(&filename)?;
-    for (i, line) in comment.iter() {
-        writeln!(file, "c Var_{}, {}", i, line)?;
+fn classify_solver_result(result: Result<SolverResult, String>) -> Result<FilterResult, Error> {
+    match result {
+        Ok(SolverResult::Sat) => Ok(FilterResult::Pass),
+        Ok(SolverResult::Unsat) => Ok(FilterResult::Rejected {
+            reason: "Kissat proved the flip relaxation unsatisfiable".to_owned(),
+        }),
+        Ok(SolverResult::Interrupted) => Ok(FilterResult::Undetermined {
+            reason: "Kissat was interrupted before a definite result".to_owned(),
+        }),
+        Err(error) => Err(Error::other(format!("Kissat solve failed: {error}"))),
     }
-    writeln!(file, "p cnf {} {}", num_var, vs.len())?;
-    for line in vs {
-        write!(file, "c ")?;
-        for i in 0..line.len() {
-            if i > 0 {
-                write!(file, " ")?;
-            }
-            if line[i] > 0 {
-                let v = line[i] as usize;
-                write!(file, "{}", comment.get(&v).unwrap())?;
-            } else {
-                let v = (-line[i]) as usize;
-                write!(file, "-{}", comment.get(&v).unwrap())?;
-            }
-        }
-        writeln!(file, "")?;
-        for i in 0..line.len() {
-            if i > 0 {
-                write!(file, " ")?;
-            }
-            write!(file, "{}", line[i])?;
-        }
-        writeln!(file, " 0")?;
-    }
-    writeln!(file, "")?;
-    Err(Error::new(ErrorKind::Other, "one cnf file only"))
 }
 
-pub fn is_sat_ok(player: u64, opponent: u64, verbose: bool) -> Result<bool, Error> {
+/// 手番と配置の向きを固定しない反転緩和を検査する。
+/// UNSATだけが到達不能を示す。SATと未確定は後段へ渡し、実行失敗はエラーとする。
+pub fn check_flip_sat(player: u64, opponent: u64) -> Result<FilterResult, Error> {
     // 1. 盤面検証・解析
     let board = BoardInfo::new(player, opponent)?;
 
@@ -694,24 +665,27 @@ pub fn is_sat_ok(player: u64, opponent: u64, verbose: bool) -> Result<bool, Erro
     add_last_constraints(&mut builder, &board, &flip_info);
     add_before_constraints(&mut builder, &board, &flip_info);
 
-    let result = solve_by_kissat(builder.clauses(), builder.var_count(), builder.comments());
-
-    if verbose {
-        let board_str = Board::new(player, opponent).to_string();
-        println!(
-            "board={}, ans={}, vars={}, clauses={}",
-            board_str,
-            if result { "SAT" } else { "UNSAT" },
-            builder.var_count(),
-            builder.clauses().len()
-        );
-    }
-    Ok(result)
+    solve_by_kissat(builder.clauses())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsat_interruption_and_solver_errors_are_distinct() {
+        assert!(classify_solver_result(Ok(SolverResult::Sat))
+            .unwrap()
+            .passes());
+        assert!(!classify_solver_result(Ok(SolverResult::Unsat))
+            .unwrap()
+            .passes());
+        let interrupted = classify_solver_result(Ok(SolverResult::Interrupted)).unwrap();
+        assert!(interrupted.passes());
+        assert_eq!(interrupted.status(), "undetermined");
+        assert!(!interrupted.reason().is_empty());
+        assert!(classify_solver_result(Err("solver unavailable".to_owned())).is_err());
+    }
 
     #[test]
     fn test_at_most_one() {

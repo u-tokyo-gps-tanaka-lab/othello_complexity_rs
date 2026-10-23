@@ -220,6 +220,7 @@ pub fn occupancy_order(occupied: u64) -> [u64; 64] {
     ans
 }
 
+/// 診断用占有マスクを64文字のG/-で表す。局面ファイルには使わない。
 pub fn occupied_to_string(o: u64) -> String {
     let mut s = String::new();
     for y in 0..8 {
@@ -233,15 +234,6 @@ pub fn occupied_to_string(o: u64) -> String {
         }
     }
     return s;
-}
-
-pub fn check_occupancy_with_string(occupied: u64) -> (bool, String) {
-    if (occupied & CENTER_MASK) != CENTER_MASK {
-        return (false, occupied_to_string(occupied));
-    }
-    let result = reachable_occupancy(occupied);
-    let line = occupied_to_string(result);
-    return (result == occupied, line);
 }
 
 static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64], CustomHash>> = OnceLock::new();
