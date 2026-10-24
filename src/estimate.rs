@@ -3,11 +3,12 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::num::NonZeroU128;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use crate::filters::layer_sat::{run_with_options, RunOptions};
+use crate::filters::sat::{run_with_options, RunOptions, SatEncoding};
 use crate::filters::{Filter, FilterResult};
 use crate::interval::{self, Interval};
 use crate::io::{format_position, parse_file_to_positions};
@@ -53,7 +54,7 @@ struct FilterOutput {
 #[derive(Clone, Copy, Debug)]
 enum StageKind {
     Filters,
-    LayerSat,
+    Sat,
     ReverseSearch,
 }
 
@@ -150,11 +151,12 @@ pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Inte
     )
 }
 
-/// Classify the preceding stage's unresolved positions with the layer SAT solver.
-pub fn layer_sat(
+/// Classify the preceding stage's unresolved positions with a SAT solver.
+pub fn sat(
     from: &Path,
     out_dir: &Path,
     alpha: f64,
+    encoding: SatEncoding,
     parallel_goals: usize,
     sat_timeout_per_instance: Option<Duration>,
 ) -> io::Result<Interval> {
@@ -180,6 +182,7 @@ pub fn layer_sat(
             start: Position::initial(),
             goals: chain.pending.clone(),
             goal_match,
+            encoding,
             parallel_goals,
             show_coords: false,
             show_boards: false,
@@ -191,16 +194,16 @@ pub fn layer_sat(
         |_| Ok(()),
     )
     .map_err(io::Error::other)?;
-    validate_layer_outcomes(&outcomes, &chain.pending, goal_match)?;
+    validate_sat_outcomes(&outcomes, &chain.pending, goal_match)?;
 
     create_output_dir(out_dir)?;
-    let prefix = format!("layer_sat_{goal_match}");
-    write_layer_outputs(out_dir, &prefix, &chain.pending, &outcomes)?;
-    let output_dir = canonical_directory(out_dir, "layer-sat output directory")?;
-    apply_solver_stage(&mut chain, &output_dir, &StageKind::LayerSat)?;
+    let prefix = format!("sat_{goal_match}");
+    write_sat_outputs(out_dir, &prefix, &chain.pending, &outcomes)?;
+    let output_dir = canonical_directory(out_dir, "SAT output directory")?;
+    apply_solver_stage(&mut chain, &output_dir, &StageKind::Sat)?;
     write_summary(
         out_dir,
-        "layer-sat",
+        &format!("sat:{encoding}"),
         Some(&chain.from_dir),
         None,
         &chain.sample,
@@ -333,13 +336,13 @@ fn read_summary_link(directory: &Path) -> io::Result<SummaryLink> {
                 sample_dir: Some(sample_dir),
             })
         }
-        StageKind::LayerSat => {
+        StageKind::Sat => {
             if object.contains_key("sample_dir") {
                 return Err(invalid("solver summary must not contain sample_dir"));
             }
             let from = absolute_summary_path(object.get("from"), "from")?;
             Ok(SummaryLink {
-                kind: StageKind::LayerSat,
+                kind: StageKind::Sat,
                 from: Some(from),
                 sample_dir: None,
             })
@@ -361,9 +364,12 @@ fn read_summary_link(directory: &Path) -> io::Result<SummaryLink> {
 fn parse_stage(stage: &str) -> io::Result<StageKind> {
     match stage {
         "filters" => Ok(StageKind::Filters),
-        "layer-sat" => Ok(StageKind::LayerSat),
         _ => {
-            if stage
+            if let Some(name) = stage.strip_prefix("sat:") {
+                SatEncoding::from_str(name)
+                    .map(|_| StageKind::Sat)
+                    .map_err(|_| invalid(format!("unknown estimate stage: {stage}")))
+            } else if stage
                 .strip_prefix("reverse-search:")
                 .is_some_and(|name| REVERSE_STRATEGIES.contains(&name))
             {
@@ -450,7 +456,7 @@ fn apply_solver_stage(
 ) -> io::Result<()> {
     let mode = population_goal_match(state.sample.population);
     let prefix = match stage {
-        StageKind::LayerSat => format!("layer_sat_{mode}"),
+        StageKind::Sat => format!("sat_{mode}"),
         StageKind::ReverseSearch => format!("reverse_{mode}"),
         StageKind::Filters => return Err(invalid("filters cannot follow another stage")),
     };
@@ -560,14 +566,14 @@ fn validate_record_query(record: &ReachabilityRecord, goal_match: GoalMatch) -> 
         .map_err(|error| invalid(format!("reachability record replay failed: {error}")))
 }
 
-fn validate_layer_outcomes(
+fn validate_sat_outcomes(
     outcomes: &[GoalClassification],
     input: &[Position],
     goal_match: GoalMatch,
 ) -> io::Result<()> {
     if outcomes.len() != input.len() {
         return Err(io::Error::other(format!(
-            "layer_sat returned {} classifications for {} goals",
+            "SAT returned {} classifications for {} goals",
             outcomes.len(),
             input.len()
         )));
@@ -578,7 +584,7 @@ fn validate_layer_outcomes(
             || outcome.goal_match() != goal_match
         {
             return Err(io::Error::other(format!(
-                "layer_sat returned a different query for input {}",
+                "SAT returned a different query for input {}",
                 index + 1
             )));
         }
@@ -589,7 +595,7 @@ fn validate_layer_outcomes(
     Ok(())
 }
 
-fn write_layer_outputs(
+fn write_sat_outputs(
     out_dir: &Path,
     prefix: &str,
     input: &[Position],

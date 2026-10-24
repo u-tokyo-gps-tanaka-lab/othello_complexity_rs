@@ -5,6 +5,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::estimate;
+use othello_complexity_rs::filters::sat::SatEncoding;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
 const DEFAULT_ALPHA: f64 = 0.005;
@@ -23,9 +24,8 @@ struct Cli {
 enum Command {
     /// Apply the fixed filter pipeline to a sample.
     Filters(FiltersArgs),
-    /// Classify the preceding stage's unknown positions with layer SAT.
-    #[command(name = "layer-sat")]
-    LayerSat(LayerSatArgs),
+    /// Classify the preceding stage's unknown positions with SAT.
+    Sat(SatArgs),
     /// Classify the preceding stage's unknown positions with reverse search.
     #[command(name = "reverse-search")]
     ReverseSearch(ReverseSearchArgs),
@@ -45,7 +45,7 @@ struct FiltersArgs {
 }
 
 #[derive(Debug, Args)]
-struct LayerSatArgs {
+struct SatArgs {
     #[arg(long, value_name = "DIR")]
     from: PathBuf,
 
@@ -55,6 +55,9 @@ struct LayerSatArgs {
     /// Significance level (two-sided alpha); 0.005 gives a 99.5% CI
     #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
+
+    #[arg(long, value_name = "NAME")]
+    encoding: SatEncoding,
 
     #[arg(long, value_name = "N")]
     parallel_goals: NonZeroUsize,
@@ -252,10 +255,11 @@ impl ExternalBfsOpts {
 fn execute(cli: Cli) -> std::io::Result<()> {
     let interval = match cli.command {
         Command::Filters(args) => estimate::filters(&args.sample, &args.out_dir, args.alpha)?,
-        Command::LayerSat(args) => estimate::layer_sat(
+        Command::Sat(args) => estimate::sat(
             &args.from,
             &args.out_dir,
             args.alpha,
+            args.encoding,
             args.parallel_goals.get(),
             args.sat_timeout_secs
                 .map(|seconds| Duration::from_secs(seconds.get())),

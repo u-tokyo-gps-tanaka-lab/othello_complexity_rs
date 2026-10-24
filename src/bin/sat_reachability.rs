@@ -1,5 +1,5 @@
 use clap::Parser;
-use othello_complexity_rs::filters::layer_sat::{run_with_options, RunOptions};
+use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatEncoding};
 use othello_complexity_rs::io::{
     ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
 };
@@ -12,7 +12,7 @@ use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "layer-sat",
+    name = "sat_reachability",
     about = "SAT reachability checker for 8x8 Othello positions with absolute turns"
 )]
 struct Cli {
@@ -42,6 +42,10 @@ struct Cli {
     #[arg(long, value_name = "MODE")]
     mode: GoalMatch,
 
+    /// SAT encoding: ply, placement, or placement-columns
+    #[arg(long, value_name = "NAME")]
+    encoding: SatEncoding,
+
     /// Print coordinates for every layer
     #[arg(long)]
     show_coords: bool,
@@ -50,7 +54,7 @@ struct Cli {
     #[arg(long)]
     show_boards: bool,
 
-    /// Print encoding progress for each depth
+    /// Print encoding size and timing for each exact candidate
     #[arg(long)]
     verbose: bool,
 
@@ -99,7 +103,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
     let mut outputs = if cli.cnf_dump_only {
         None
     } else {
-        let prefix = format!("layer_sat_{}", goal_match.as_str());
+        let prefix = format!("sat_{}", goal_match.as_str());
         let classifications = ensure_tri_outputs(&cli.out_dir, &prefix).map_err(|e| {
             format!(
                 "failed to create output files in {}: {e}",
@@ -119,6 +123,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             start,
             goals,
             goal_match,
+            encoding: cli.encoding,
             parallel_goals: cli.parallel_goals,
             show_coords: cli.show_coords,
             show_boards: cli.show_boards,
@@ -164,6 +169,7 @@ fn print_config(
 ) {
     println!("start: {}", format_position(start));
     println!("mode: {goal_match}");
+    println!("encoding: {}", cli.encoding);
     println!("goals: {}", goals.len());
     println!("parallel goals: {}", cli.parallel_goals);
     println!("output directory: {}", cli.out_dir.display());

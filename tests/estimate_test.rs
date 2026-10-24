@@ -5,6 +5,8 @@
 //! tests start from directories written by the public stage functions.
 
 use othello_complexity_rs::estimate;
+use othello_complexity_rs::filters::sat::SatEncoding;
+use othello_complexity_rs::interval;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position};
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
@@ -12,6 +14,7 @@ use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
+use std::num::NonZeroU128;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -91,10 +94,10 @@ impl Fixture {
         (filters, output)
     }
 
-    fn layer_ok(&self) -> (PathBuf, PathBuf) {
+    fn sat_ok(&self) -> (PathBuf, PathBuf) {
         let filters = self.filters("sample", "filters", &[after_d3()], absolute_population());
-        let output = self.path("layer");
-        estimate::layer_sat(&filters, &output, ALPHA, 1, None).unwrap();
+        let output = self.path("sat");
+        estimate::sat(&filters, &output, ALPHA, SatEncoding::Ply, 1, None).unwrap();
         (filters, output)
     }
 }
@@ -213,6 +216,40 @@ fn write_records(path: &Path, records: &[ReachabilityRecord]) {
 
 fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
+}
+
+fn saved_sat_with_unknown(fixture: &Fixture, filters: &Path, encoding: SatEncoding) -> PathBuf {
+    let directory = fixture.path("saved-sat");
+    fs::create_dir(&directory).unwrap();
+    write_positions(&directory.join("sat_exact_OK.txt"), &[initial()]);
+    write_positions(&directory.join("sat_exact_NG.txt"), &[]);
+    write_positions(&directory.join("sat_exact_UNKNOWN.txt"), &[after_d3()]);
+    write_records(
+        &directory.join("sat_exact_records.csv"),
+        &[initial_record(1)],
+    );
+
+    let confidence =
+        interval::compute(1, 1, 2, NonZeroU128::new(ABSOLUTE_SIZE).unwrap(), ALPHA).unwrap();
+    write_json(
+        &directory.join("summary.json"),
+        &json!({
+            "stage": format!("sat:{encoding}"),
+            "from": filters.canonicalize().unwrap(),
+            "population": absolute_population(),
+            "mode": "exact",
+            "with_replacement": true,
+            "accepted_samples": 4,
+            "counts": {"OK": 1, "NG": 1, "UNKNOWN": 2},
+            "alpha": ALPHA,
+            "wilson_interval": [confidence.lower, confidence.upper],
+            "reachable_interval": [
+                confidence.expected_lower.to_string(),
+                confidence.expected_upper.to_string(),
+            ],
+        }),
+    );
+    directory
 }
 
 fn read_json(path: &Path) -> Value {
@@ -426,11 +463,11 @@ fn duplicate_sample_rows_keep_their_weight_for_three_populations() {
             position_text(&[position]),
         );
 
-        let layer = fixture.path("layer");
-        estimate::layer_sat(&filters, &layer, ALPHA, 2, None).unwrap();
-        let summary = read_json(&layer.join("summary.json"));
+        let sat = fixture.path("sat");
+        estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 2, None).unwrap();
+        let summary = read_json(&sat.join("summary.json"));
         assert_summary_keys(&summary, &base_summary_keys());
-        assert_eq!(summary["stage"], "layer-sat");
+        assert_eq!(summary["stage"], "sat:ply");
         assert_eq!(summary["from"], json!(filters.canonicalize().unwrap()));
         assert!(summary.get("sample_dir").is_none());
         assert_eq!(summary["population"], population);
@@ -457,7 +494,7 @@ fn duplicate_sample_rows_keep_their_weight_for_three_populations() {
                 .unwrap(),
             size,
         );
-        let records = read_records(&layer.join(format!("layer_sat_{mode}_records.csv")));
+        let records = read_records(&sat.join(format!("sat_{mode}_records.csv")));
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].input_index, 1);
         assert_eq!(records[0].goal, position);
@@ -467,7 +504,7 @@ fn duplicate_sample_rows_keep_their_weight_for_three_populations() {
 }
 
 #[test]
-fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_layer_sat() {
+fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_sat() {
     let cases = [
         (
             json!({"definition": "absolute_positions_fixed_discs", "discs": 5, "size": "3840"}),
@@ -483,13 +520,13 @@ fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_layer_sat() {
     for (population, mode, expected) in cases {
         let fixture = Fixture::new();
         let filters = fixture.filters("sample", "filters", &[class_d3()], population);
-        let layer = fixture.path("layer");
-        estimate::layer_sat(&filters, &layer, ALPHA, 1, None).unwrap();
+        let sat = fixture.path("sat");
+        estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
         assert_eq!(
-            fs::read_to_string(layer.join(format!("layer_sat_{mode}_{expected}.txt"))).unwrap(),
+            fs::read_to_string(sat.join(format!("sat_{mode}_{expected}.txt"))).unwrap(),
             position_text(&[class_d3()]),
         );
-        let records = read_records(&layer.join(format!("layer_sat_{mode}_records.csv")));
+        let records = read_records(&sat.join(format!("sat_{mode}_records.csv")));
         if expected == "OK" {
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].goal, class_d3());
@@ -502,7 +539,7 @@ fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_layer_sat() {
 }
 
 #[test]
-fn filter_ng_rows_skip_layer_sat_and_layer_indices_use_lp_input_lines() {
+fn filter_ng_rows_skip_sat_and_sat_indices_use_lp_input_lines() {
     let fixture = Fixture::new();
     let sample = fixture.sample(
         "sample",
@@ -520,19 +557,19 @@ fn filter_ng_rows_skip_layer_sat_and_layer_indices_use_lp_input_lines() {
         position_text(&[after_d3()]),
     );
 
-    let layer = fixture.path("layer");
-    estimate::layer_sat(&filters, &layer, ALPHA, 1, None).unwrap();
-    let records = read_records(&layer.join("layer_sat_exact_records.csv"));
+    let sat = fixture.path("sat");
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+    let records = read_records(&sat.join("sat_exact_records.csv"));
     assert_eq!(records, [d3_record(1)]);
     records[0].verify().unwrap();
     assert_eq!(
-        read_json(&layer.join("summary.json"))["counts"],
+        read_json(&sat.join("summary.json"))["counts"],
         json!({"OK": 2, "NG": 2, "UNKNOWN": 0}),
     );
 }
 
 #[test]
-fn all_filter_ng_rows_produce_empty_layer_outputs() {
+fn all_filter_ng_rows_produce_empty_sat_outputs() {
     let fixture = Fixture::new();
     let filters = fixture.filters(
         "sample",
@@ -541,17 +578,38 @@ fn all_filter_ng_rows_produce_empty_layer_outputs() {
         absolute_population(),
     );
     assert!(fs::read(filters.join("lp_OK.txt")).unwrap().is_empty());
-    let layer = fixture.path("layer");
-    estimate::layer_sat(&filters, &layer, ALPHA, 1, None).unwrap();
+    let sat = fixture.path("sat");
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
     for suffix in ["OK.txt", "NG.txt", "UNKNOWN.txt", "records.csv"] {
-        assert!(fs::read(layer.join(format!("layer_sat_exact_{suffix}")))
+        assert!(fs::read(sat.join(format!("sat_exact_{suffix}")))
             .unwrap()
             .is_empty());
     }
-    let summary = read_json(&layer.join("summary.json"));
+    let summary = read_json(&sat.join("summary.json"));
     assert_eq!(summary["counts"], json!({"OK": 0, "NG": 2, "UNKNOWN": 0}));
     close(summary["wilson_interval"][0].as_f64().unwrap(), 0.0);
     close(summary["wilson_interval"][1].as_f64().unwrap(), 1.0 / 3.0);
+}
+
+#[test]
+fn sat_stage_names_for_every_encoding_are_reread() {
+    for encoding in SatEncoding::ALL {
+        let fixture = Fixture::new();
+        let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
+        let sat = fixture.path(&format!("sat-{encoding}"));
+        estimate::sat(&filters, &sat, ALPHA, encoding, 1, None).unwrap();
+        assert_eq!(
+            read_json(&sat.join("summary.json"))["stage"],
+            format!("sat:{encoding}")
+        );
+
+        let next = fixture.path("next");
+        estimate::sat(&sat, &next, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+        assert_eq!(
+            read_json(&next.join("summary.json"))["counts"],
+            json!({"OK": 1, "NG": 0, "UNKNOWN": 0}),
+        );
+    }
 }
 
 #[test]
@@ -717,7 +775,7 @@ fn converted_absolute_samples_use_only_accepted_rows_without_hash_checks() {
 }
 
 #[test]
-fn limited_reverse_can_be_followed_by_layer_sat_or_a_larger_reverse() {
+fn limited_reverse_can_be_followed_by_sat_or_a_larger_reverse() {
     let fixture = Fixture::new();
     let filters = fixture.filters(
         "sample",
@@ -741,14 +799,14 @@ fn limited_reverse_can_be_followed_by_layer_sat_or_a_larger_reverse() {
     );
     let saved_limited_summary = fs::read(limited.join("summary.json")).unwrap();
 
-    let layer = fixture.path("layer-after-reverse");
-    estimate::layer_sat(&limited, &layer, ALPHA, 1, None).unwrap();
+    let sat = fixture.path("sat-after-reverse");
+    estimate::sat(&limited, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
     assert_eq!(
-        fs::read_to_string(layer.join("layer_sat_exact_OK.txt")).unwrap(),
+        fs::read_to_string(sat.join("sat_exact_OK.txt")).unwrap(),
         position_text(&[after_d3()]),
     );
     assert_eq!(
-        read_json(&layer.join("summary.json"))["counts"],
+        read_json(&sat.join("summary.json"))["counts"],
         json!({"OK": 2, "NG": 1, "UNKNOWN": 0}),
     );
 
@@ -766,6 +824,55 @@ fn limited_reverse_can_be_followed_by_layer_sat_or_a_larger_reverse() {
         fs::read(limited.join("summary.json")).unwrap(),
         saved_limited_summary
     );
+}
+
+#[test]
+fn saved_sat_unknowns_flow_to_reverse_and_a_different_sat_encoding() {
+    let fixture = Fixture::new();
+    let filters = fixture.filters(
+        "sample",
+        "filters",
+        &[disconnected(), initial(), after_d3(), after_d3()],
+        absolute_population(),
+    );
+    let saved = saved_sat_with_unknown(&fixture, &filters, SatEncoding::Ply);
+    assert_eq!(
+        fs::read_to_string(saved.join("sat_exact_UNKNOWN.txt")).unwrap(),
+        position_text(&[after_d3()]),
+    );
+    assert_eq!(
+        read_json(&saved.join("summary.json"))["counts"],
+        json!({"OK": 1, "NG": 1, "UNKNOWN": 2}),
+    );
+
+    let reverse = fixture.path("reverse-after-saved-sat");
+    estimate::reverse_search(&saved, &reverse, ALPHA, &complete_dfs()).unwrap();
+    assert_eq!(
+        fs::read_to_string(reverse.join("reverse_exact_OK.txt")).unwrap(),
+        position_text(&[after_d3()]),
+    );
+    assert_eq!(
+        read_records(&reverse.join("reverse_exact_records.csv")),
+        [d3_record(1)],
+    );
+    assert_eq!(
+        read_json(&reverse.join("summary.json"))["counts"],
+        json!({"OK": 3, "NG": 1, "UNKNOWN": 0}),
+    );
+
+    let sat = fixture.path("sat-after-saved-sat");
+    estimate::sat(&saved, &sat, ALPHA, SatEncoding::PlacementColumns, 1, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(sat.join("sat_exact_OK.txt")).unwrap(),
+        position_text(&[after_d3()]),
+    );
+    assert_eq!(
+        read_records(&sat.join("sat_exact_records.csv")),
+        [d3_record(1)],
+    );
+    let summary = read_json(&sat.join("summary.json"));
+    assert_eq!(summary["stage"], "sat:placement-columns");
+    assert_eq!(summary["counts"], json!({"OK": 3, "NG": 1, "UNKNOWN": 0}),);
 }
 
 #[test]
@@ -985,8 +1092,8 @@ fn solver_records_reject_invalid_coverage_or_contents() {
         "bad-replay",
     ] {
         let fixture = Fixture::new();
-        let (_, layer) = fixture.layer_ok();
-        let path = layer.join("layer_sat_exact_records.csv");
+        let (_, sat) = fixture.sat_ok();
+        let path = sat.join("sat_exact_records.csv");
         let mut record = read_records(&path).remove(0);
         match variant {
             "missing" => write_records(&path, &[]),
@@ -1009,7 +1116,7 @@ fn solver_records_reject_invalid_coverage_or_contents() {
             }
             _ => unreachable!(),
         }
-        assert_stage_rejected(&fixture, &layer, &format!("next-{variant}"));
+        assert_stage_rejected(&fixture, &sat, &format!("next-{variant}"));
     }
 }
 
@@ -1022,9 +1129,9 @@ fn solver_record_goals_must_match_their_indexed_input_lines() {
         &[initial(), after_d3()],
         absolute_population(),
     );
-    let layer = fixture.path("layer");
-    estimate::layer_sat(&filters, &layer, ALPHA, 1, None).unwrap();
-    let path = layer.join("layer_sat_exact_records.csv");
+    let sat = fixture.path("sat");
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+    let path = sat.join("sat_exact_records.csv");
     let mut records = read_records(&path);
     let d3 = records
         .iter_mut()
@@ -1032,7 +1139,7 @@ fn solver_record_goals_must_match_their_indexed_input_lines() {
         .unwrap();
     d3.input_index = 1;
     write_records(&path, &records);
-    assert_stage_rejected(&fixture, &layer, "next-wrong-indexed-goal");
+    assert_stage_rejected(&fixture, &sat, "next-wrong-indexed-goal");
 }
 
 #[test]
@@ -1130,6 +1237,31 @@ fn summaries_reject_unknown_stages_and_invalid_from_or_sample_dir_keys() {
 }
 
 #[test]
+fn summary_rejects_an_unknown_sat_encoding() {
+    for encoding in [
+        "unknown",
+        "ply-target",
+        "placement-target",
+        "placement-target-columns",
+    ] {
+        let fixture = Fixture::new();
+        let (_, sat) = fixture.sat_ok();
+        let path = sat.join("summary.json");
+        let mut summary = read_json(&path);
+        summary["stage"] = json!(format!("sat:{encoding}"));
+        write_json(&path, &summary);
+
+        let output = fixture.path("next");
+        let error = estimate::reverse_search(&sat, &output, ALPHA, &limited_dfs()).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error
+            .to_string()
+            .contains(&format!("unknown estimate stage: sat:{encoding}")));
+        assert!(!output.exists());
+    }
+}
+
+#[test]
 fn stage_chains_reject_cycles_missing_summaries_and_missing_directories() {
     let fixture = Fixture::new();
     let (_, reverse) = fixture.unknown_reverse();
@@ -1218,7 +1350,7 @@ fn all_stages_require_new_output_directories() {
     fs::write(output.join("keep.txt"), "keep").unwrap();
 
     assert!(estimate::filters(&sample, &output, ALPHA).is_err());
-    assert!(estimate::layer_sat(&filters, &output, ALPHA, 1, None).is_err());
+    assert!(estimate::sat(&filters, &output, ALPHA, SatEncoding::Ply, 1, None).is_err());
     assert!(estimate::reverse_search(&filters, &output, ALPHA, &limited_dfs()).is_err());
     assert_eq!(fs::read_to_string(output.join("keep.txt")).unwrap(), "keep");
     assert_eq!(file_names(&output), ["keep.txt"]);
@@ -1238,10 +1370,11 @@ fn invalid_controls_and_empty_samples_fail() {
             alpha,
         )
         .is_err());
-        assert!(estimate::layer_sat(
+        assert!(estimate::sat(
             &filters,
-            &fixture.path(&format!("invalid-layer-alpha-{index}")),
+            &fixture.path(&format!("invalid-sat-alpha-{index}")),
             alpha,
+            SatEncoding::Ply,
             1,
             None,
         )
@@ -1254,13 +1387,20 @@ fn invalid_controls_and_empty_samples_fail() {
         )
         .is_err());
     }
-    assert!(
-        estimate::layer_sat(&filters, &fixture.path("parallel-zero"), ALPHA, 0, None,).is_err()
-    );
-    assert!(estimate::layer_sat(
+    assert!(estimate::sat(
+        &filters,
+        &fixture.path("parallel-zero"),
+        ALPHA,
+        SatEncoding::Ply,
+        0,
+        None,
+    )
+    .is_err());
+    assert!(estimate::sat(
         &filters,
         &fixture.path("timeout-zero"),
         ALPHA,
+        SatEncoding::Ply,
         1,
         Some(Duration::ZERO),
     )

@@ -27,8 +27,8 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
    └─ 到達可能局面の必要条件を調べる。違反した局面を「到達不能（NG）」として除外。
    │ (通過した局面)
    ▼
-2. layer SAT (layer_sat)
-   └─ 盤面推移を層状の充足可能性問題 (SAT) に符号化して解く。
+2. SAT (sat_reachability)
+   └─ 盤面推移を層状の充足可能性問題 (SAT) に符号化して解く。符号化の方式を選べる。
    │ (時間切れなどで解けなかった局面)
    ▼
 3. 逆探索 (reverse_search)
@@ -83,24 +83,38 @@ cargo run --release --bin estimate -- filters \
 | `seg3more` | `occupancy` の条件に加え、各石を置いた時点で相手の石を返し得る方向があり、最終的な石の色が起こり得る反転と矛盾しないか |
 | `lp` | 石の配置と反転関係を変数とする線形計画問題 (LP) に実行可能解があるか |
 
-### ステップ 3: layer SAT による判定 (`estimate layer-sat`)
+### ステップ 3: SAT による判定 (`estimate sat`)
 フィルタを通過した局面に対し、SAT ソルバを用いて到達可能性を判定します。
 
 ```sh
-cargo run --release --bin estimate -- layer-sat \
+cargo run --release --bin estimate -- sat \
   --from out/filters \
-  --out-dir out/layer_sat \
+  --out-dir out/sat \
+  --encoding ply \
   --parallel-goals 2 --sat-timeout-secs 10
 ```
-* `--parallel-goals`: 並列実行数。
+* `--encoding`: SAT への符号化の方式（下表）。省略できません。
+* `--parallel-goals`: 同時に判定する入力局面の数。
 * `--sat-timeout-secs`: SAT ソルバ1回の呼出しあたりのタイムアウト秒数。`equivalence` モードでは1局面を最大16通りの像に分けて別々に解くため、1局面にかかる時間はこの値を超えることがあります。
+
+符号化の方式は次の3つです。どの方式も、初期局面から目標局面へ至りうる長さの着手列をすべて表すので、ソルバが解なし（UNSAT）と答えれば到達不能が証明され、解があれば着手列が得られます。方式によって異なるのは式の大きさと解くのにかかる時間であり、時間制限で UNKNOWN になる局面は方式ごとに違うことがあります。
+
+表の「層」は、着手列の途中の1時点の盤面を表す変数の組です。「節」は、SAT の制約を成す論理和の1つです。また、「着手」は石を置くこととパスの両方を指し、「着石」は石を置くことだけを指します。
+
+| 方式 | 符号化の内容 |
+|---|---|
+| `ply` | 着手の1回ごとに層を1つ置く。 |
+| `placement` | 着石の1回ごとに層を1つ置く。各着石の直前には強制パスを1回まで、最後の着石の後にもパスを1回まで挟める。 |
+| `placement-columns` | `placement` に、初期局面で空いていて目標局面で埋まっている各マスへ、全層を通じてちょうど1回着石するという制約を加える。 |
+
+石は盤面から取り除かれないので、目標局面で空いているマスは途中の局面でも常に空いています。どの方式もこの性質を使い、そのマスへの着石と、それによる反転を表す変数と節を生成せずに式を小さくしています。ただし、そのマスへ打てるかどうかはパスの可否を左右するので、合法手を表す変数と節は残しています。`placement-columns` の制約は、層を行、マスを列とする表の列ごとに課すもので、合法な着手列が必ず満たす性質を明示したものです。判定結果は変えず、ソルバの探索を助けます。
 
 ### ステップ 4: 逆探索による判定 (`estimate reverse-search`)
 SAT で判定できなかった局面に対し、後向き探索を実行して最終判定を行います。
 
 ```sh
 cargo run --release --bin estimate -- reverse-search \
-  --from out/layer_sat \
+  --from out/sat \
   --out-dir out/reverse \
   dfs-parallel --discs 8 --max-nodes 10000 --table-size 100000 --threads 2
 ```
@@ -126,7 +140,7 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 
 出力ディレクトリには、判定結果ごとに分類された局面ファイルが出力されます。ファイル名の末尾（接尾辞）が結果を表します。
 
-| 接尾辞 | フィルタ (`run_filters`) での意味 | layer SAT / 逆探索 での意味 |
+| 接尾辞 | フィルタ (`run_filters`) での意味 | SAT / 逆探索 での意味 |
 |---|---|---|
 | `_NG` | 到達不能が証明された（必要条件を満たさない） | 到達不能が証明された（着手列が存在しない） |
 | `_OK` | 未確定（必要条件を満たしたに過ぎず、到達可能の証明ではない） | 到達可能が証明された（初期局面からの着手列が存在） |
@@ -144,7 +158,7 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 | `equivalence` | 回転・反転＋手番・石色を同時反転した16通りの局面のいずれか（ゲーム理論的同値類） | 到達可能な同値類数 |
 
 * 推計（`estimate`）では、母集団サイズが厳密に計算できる `exact` または `equivalence` のみを使用します。
-* `symmetry` は、単体コマンドのうち `layer_sat`、`reverse_search`、`verify_record` でのみ指定できます（`run_filters` には `--mode` がありません）。
+* `symmetry` は、単体コマンドのうち `sat_reachability`、`reverse_search`、`verify_record` でのみ指定できます（`run_filters` には `--mode` がありません）。
 
 
 ## 単体コマンドによる個別判定
@@ -158,19 +172,20 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 cargo run --release --bin run_filters -- con out/sample/positions.txt -o out/con
 ```
 
-### layer SAT 単体の実行 (`layer_sat`)
-特定の1局面（またはファイル内の局面）を SAT ソルバで判定します。着手手順の検証には `verify_record` を使用します。
+### SAT 単体の実行 (`sat_reachability`)
+特定の1局面（またはファイル内の局面）を SAT ソルバで判定します。`--from-initial` は標準の初期局面からの到達を判定する指定で、`--encoding` にはステップ 3 の表の方式名を指定します。着手手順の検証には `verify_record` を使用します。
 
 ```sh
 # 局面を直接指定して判定
-cargo run --release --bin layer_sat -- --from-initial --mode exact \
+cargo run --release --bin sat_reachability -- --from-initial --mode exact \
+  --encoding ply \
   --goal '-------------------O-------OO------OX--------------------------- w' \
   --parallel-goals 1 --sat-timeout-secs 10 \
-  --out-dir out/layer_sat_d3
+  --out-dir out/sat_d3
 
 # 得られた着手手順を検証
 cargo run --release --bin verify_record -- \
-  --input-file out/layer_sat_d3/layer_sat_exact_records.csv
+  --input-file out/sat_d3/sat_exact_records.csv
 ```
 ※ 複数局面を判定する場合は `--goal` の代わりに `--goal-file <PATH>` を指定します。
 
@@ -179,7 +194,7 @@ cargo run --release --bin verify_record -- \
 
 ```sh
 cargo run --release --bin reverse_search -- dfs-parallel \
-  out/layer_sat/layer_sat_equivalence_UNKNOWN.txt \
+  out/sat/sat_equivalence_UNKNOWN.txt \
   --mode equivalence \
   --discs 8 --max-nodes 10000 --table-size 100000 --threads 2 \
   --out-dir out/reverse_search

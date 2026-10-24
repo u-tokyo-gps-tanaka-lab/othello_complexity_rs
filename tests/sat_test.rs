@@ -1,21 +1,30 @@
 mod support;
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use othello_complexity_rs::filters::layer_sat::{run_with_options, RunOptions};
+use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatEncoding};
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
-use othello_complexity_rs::query::GoalClassification;
+use othello_complexity_rs::query::{candidates, GoalClassification};
 use othello_complexity_rs::record::{
     format_actions, parse_actions, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
 };
 
 use support::{enumerate, middle_pass_start, query_targets, ArrayPosition, ALL_SYMMETRIES};
 
-fn options(start: Position, goals: Vec<Position>, goal_match: GoalMatch) -> RunOptions {
+fn options(
+    start: Position,
+    goals: Vec<Position>,
+    goal_match: GoalMatch,
+    encoding: SatEncoding,
+) -> RunOptions {
     RunOptions {
         start,
         goals,
         goal_match,
+        encoding,
         parallel_goals: 4,
         show_coords: false,
         show_boards: false,
@@ -24,6 +33,83 @@ fn options(start: Position, goals: Vec<Position>, goal_match: GoalMatch) -> RunO
         cnf_dump_only: false,
         sat_timeout_per_instance: None,
     }
+}
+
+struct TestDirectory(PathBuf);
+
+impl TestDirectory {
+    fn new() -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "sat-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[derive(Debug)]
+struct Dimacs {
+    variables: usize,
+    clauses: Vec<Vec<i32>>,
+}
+
+fn parse_dimacs(text: &str) -> Dimacs {
+    let mut lines = text.lines();
+    let header = lines.next().expect("DIMACS header");
+    let fields: Vec<_> = header.split_whitespace().collect();
+    assert_eq!(fields.len(), 4);
+    assert_eq!(&fields[..2], ["p", "cnf"]);
+    let variables = fields[2].parse::<usize>().unwrap();
+    let clause_count = fields[3].parse::<usize>().unwrap();
+    let clauses = lines
+        .map(|line| {
+            let mut literals: Vec<_> = line
+                .split_whitespace()
+                .map(|field| field.parse::<i32>().unwrap())
+                .collect();
+            assert_eq!(literals.pop(), Some(0));
+            assert!(!literals.contains(&0));
+            assert!(literals
+                .iter()
+                .all(|literal| literal.unsigned_abs() as usize <= variables));
+            literals
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(clauses.len(), clause_count);
+    Dimacs { variables, clauses }
+}
+
+fn dump_exact_cnf(
+    encoding: SatEncoding,
+    start: Position,
+    goal: Position,
+) -> (GoalClassification, Dimacs) {
+    let directory = TestDirectory::new();
+    let mut run_options = options(start, vec![goal], GoalMatch::Exact, encoding);
+    run_options.cnf_dump_dir = Some(directory.path().to_path_buf());
+    let mut callbacks = 0;
+    let outcomes = run_with_options(run_options, |_| {
+        callbacks += 1;
+        Ok(())
+    })
+    .unwrap_or_else(|error| panic!("{encoding}: {error}"));
+    assert_eq!(callbacks, 1, "{encoding}");
+    let [outcome]: [GoalClassification; 1] = outcomes.try_into().unwrap();
+    let text = fs::read_to_string(directory.path().join("goal_0001_identity.cnf")).unwrap();
+    (outcome, parse_dimacs(&text))
 }
 
 /// Every SAT answer must carry a witness that independently replays at every
@@ -88,31 +174,44 @@ fn classify(
     expected: impl Fn(ArrayPosition) -> bool,
 ) -> Vec<GoalClassification> {
     let positions: Vec<_> = goals.iter().copied().map(ArrayPosition::position).collect();
-    let mut callbacks = Vec::new();
-    let outcomes = run_with_options(options(start.position(), positions, goal_match), |result| {
-        callbacks.push(result.input_index());
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(outcomes.len(), goals.len());
-    callbacks.sort_unstable();
-    assert_eq!(callbacks, (1..=goals.len()).collect::<Vec<_>>());
-    let mut returned_indices = HashSet::new();
-    for outcome in &outcomes {
-        let input_index = outcome.input_index();
-        assert!((1..=goals.len()).contains(&input_index));
-        assert!(returned_indices.insert(input_index));
-        let goal = goals[input_index - 1];
-        verify_answer(
-            start,
-            goal,
-            goal_match,
-            input_index,
-            outcome,
-            expected(goal),
+    let mut first = None;
+    for encoding in SatEncoding::ALL {
+        let mut callbacks = Vec::new();
+        let outcomes = run_with_options(
+            options(start.position(), positions.clone(), goal_match, encoding),
+            |result| {
+                callbacks.push(result.input_index());
+                Ok(())
+            },
+        )
+        .unwrap_or_else(|error| panic!("{encoding}: {error}"));
+        assert_eq!(outcomes.len(), goals.len(), "{encoding}");
+        callbacks.sort_unstable();
+        assert_eq!(
+            callbacks,
+            (1..=goals.len()).collect::<Vec<_>>(),
+            "{encoding}"
         );
+        let mut returned_indices = HashSet::new();
+        for (index, outcome) in outcomes.iter().enumerate() {
+            let input_index = outcome.input_index();
+            assert_eq!(input_index, index + 1, "{encoding}");
+            assert!(returned_indices.insert(input_index), "{encoding}");
+            let goal = goals[input_index - 1];
+            verify_answer(
+                start,
+                goal,
+                goal_match,
+                input_index,
+                outcome,
+                expected(goal),
+            );
+        }
+        if first.is_none() {
+            first = Some(outcomes);
+        }
     }
-    outcomes
+    first.expect("SatEncoding::ALL is not empty")
 }
 
 fn exact_record(start: ArrayPosition, actions: &[PlyAction]) -> ReachabilityRecord {
@@ -492,27 +591,167 @@ fn invalid_positions_and_callback_failures_are_execution_errors() {
             opponent: start.board.opponent,
         },
     ];
-    for board in invalid_boards {
-        let invalid = Position { board, ..start };
-        for (source, goals) in [(invalid, vec![start]), (start, vec![invalid])] {
-            let mut callbacks = 0;
-            let result = run_with_options(options(source, goals, GoalMatch::Exact), |_| {
-                callbacks += 1;
-                Ok(())
-            });
-            assert!(result.is_err());
-            assert_eq!(callbacks, 0);
+    for encoding in SatEncoding::ALL {
+        for board in invalid_boards {
+            let invalid = Position { board, ..start };
+            for (source, goals) in [(invalid, vec![start]), (start, vec![invalid])] {
+                let mut callbacks = 0;
+                let result =
+                    run_with_options(options(source, goals, GoalMatch::Exact, encoding), |_| {
+                        callbacks += 1;
+                        Ok(())
+                    });
+                assert!(result.is_err(), "{encoding}");
+                assert_eq!(callbacks, 0, "{encoding}");
+            }
+        }
+        let empty = run_with_options(options(start, vec![], GoalMatch::Exact, encoding), |_| {
+            panic!("empty input cannot produce an outcome")
+        })
+        .unwrap();
+        assert!(empty.is_empty(), "{encoding}");
+        assert!(
+            run_with_options(
+                options(start, vec![start], GoalMatch::Exact, encoding),
+                |_| Err("intentional callback failure".to_string())
+            )
+            .is_err(),
+            "{encoding}"
+        );
+    }
+}
+
+#[test]
+fn ordinary_cnf_is_nontrivial_for_every_encoding() {
+    let start = ArrayPosition::initial();
+    let goal = start.apply(PlyAction::Play(19)).unwrap();
+    for encoding in SatEncoding::ALL {
+        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
+        assert!(
+            matches!(outcome, GoalClassification::Reachable { .. }),
+            "{encoding}"
+        );
+        assert!(cnf.variables > 0, "{encoding}: {cnf:?}");
+        assert!(!cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
+        assert!(
+            cnf.clauses.iter().all(|clause| !clause.is_empty()),
+            "{encoding}: {cnf:?}"
+        );
+    }
+}
+
+#[test]
+fn trivially_unreachable_cnf_contains_one_empty_clause_for_every_encoding() {
+    let goal = ArrayPosition::initial();
+    let start = goal.apply(PlyAction::Play(19)).unwrap();
+    for encoding in SatEncoding::ALL {
+        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
+        assert!(
+            matches!(outcome, GoalClassification::Unreachable { .. }),
+            "{encoding}"
+        );
+        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
+        assert_eq!(cnf.clauses, vec![Vec::<i32>::new()], "{encoding}");
+    }
+}
+
+#[test]
+fn zero_placement_reachable_cnf_is_empty_for_every_encoding() {
+    let start = ArrayPosition::initial().position();
+    for encoding in SatEncoding::ALL {
+        let (outcome, cnf) = dump_exact_cnf(encoding, start, start);
+        assert!(
+            matches!(outcome, GoalClassification::Reachable { .. }),
+            "{encoding}"
+        );
+        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
+        assert!(cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
+    }
+}
+
+#[test]
+fn pass_only_reachable_cnf_is_empty_for_every_encoding() {
+    let start = ArrayPosition::from_relative(
+        "OXX-OOOOOXXXXXXOOXOOOXXOOOXOXOXXOXOXOOXXOOOXXXOXOOXOOOXXOOOOOOXX",
+        false,
+    );
+    let goal = start.apply(PlyAction::Pass).unwrap();
+    for encoding in SatEncoding::ALL {
+        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
+        assert!(
+            matches!(outcome, GoalClassification::Reachable { .. }),
+            "{encoding}"
+        );
+        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
+        assert!(cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
+    }
+}
+
+#[test]
+fn cnf_dump_only_writes_every_candidate_without_classifying() {
+    let start = ArrayPosition::initial();
+    let goals = [start, start.apply(PlyAction::Play(19)).unwrap()];
+    let goal_positions: Vec<_> = goals.iter().map(|goal| goal.position()).collect();
+    for encoding in SatEncoding::ALL {
+        let directory = TestDirectory::new();
+        let mut run_options = options(
+            start.position(),
+            goal_positions.clone(),
+            GoalMatch::EquivalenceClass,
+            encoding,
+        );
+        run_options.cnf_dump_dir = Some(directory.path().to_path_buf());
+        run_options.cnf_dump_only = true;
+        let mut callbacks = 0;
+        let outcomes = run_with_options(run_options, |_| {
+            callbacks += 1;
+            Ok(())
+        })
+        .unwrap_or_else(|error| panic!("{encoding}: {error}"));
+        assert!(outcomes.is_empty(), "{encoding}");
+        assert_eq!(callbacks, 0, "{encoding}");
+
+        let directory_path = directory.path();
+        let expected_paths: Vec<_> = goal_positions
+            .iter()
+            .enumerate()
+            .flat_map(|(index, &goal)| {
+                candidates(start.position(), goal, GoalMatch::EquivalenceClass)
+                    .into_iter()
+                    .map(move |(transform, _)| {
+                        directory_path.join(format!("goal_{:04}_{transform}.cnf", index + 1))
+                    })
+            })
+            .collect();
+        let actual_count = fs::read_dir(directory.path()).unwrap().count();
+        assert_eq!(actual_count, expected_paths.len(), "{encoding}");
+        for path in expected_paths {
+            let text = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            parse_dimacs(&text);
         }
     }
-    let empty = run_with_options(options(start, vec![], GoalMatch::Exact), |_| {
-        panic!("empty input cannot produce an outcome")
-    })
-    .unwrap();
-    assert!(empty.is_empty());
-    assert!(
-        run_with_options(options(start, vec![start], GoalMatch::Exact), |_| {
-            Err("intentional callback failure".to_string())
-        })
-        .is_err()
-    );
+}
+
+#[test]
+fn invalid_input_is_rejected_before_creating_cnf_output() {
+    let start = Position::initial();
+    let invalid = Position {
+        board: Board {
+            player: 0,
+            opponent: 0,
+        },
+        ..start
+    };
+    for encoding in SatEncoding::ALL {
+        let directory = TestDirectory::new();
+        let cnf_dir = directory.path().join("cnf");
+        let mut run_options = options(invalid, vec![start], GoalMatch::Exact, encoding);
+        run_options.cnf_dump_dir = Some(cnf_dir.clone());
+        assert!(
+            run_with_options(run_options, |_| Ok(())).is_err(),
+            "{encoding}"
+        );
+        assert!(!cnf_dir.exists(), "{encoding}");
+    }
 }
