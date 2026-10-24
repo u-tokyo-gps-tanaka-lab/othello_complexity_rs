@@ -3,10 +3,10 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
-use othello_complexity_rs::filters::impossible_edges::check_edge_patterns;
+use othello_complexity_rs::filters::impossible_edges::check_virtual_edge_patterns;
 use othello_complexity_rs::io::{format_position, parse_file_to_positions};
 
-/// Split positions by the necessary condition on physical edge patterns.
+/// Split positions by the necessary condition on physical and virtual edge patterns.
 #[derive(Parser, Debug)]
 #[command(
     name = "edge_pattern",
@@ -49,7 +49,7 @@ fn main() -> io::Result<()> {
             .open(ng_path)?,
     );
     for position in positions {
-        let passes = check_edge_patterns(position.board.player, position.board.opponent);
+        let passes = check_virtual_edge_patterns(position.board.player, position.board.opponent);
         writeln!(
             if passes { &mut ok } else { &mut ng },
             "{}",

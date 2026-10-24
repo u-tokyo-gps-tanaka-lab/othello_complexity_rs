@@ -304,12 +304,12 @@ impl Iterator for PlacementPredecessors {
 
 pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) -> io::Result<bool> {
     use crate::filters::{
-        impossible_edges::check_edge_patterns, linear_programming::check_lp,
+        impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp,
         occupancy::check_occupancy, seg3::check_seg3_more,
     };
     let Board { player, opponent } = position.board;
     if !check_occupancy(player | opponent)
-        || !check_edge_patterns(player, opponent)
+        || !check_virtual_edge_patterns(player, opponent)
         || !check_seg3_more(player, opponent, occupancy_cache)
     {
         return Ok(false);

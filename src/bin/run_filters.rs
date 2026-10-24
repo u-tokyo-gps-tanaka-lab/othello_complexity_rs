@@ -65,7 +65,7 @@ struct LpOpts {
 enum Command {
     /// Connectivity of occupied squares
     Con(CommonOpts),
-    /// Impossible patterns on physical edges
+    /// Impossible patterns on physical and virtual edges
     Edge(CommonOpts),
     /// Linear/integer programming feasibility
     Lp(LpOpts),

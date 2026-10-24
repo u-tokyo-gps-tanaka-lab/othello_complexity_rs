@@ -48,8 +48,8 @@ impl Filter {
                 "occupied squares are disconnected from the centre",
             )),
             Self::Edge => Ok(necessary_condition(
-                impossible_edges::check_edge_patterns(board.player, board.opponent),
-                "an impossible physical-edge pattern is present",
+                impossible_edges::check_virtual_edge_patterns(board.player, board.opponent),
+                "an impossible physical or virtual edge pattern is present",
             )),
             Self::Occupancy => Ok(necessary_condition(
                 occupancy::check_occupancy(board.player | board.opponent),

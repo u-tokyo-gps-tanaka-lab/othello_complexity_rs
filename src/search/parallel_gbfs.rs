@@ -4,7 +4,7 @@ use std::io;
 use std::sync::{Condvar, Mutex};
 
 use crate::filters::{
-    impossible_edges::check_edge_patterns, linear_programming::check_lp, FilterResult,
+    impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp, FilterResult,
 };
 use crate::othello::{get_last_moves, Position};
 use crate::record::PlyAction;
@@ -160,7 +160,7 @@ impl Context<'_> {
             Some(0)
         } else if position.board.popcount() <= self.table.discs()
             || self.standard_start
-                && !check_edge_patterns(position.board.player, position.board.opponent)
+                && !check_virtual_edge_patterns(position.board.player, position.board.opponent)
         {
             None
         } else {
@@ -341,7 +341,7 @@ mod tests {
         heuristic_function, parallel_retrospective_greedy_best_first_search,
         placement_predecessor_count, Context,
     };
-    use crate::filters::{impossible_edges::check_edge_patterns, reverse::PlacementFilter};
+    use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
     use crate::othello::{Board, Color, Position, CENTER_MASK};
     use crate::record::PlyAction;
     use crate::search::{
@@ -621,7 +621,10 @@ mod tests {
             Some(0x0000_0002_0000_0000)
         );
         assert_eq!(frontier.required_squares(occupied), Some(0x001c_1808_0000));
-        assert!(check_edge_patterns(goal.board.player, goal.board.opponent));
+        assert!(check_virtual_edge_patterns(
+            goal.board.player,
+            goal.board.opponent
+        ));
         let candidates = ReverseConstraints::new(&table, goal)
             .candidates(goal)
             .expect("root passes the shared constraints");
@@ -632,7 +635,7 @@ mod tests {
         assert!(frontier
             .required_squares(child.board.player | child.board.opponent)
             .is_some());
-        assert!(check_edge_patterns(
+        assert!(check_virtual_edge_patterns(
             child.board.player,
             child.board.opponent
         ));
