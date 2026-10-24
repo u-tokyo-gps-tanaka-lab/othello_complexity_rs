@@ -33,11 +33,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.count == 0 {
         return Err("count must be positive".into());
     }
-    create_output_dir(&args.out_dir)?;
+    create_output_dir(&args.out_dir, "sampling.json")?;
     let positions_path = args.out_dir.join("positions.txt");
     let records_path = args.out_dir.join("records.csv");
-    let mut positions = BufWriter::new(File::create_new(&positions_path)?);
-    let mut records = BufWriter::new(File::create_new(&records_path)?);
+    let mut positions = BufWriter::new(File::create(&positions_path)?);
+    let mut records = BufWriter::new(File::create(&records_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
     for input_index in 1..=args.count {
         let mut current = Position::initial();

@@ -1,22 +1,13 @@
-//! Reachability between absolute positions, using relative boards at every SAT layer.
-//! Query modes select exact endpoints through the shared driver. Every SAT model
-//! is replayed before an OK is returned.
-use crate::io::format_position;
-use crate::othello::{get_moves, validate_board, Board, Position};
-use crate::query::{solve_query, ExactOutcome, GoalClassification};
-use crate::record::{format_actions, replay, GoalMatch, PlyAction};
-use rayon::{prelude::*, ThreadPoolBuilder};
+//! Ply-layer SAT encoding for exact reachability.
+
+use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder};
+use crate::othello::{get_moves, Board, Position};
+use crate::query::ExactOutcome;
+use crate::record::{replay, PlyAction};
 use rustsat::{
-    instances::Cnf,
-    solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
-    types::{Clause, Lit, TernaryVal},
+    solvers::Solve,
+    types::{Lit, TernaryVal},
 };
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
 
 const BOARD_SQUARES: usize = 64;
 const DIRS: [(i32, i32); 8] = [
@@ -91,6 +82,7 @@ impl ClauseBuilder {
 struct SatVars {
     max_h: usize,                 // ありうる所要手数 (ply数) の最大値
     var_count: i32,               // これまでに割り当てた DIMACS 変数番号の最大値
+    placement_mask: u64,          // actual placements/flips are allocated only here
     player: Vec<Vec<i32>>,        // player[layer][sq]: 手番側の石
     opponent: Vec<Vec<i32>>,      // opponent[layer][sq]: 相手側の石
     active: Vec<i32>,             // active[ply]: ply < h なら真
@@ -106,7 +98,7 @@ struct SatVars {
 }
 
 impl SatVars {
-    fn new(max_h: usize, rays: &Rays, flip_sources: &FlipSources) -> Self {
+    fn new(max_h: usize, rays: &Rays, flip_sources: &FlipSources, placement_mask: u64) -> Self {
         let mut next = 0_i32;
 
         let player = alloc_matrix(&mut next, max_h + 1, BOARD_SQUARES);
@@ -114,9 +106,9 @@ impl SatVars {
         let active = alloc_vector(&mut next, max_h);
         let end = alloc_vector(&mut next, max_h + 1);
         let pass = alloc_vector(&mut next, max_h);
-        let play = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
+        let play = alloc_masked_matrix(&mut next, max_h, placement_mask);
         let legal = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
-        let flip = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
+        let flip = alloc_masked_matrix(&mut next, max_h, placement_mask);
         let cap = alloc_cap_tensor(&mut next, max_h, rays);
         let reply_cap = alloc_cap_tensor(&mut next, max_h, rays);
 
@@ -136,6 +128,7 @@ impl SatVars {
         Self {
             max_h,
             var_count: next,
+            placement_mask,
             player,
             opponent,
             active,
@@ -157,251 +150,46 @@ struct SatWitness {
     boards: Vec<Board>,
 }
 
-/// Each goal is a relative board together with its absolute side to move.
-/// Time limits apply separately to each candidate's solver call, not to a query.
-/// CNF-only runs return no classifications and never call the outcome callback.
-pub struct RunOptions {
-    pub start: Position,
-    pub goals: Vec<Position>,
-    pub goal_match: GoalMatch,
-    pub parallel_goals: usize,
-    pub show_coords: bool,
-    pub show_boards: bool,
-    pub verbose: bool,
-    pub cnf_dump_dir: Option<PathBuf>,
-    pub cnf_dump_only: bool,
-    pub sat_timeout_per_instance: Option<Duration>,
-}
-
-#[derive(Debug)]
-enum GoalSolveResult {
-    Sat(SatWitness),
-    Unsat,
-    Unknown,
-}
-
-fn verified_outcome(
-    result: GoalSolveResult,
+struct LayerDecoder {
+    vars: SatVars,
     start: Position,
     goal: Position,
-) -> Result<ExactOutcome, String> {
-    match result {
-        GoalSolveResult::Sat(witness) => {
-            verify_witness(&witness, start, goal)?;
-            Ok(ExactOutcome::Reachable(witness.actions))
-        }
-        GoalSolveResult::Unsat => Ok(ExactOutcome::Unreachable),
-        GoalSolveResult::Unknown => Ok(ExactOutcome::Unknown),
+}
+
+impl ModelDecoder for LayerDecoder {
+    fn decode_and_verify(
+        &self,
+        solver: &rustsat_kissat::Kissat<'_>,
+    ) -> Result<Vec<PlyAction>, String> {
+        let witness = decode_witness(&self.vars, solver)?;
+        verify_witness(&witness, self.start, self.goal)?;
+        Ok(witness.actions)
     }
 }
 
-/// Validate all positions before any output is created. Callbacks run serially
-/// in completion order; the returned vector is in input order, including duplicates.
-pub fn run_with_options<F>(
-    opts: RunOptions,
-    mut on_outcome: F,
-) -> Result<Vec<GoalClassification>, String>
-where
-    F: FnMut(&GoalClassification) -> Result<(), String>,
-{
-    validate_board(&opts.start.board).map_err(|err| format!("invalid start: {err:?}"))?;
-    for (index, goal) in opts.goals.iter().enumerate() {
-        validate_board(&goal.board)
-            .map_err(|err| format!("invalid goal[{}]: {err:?}", index + 1))?;
-    }
-    if opts.parallel_goals == 0 {
-        return Err("parallel_goals must be positive".to_string());
-    }
-    if opts
-        .sat_timeout_per_instance
-        .is_some_and(|limit| limit.is_zero())
-    {
-        return Err("SAT timeout must be positive".to_string());
-    }
-    if opts.cnf_dump_only && opts.cnf_dump_dir.is_none() {
-        return Err("CNF-only runs require an output directory".to_string());
-    }
-    if let Some(dir) = &opts.cnf_dump_dir {
-        fs::create_dir_all(dir)
-            .map_err(|e| format!("failed to create CNF directory {}: {e}", dir.display()))?;
-    }
-
-    if opts.goals.is_empty() {
-        return Ok(Vec::new());
-    }
-    let rays = precompute_rays();
-    let flip_sources = precompute_flip_sources(&rays);
-    let cancelled = AtomicBool::new(false);
-    let (tx, rx) = mpsc::channel();
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(opts.parallel_goals.min(opts.goals.len()))
-        .build()
-        .map_err(|err| format!("failed to build rayon pool for layer_sat: {err}"))?;
-
-    std::thread::scope(|scope| {
-        let opts = &opts;
-        let rays = &rays;
-        let flip_sources = &flip_sources;
-        let cancelled = &cancelled;
-        scope.spawn(move || {
-            pool.install(|| {
-                opts.goals
-                    .par_iter()
-                    .enumerate()
-                    .for_each_with(tx, |tx, (index, &goal)| {
-                        if cancelled.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        let result = solve_query(
-                            opts.start,
-                            goal,
-                            index + 1,
-                            opts.goal_match,
-                            |candidate, transform| {
-                                let path = opts.cnf_dump_dir.as_ref().map(|dir| {
-                                    dir.join(format!("goal_{:04}_{}.cnf", index + 1, transform))
-                                });
-                                check_exact_reachability(
-                                    opts.start,
-                                    candidate,
-                                    path.as_deref(),
-                                    opts.cnf_dump_only,
-                                    opts.sat_timeout_per_instance,
-                                    opts.verbose,
-                                    rays,
-                                    flip_sources,
-                                )?
-                                .map(|result| verified_outcome(result, opts.start, candidate))
-                                .transpose()
-                            },
-                        )
-                        .map(|outcome| (index, outcome))
-                        .map_err(|err| {
-                            cancelled.store(true, Ordering::Relaxed);
-                            format!("goal[{}] {}: {err}", index + 1, format_position(goal))
-                        });
-                        if tx.send(result).is_err() {
-                            cancelled.store(true, Ordering::Relaxed);
-                        }
-                    });
-            });
-        });
-
-        let mut ordered_outcomes = vec![None; opts.goals.len()];
-        let mut first_error = None;
-        for message in rx {
-            match message {
-                Err(err) => {
-                    if first_error.is_none() {
-                        cancelled.store(true, Ordering::Relaxed);
-                        first_error = Some(err);
-                    }
-                }
-                Ok((index, Some(outcome))) if first_error.is_none() => {
-                    if let Err(err) = print_result(&outcome, opts.show_coords, opts.show_boards)
-                        .and_then(|()| on_outcome(&outcome))
-                    {
-                        cancelled.store(true, Ordering::Relaxed);
-                        first_error = Some(err);
-                    }
-                    ordered_outcomes[index] = Some(outcome);
-                }
-                Ok(_) => {}
-            }
-        }
-        if let Some(err) = first_error {
-            return Err(err);
-        }
-        if opts.cnf_dump_only {
-            return Ok(Vec::new());
-        }
-        ordered_outcomes
-            .into_iter()
-            .enumerate()
-            .map(|(index, outcome)| {
-                outcome.ok_or_else(|| format!("missing result for input {}", index + 1))
-            })
-            .collect()
-    })
-}
-
-// This core only knows the exact start and endpoint. No symmetry or match
-// condition participates in encoding or model verification.
-#[allow(clippy::too_many_arguments)]
-fn check_exact_reachability(
-    start: Position,
-    goal: Position,
-    cnf_path: Option<&Path>,
-    cnf_dump_only: bool,
-    timeout: Option<Duration>,
-    verbose: bool,
-    rays: &Rays,
-    flip_sources: &FlipSources,
-) -> Result<Option<GoalSolveResult>, String> {
+pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, String> {
     let Some(min_plies) = min_required_plies(start.board, goal.board) else {
-        if let Some(path) = cnf_path {
-            dump_dimacs_cnf(path, 0, &[vec![]])?;
-        }
-        return Ok((!cnf_dump_only).then_some(GoalSolveResult::Unsat));
+        return Ok(EncodingResult::Trivial(ExactOutcome::Unreachable));
     };
     let max_plies = max_plies_with_passes(start.board, min_plies);
     if !(min_plies..=max_plies).any(|h| endpoint_turn_matches(start, goal, h)) {
-        if let Some(path) = cnf_path {
-            dump_dimacs_cnf(path, 0, &[vec![]])?;
-        }
-        return Ok((!cnf_dump_only).then_some(GoalSolveResult::Unsat));
+        return Ok(EncodingResult::Trivial(ExactOutcome::Unreachable));
     }
-    let build_started = Instant::now();
-    let vars = SatVars::new(max_plies, rays, flip_sources);
-    let clauses = encode_problem(&vars, start, goal, min_plies, rays, flip_sources);
-    let build_seconds = build_started.elapsed().as_secs_f64();
-    if let Some(path) = cnf_path {
-        dump_dimacs_cnf(path, vars.var_count as usize, &clauses)?;
-    }
-    if verbose {
-        println!(
-            "[encoding] goal={} range={}..={} vars={} clauses={} build_secs={:.6}",
-            format_position(goal),
-            min_plies,
-            max_plies,
-            vars.var_count,
-            clauses.len(),
-            build_seconds
-        );
-    }
-    if cnf_dump_only {
-        return Ok(None);
-    }
-    let solve_started = Instant::now();
-    let result = solve_single_problem(&vars, &clauses, timeout)?;
-    if verbose {
-        println!(
-            "[solver] goal={} solve_secs={:.6}",
-            format_position(goal),
-            solve_started.elapsed().as_secs_f64()
-        );
-    }
-    if let GoalSolveResult::Sat(witness) = &result {
-        verify_witness(witness, start, goal)?;
-    }
-    Ok(Some(result))
-}
 
-fn dump_dimacs_cnf(path: &Path, var_count: usize, clauses: &[Vec<i32>]) -> Result<(), String> {
-    let file =
-        File::create(path).map_err(|e| format!("failed to create CNF {}: {e}", path.display()))?;
-    let mut writer = BufWriter::new(file);
-    writeln!(writer, "p cnf {} {}", var_count, clauses.len())
-        .map_err(|e| format!("failed to write CNF header: {e}"))?;
-    for clause in clauses {
-        for lit in clause {
-            write!(writer, "{lit} ").map_err(|e| format!("failed to write CNF clause: {e}"))?;
-        }
-        writeln!(writer, "0").map_err(|e| format!("failed to write CNF clause: {e}"))?;
+    let mut rays = precompute_rays();
+    let placement_mask = goal.board.player | goal.board.opponent;
+    restrict_capture_rays(&mut rays, placement_mask);
+    let mut flip_sources = precompute_flip_sources(&rays);
+    for sources in &mut flip_sources {
+        sources.retain(|source| bit_is_set(placement_mask, source.play_sq));
     }
-    writer
-        .flush()
-        .map_err(|e| format!("failed to flush CNF {}: {e}", path.display()))
+    let vars = SatVars::new(max_plies, &rays, &flip_sources, placement_mask);
+    let clauses = encode_problem(&vars, start, goal, min_plies, &rays, &flip_sources);
+    Ok(EncodingResult::Cnf(CnfProblem::new(
+        vars.var_count as usize,
+        clauses,
+        LayerDecoder { vars, start, goal },
+    )))
 }
 
 fn min_required_plies(start: Board, goal: Board) -> Option<usize> {
@@ -447,7 +235,15 @@ fn encode_problem(
     }
     for layer in 0..=vars.max_h {
         for sq in 0..BOARD_SQUARES {
-            builder.add_clause(vec![-vars.player[layer][sq], -vars.opponent[layer][sq]]);
+            if bit_is_set(vars.placement_mask, sq) {
+                builder.add_clause(vec![-vars.player[layer][sq], -vars.opponent[layer][sq]]);
+            } else {
+                // Occupancy only grows. A square absent at the goal is empty
+                // throughout every possible history. Inactive suffix layers
+                // only exchange colors, so it is empty there as well.
+                builder.add_unit(-vars.player[layer][sq]);
+                builder.add_unit(-vars.opponent[layer][sq]);
+            }
         }
         // (2) Only endpoints with the required absolute turn may be selected.
         if !endpoint_turn_matches(start, goal, layer) {
@@ -455,6 +251,9 @@ fn encode_problem(
             continue;
         }
         for sq in 0..BOARD_SQUARES {
+            if !bit_is_set(vars.placement_mask, sq) {
+                continue;
+            }
             builder.add_implication(
                 vars.end[layer],
                 if bit_is_set(goal.board.player, sq) {
@@ -480,18 +279,23 @@ fn encode_problem(
 
         // (3) Exactly one action when active; no action after the endpoint.
         let mut action_required = vec![-active, pass];
-        action_required.extend_from_slice(&vars.play[ply]);
+        action_required.extend(vars.play[ply].iter().copied().filter(|&play| play != 0));
         builder.add_clause(action_required);
         builder.add_implication(pass, active);
         for (sq, &play) in vars.play[ply].iter().enumerate() {
+            if play == 0 {
+                continue;
+            }
             builder.add_implication(play, active);
             builder.add_clause(vec![-pass, -play]);
-            for &earlier in &vars.play[ply][..sq] {
+            for &earlier in vars.play[ply][..sq].iter().filter(|&&earlier| earlier != 0) {
                 builder.add_clause(vec![-play, -earlier]);
             }
         }
 
         let mut pass_requires_reply = vec![-pass];
+        // Keep legality at all 64 destinations, including outside the goal
+        // occupancy: a forbidden actual placement can still make passing illegal.
         for (sq, square_rays) in rays.iter().enumerate() {
             let player = vars.player[ply][sq];
             let opponent = vars.opponent[ply][sq];
@@ -522,13 +326,20 @@ fn encode_problem(
             }
             builder.add_clause(legal_requires_capture);
             builder.add_implication(pass, -legal);
-            builder.add_implication(vars.play[ply][sq], legal);
+            if vars.play[ply][sq] != 0 {
+                builder.add_implication(vars.play[ply][sq], legal);
+            }
         }
         builder.add_clause(pass_requires_reply);
 
         // (6) A square flips iff the chosen placement captures it in some ray.
         for (sq, sources) in flip_sources.iter().enumerate() {
             let flip = vars.flip[ply][sq];
+            if flip == 0 {
+                // Both colors are fixed false at every layer for this square.
+                // No flip, cause or transition variables/clauses are needed.
+                continue;
+            }
             let mut flip_requires_cause = vec![-flip];
             for (source, &cause) in sources.iter().zip(&vars.cause[ply][sq]) {
                 builder.add_conjunction(
@@ -616,62 +427,6 @@ fn add_range_selector_constraints(
     builder.add_implication(active[active.len() - 1], end[active.len()]);
 }
 
-fn solve_single_problem(
-    vars: &SatVars,
-    clauses: &[Vec<i32>],
-    sat_timeout: Option<Duration>,
-) -> Result<GoalSolveResult, String> {
-    let mut solver = rustsat_kissat::Kissat::default();
-    let mut cnf = Cnf::new();
-
-    for raw_clause in clauses {
-        let mut clause = Clause::new();
-        for &lit in raw_clause {
-            clause.add(to_rustsat_lit(lit));
-        }
-        cnf.add_clause(clause);
-    }
-
-    solver
-        .add_cnf(cnf)
-        .map_err(|err| format!("failed to add CNF to Kissat: {err}"))?;
-
-    let timeout_guard = sat_timeout.map(|limit| {
-        let interrupter = solver.interrupter();
-        let (done_tx, done_rx) = mpsc::channel::<()>();
-        let worker = std::thread::spawn(move || {
-            if done_rx.recv_timeout(limit).is_err() {
-                interrupter.interrupt();
-            }
-        });
-        (done_tx, worker)
-    });
-
-    let solve_result = solver.solve();
-
-    if let Some((done_tx, worker)) = timeout_guard {
-        let _ = done_tx.send(());
-        worker
-            .join()
-            .map_err(|_| "SAT timeout worker panicked".to_string())?;
-    }
-
-    match solve_result.map_err(|err| format!("kissat failed: {err}"))? {
-        SolverResult::Sat => {
-            let witness = decode_witness(vars, &solver)?;
-            Ok(GoalSolveResult::Sat(witness))
-        }
-        SolverResult::Unsat => Ok(GoalSolveResult::Unsat),
-        SolverResult::Interrupted => {
-            if sat_timeout.is_some() {
-                Ok(GoalSolveResult::Unknown)
-            } else {
-                Err("kissat solve was interrupted".to_string())
-            }
-        }
-    }
-}
-
 fn verify_witness(witness: &SatWitness, start: Position, goal: Position) -> Result<(), String> {
     let positions = replay(start, &witness.actions)?;
     if positions.len() != witness.boards.len() {
@@ -719,7 +474,7 @@ fn decode_witness(
             None
         };
         for sq in 0..BOARD_SQUARES {
-            if value_of(solver, vars.play[ply][sq])? {
+            if vars.play[ply][sq] != 0 && value_of(solver, vars.play[ply][sq])? {
                 if action.is_some() {
                     return Err(format!(
                         "model decoding error: multiple actions at ply {ply}"
@@ -748,38 +503,6 @@ fn decode_selected_h(vars: &SatVars, solver: &rustsat_kissat::Kissat<'_>) -> Res
     selected.ok_or_else(|| "model decoding error: no end layer selected".to_string())
 }
 
-fn print_result(
-    outcome: &GoalClassification,
-    show_coords: bool,
-    show_boards: bool,
-) -> Result<(), String> {
-    match outcome {
-        GoalClassification::Reachable { record } => {
-            println!(
-                "[{}] SAT (H={}, transform={})",
-                record.input_index,
-                record.actions.len(),
-                record.transform
-            );
-            if show_coords {
-                println!(
-                    "[{}] Record: {}",
-                    record.input_index,
-                    format_actions(&record.actions)
-                );
-            }
-            if show_boards {
-                for (layer, position) in record.verify()?.into_iter().enumerate() {
-                    println!("layer[{layer}] {}", format_position(position));
-                }
-            }
-        }
-        GoalClassification::Unreachable { input_index, .. } => println!("[{input_index}] UNSAT"),
-        GoalClassification::Unknown { input_index, .. } => println!("[{input_index}] UNKNOWN"),
-    }
-    Ok(())
-}
-
 fn value_of(solver: &rustsat_kissat::Kissat<'_>, var: i32) -> Result<bool, String> {
     let lit = Lit::positive(var as u32);
     match solver
@@ -789,15 +512,6 @@ fn value_of(solver: &rustsat_kissat::Kissat<'_>, var: i32) -> Result<bool, Strin
         TernaryVal::True => Ok(true),
         TernaryVal::False => Ok(false),
         TernaryVal::DontCare => Err(format!("model decoding error: literal {var} has no value")),
-    }
-}
-
-// Converts a signed DIMACS literal into rustsat's Lit type.
-fn to_rustsat_lit(raw_lit: i32) -> Lit {
-    if raw_lit > 0 {
-        Lit::positive(raw_lit as u32)
-    } else {
-        Lit::negative((-raw_lit) as u32)
     }
 }
 
@@ -818,6 +532,21 @@ fn alloc_matrix(next: &mut i32, rows: usize, cols: usize) -> Vec<Vec<i32>> {
         for cell in row.iter_mut().take(cols) {
             *next += 1;
             *cell = *next;
+        }
+    }
+    out
+}
+
+/// Zero denotes an omitted variable, never a DIMACS literal. Callers must skip
+/// these slots when encoding clauses or reading the model.
+fn alloc_masked_matrix(next: &mut i32, rows: usize, mask: u64) -> Vec<Vec<i32>> {
+    let mut out = vec![vec![0_i32; BOARD_SQUARES]; rows];
+    for row in &mut out {
+        for (sq, cell) in row.iter_mut().enumerate() {
+            if bit_is_set(mask, sq) {
+                *next += 1;
+                *cell = *next;
+            }
         }
     }
     out
@@ -861,6 +590,22 @@ fn precompute_rays() -> Rays {
     rays
 }
 
+/// A capture requires every intervening stone and its anchor to be occupied.
+/// Once a ray leaves the final occupancy, no longer prefix can capture. The
+/// starting square is deliberately unrestricted so hypothetical legal moves
+/// outside the goal remain available to the forced-pass constraints.
+fn restrict_capture_rays(rays: &mut Rays, occupied: u64) {
+    for square_rays in rays {
+        for ray in square_rays {
+            let length = ray
+                .iter()
+                .position(|&sq| !bit_is_set(occupied, sq))
+                .unwrap_or(ray.len());
+            ray.truncate(length);
+        }
+    }
+}
+
 // Precomputes all capture patterns that can flip each target square.
 fn precompute_flip_sources(rays: &Rays) -> FlipSources {
     let mut sources: FlipSources = vec![Vec::new(); BOARD_SQUARES];
@@ -885,14 +630,109 @@ fn bit_is_set(bb: u64, sq: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filters::sat::solve_problem;
     use crate::io::{TriCategory, TriOutcome};
     use crate::othello::BoardSymmetry;
-    use crate::record::PositionTransform;
+    use crate::query::{solve_query, GoalClassification};
+    use crate::record::{GoalMatch, PositionTransform};
+    use std::time::Duration;
+
+    fn target_geometry(occupied: u64) -> (Rays, FlipSources) {
+        let mut rays = precompute_rays();
+        restrict_capture_rays(&mut rays, occupied);
+        let mut sources = precompute_flip_sources(&rays);
+        for square_sources in &mut sources {
+            square_sources.retain(|source| bit_is_set(occupied, source.play_sq));
+        }
+        (rays, sources)
+    }
+
+    #[test]
+    fn target_occupancy_pruning_reduces_cnf_without_zero_literals() {
+        let start = Position::initial();
+        let goal = *replay(start, &[PlyAction::Play(19), PlyAction::Play(18)])
+            .unwrap()
+            .last()
+            .unwrap();
+        let occupied = goal.board.player | goal.board.opponent;
+        let min_plies = min_required_plies(start.board, goal.board).unwrap();
+        let max_plies = max_plies_with_passes(start.board, min_plies);
+
+        let original_rays = precompute_rays();
+        let original_sources = precompute_flip_sources(&original_rays);
+        let original_vars = SatVars::new(max_plies, &original_rays, &original_sources, u64::MAX);
+        let original_cnf = encode_problem(
+            &original_vars,
+            start,
+            goal,
+            min_plies,
+            &original_rays,
+            &original_sources,
+        );
+        let (rays, sources) = target_geometry(occupied);
+        let vars = SatVars::new(max_plies, &rays, &sources, occupied);
+        let clauses = encode_problem(&vars, start, goal, min_plies, &rays, &sources);
+        assert!(vars.var_count < original_vars.var_count);
+        assert!(clauses.len() < original_cnf.len());
+        for clause in &clauses {
+            for &literal in clause {
+                assert_ne!(literal, 0, "omitted variables must not become literals");
+                assert!(literal.abs() <= vars.var_count);
+            }
+        }
+    }
+
+    #[test]
+    fn target_occupancy_pruning_keeps_legality_outside_the_goal() {
+        // If the only added square is D3, C4 is outside the goal. C4 is still
+        // a legal initial Black move and must prevent an artificial pass.
+        let occupied = crate::othello::CENTER_MASK | (1_u64 << 19);
+        let (rays, sources) = target_geometry(occupied);
+        let vars = SatVars::new(2, &rays, &sources, occupied);
+        let c4 = 26;
+        let east = 2;
+        assert!(!bit_is_set(occupied, c4));
+        assert_eq!(rays[c4][east], vec![27, 28]);
+        assert_eq!(vars.play[0][c4], 0);
+        assert_eq!(vars.flip[0][c4], 0);
+        assert_ne!(vars.legal[0][c4], 0);
+        assert_ne!(vars.cap[0][c4][east][1], 0);
+        assert_ne!(vars.reply_cap[0][c4][east][1], 0);
+        assert!(sources
+            .iter()
+            .flatten()
+            .all(|source| bit_is_set(occupied, source.play_sq)));
+    }
+
+    #[test]
+    fn target_occupancy_pruning_leaves_full_occupancy_cnf_unchanged() {
+        let position = Position {
+            board: Board::new(u64::MAX, 0),
+            side_to_move: crate::othello::Color::Black,
+        };
+        let original_rays = precompute_rays();
+        let original_sources = precompute_flip_sources(&original_rays);
+        let original_vars = SatVars::new(1, &original_rays, &original_sources, u64::MAX);
+        let (rays, sources) = target_geometry(u64::MAX);
+        let vars = SatVars::new(1, &rays, &sources, u64::MAX);
+        assert_eq!(vars.var_count, original_vars.var_count);
+        assert_eq!(
+            encode_problem(&vars, position, position, 0, &rays, &sources),
+            encode_problem(
+                &original_vars,
+                position,
+                position,
+                0,
+                &original_rays,
+                &original_sources
+            )
+        );
+    }
 
     // The orbit of the reflected initial position has two representatives
     // under the stabilizer of the fixed standard initial position.
     fn aggregate(
-        mut results: Vec<Result<GoalSolveResult, String>>,
+        mut results: Vec<Result<ExactOutcome, String>>,
     ) -> Result<Option<GoalClassification>, String> {
         results.reverse();
         solve_query(
@@ -900,26 +740,22 @@ mod tests {
             BoardSymmetry::MirrorHorizontal.apply_position(Position::initial()),
             1,
             GoalMatch::SymmetryOrbit,
-            |candidate, _| {
-                verified_outcome(
-                    results.pop().expect("candidate count")?,
-                    Position::initial(),
-                    candidate,
-                )
-                .map(Some)
-            },
+            |_, _| results.pop().expect("candidate count").map(Some),
         )
     }
 
     #[test]
     fn candidate_aggregation_preserves_unknown_and_errors() {
-        let all_ng = aggregate(vec![Ok(GoalSolveResult::Unsat), Ok(GoalSolveResult::Unsat)])
-            .unwrap()
-            .unwrap();
+        let all_ng = aggregate(vec![
+            Ok(ExactOutcome::Unreachable),
+            Ok(ExactOutcome::Unreachable),
+        ])
+        .unwrap()
+        .unwrap();
         assert_eq!(all_ng.category(), TriCategory::Ng);
         for results in [
-            vec![Ok(GoalSolveResult::Unknown), Ok(GoalSolveResult::Unsat)],
-            vec![Ok(GoalSolveResult::Unsat), Ok(GoalSolveResult::Unknown)],
+            vec![Ok(ExactOutcome::Unknown), Ok(ExactOutcome::Unreachable)],
+            vec![Ok(ExactOutcome::Unreachable), Ok(ExactOutcome::Unknown)],
         ] {
             assert_eq!(
                 aggregate(results).unwrap().unwrap().category(),
@@ -927,7 +763,7 @@ mod tests {
             );
         }
         assert!(aggregate(vec![
-            Ok(GoalSolveResult::Unknown),
+            Ok(ExactOutcome::Unknown),
             Err("solver failure".to_string())
         ])
         .is_err());
@@ -936,11 +772,8 @@ mod tests {
     #[test]
     fn candidate_sat_after_unknown_is_verified_and_wins() {
         let outcome = aggregate(vec![
-            Ok(GoalSolveResult::Unknown),
-            Ok(GoalSolveResult::Sat(SatWitness {
-                actions: vec![],
-                boards: vec![Position::initial().board],
-            })),
+            Ok(ExactOutcome::Unknown),
+            Ok(ExactOutcome::Reachable(vec![])),
         ])
         .unwrap()
         .unwrap();
@@ -975,13 +808,14 @@ mod tests {
             wrong_turn
         )
         .is_err());
-        assert!(aggregate(vec![
-            Ok(GoalSolveResult::Unknown),
-            Ok(GoalSolveResult::Sat(SatWitness {
+        assert!(verify_witness(
+            &SatWitness {
                 actions: vec![PlyAction::Pass],
                 boards: vec![start.board, start.board.swapped()],
-            }))
-        ])
+            },
+            start,
+            start,
+        )
         .is_err());
     }
 
@@ -1002,10 +836,19 @@ mod tests {
             }
         }
         let rays = precompute_rays();
-        let vars = SatVars::new(0, &rays, &precompute_flip_sources(&rays));
+        let vars = SatVars::new(0, &rays, &precompute_flip_sources(&rays), u64::MAX);
+        let problem = CnfProblem::new(
+            132,
+            clauses,
+            LayerDecoder {
+                vars,
+                start: Position::initial(),
+                goal: Position::initial(),
+            },
+        );
         assert!(matches!(
-            solve_single_problem(&vars, &clauses, Some(Duration::from_millis(1))).unwrap(),
-            GoalSolveResult::Unknown
+            solve_problem(&problem, Some(Duration::from_millis(1))).unwrap(),
+            ExactOutcome::Unknown
         ));
     }
 }

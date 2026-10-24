@@ -1,9 +1,12 @@
 pub mod connectivity;
 pub mod flip_sat;
 pub mod impossible_edges;
-pub mod layer_sat;
+pub(crate) mod layer_sat;
 pub mod linear_programming;
 pub mod occupancy;
+pub(crate) mod placement_sat;
+pub(crate) mod reverse;
+pub mod sat;
 pub mod seg3;
 
 use std::io;
@@ -45,8 +48,8 @@ impl Filter {
                 "occupied squares are disconnected from the centre",
             )),
             Self::Edge => Ok(necessary_condition(
-                impossible_edges::check_edge_patterns(board.player, board.opponent),
-                "an impossible physical-edge pattern is present",
+                impossible_edges::check_virtual_edge_patterns(board.player, board.opponent),
+                "an impossible physical or virtual edge pattern is present",
             )),
             Self::Occupancy => Ok(necessary_condition(
                 occupancy::check_occupancy(board.player | board.opponent),

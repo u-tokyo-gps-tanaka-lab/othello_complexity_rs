@@ -429,12 +429,6 @@ pub fn sw(x: u64) -> u64 {
     (x >> 9) & (not_h_file() & not_rank_8())
 }
 
-/// 与えたビットボードの8近傍を返す
-#[inline(always)]
-pub fn moore_neighborhood(bb: u64) -> u64 {
-    east(bb) | west(bb) | north(bb) | south(bb) | ne(bb) | nw(bb) | se(bb) | sw(bb)
-}
-
 /// 1方向に対する「はさみ取り」判定。はさめるならその方向の反転集合を返す。
 #[inline(always)]
 fn ray_flips<F>(move_bb: u64, player: u64, opponent: u64, step: F) -> u64

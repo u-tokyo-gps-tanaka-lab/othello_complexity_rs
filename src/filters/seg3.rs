@@ -166,6 +166,33 @@ fn can_put_flip(occupied: u64, order: &[u64; 64]) -> ([u8; 64], [u8; 64]) {
     (canput, canflip)
 }
 
+/// Color-independent inputs to the seg3 test. Keeping only these two arrays
+/// lets reverse-search siblings share their analysis without retaining the
+/// full 512-byte occupancy-order matrix.
+pub(crate) struct Seg3Geometry {
+    canput: [u8; 64],
+    canflip: [u8; 64],
+}
+
+pub(crate) fn seg3_geometry(occupied: u64, order: &[u64; 64]) -> Seg3Geometry {
+    let (canput, canflip) = can_put_flip(occupied, order);
+    Seg3Geometry { canput, canflip }
+}
+
+impl Seg3Geometry {
+    /// Central discs on which no real placement could ever have caused a flip.
+    /// Their absolute colors must equal the colors in the standard start.
+    pub(crate) fn immutable_centers(&self) -> u64 {
+        let mut immutable = 0;
+        for square in [27, 28, 35, 36] {
+            if self.canflip[square] == 0 {
+                immutable |= 1_u64 << square;
+            }
+        }
+        immutable
+    }
+}
+
 /// 反転整合性の必要条件を検査する。
 ///
 /// 占有到達性が満たされない場合も到達不能であるため `false` を返す。
@@ -180,7 +207,28 @@ pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) ->
     } else {
         occupancy_order(occupied)
     };
-    let (canput, canflip) = can_put_flip(occupied, &order);
+    check_seg3_more_with_order(player, opponent, &order)
+}
+
+/// Check the color conditions using an occupancy analysis already computed by
+/// the caller. The caller must first establish `check_occupancy(player | opponent)`
+/// and supply `occupancy_order(player | opponent)` (or its cached result).
+///
+/// Search uses the same order for both this test and the last-placement mask.
+pub(crate) fn check_seg3_more_with_order(player: u64, opponent: u64, order: &[u64; 64]) -> bool {
+    let occupied = player | opponent;
+    let geometry = seg3_geometry(occupied, order);
+    check_seg3_more_with_geometry(player, opponent, &geometry)
+}
+
+/// Apply only the color-dependent part of seg3. `geometry` must have been
+/// computed for `player | opponent` after its occupancy check succeeded.
+pub(crate) fn check_seg3_more_with_geometry(
+    player: u64,
+    opponent: u64,
+    geometry: &Seg3Geometry,
+) -> bool {
+    let Seg3Geometry { canput, canflip } = geometry;
     let ps = [player, opponent];
     for i in 0..2 {
         let p0 = ps[i];
@@ -243,4 +291,68 @@ pub fn check_seg3_more(player: u64, opponent: u64, use_occupancy_cache: bool) ->
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::othello::{flip, Position};
+    use crate::record::PlyAction;
+    use crate::search::core::successors;
+    use rand::{Rng, SeedableRng};
+
+    #[test]
+    fn canflip_retains_every_real_historical_flip_in_complete_games() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x7465_6d70_6f72_616c);
+        let mut passes = 0;
+        let mut retained_flips = 0;
+        for _ in 0..64 {
+            let mut position = Position::initial();
+            let mut historical_axes = [0_u8; 64];
+            loop {
+                let next = successors(position);
+                if next.is_empty() {
+                    break;
+                }
+                let (target, action) = next[rng.random_range(0..next.len())];
+                match action {
+                    PlyAction::Play(endpoint) => {
+                        let mut flipped =
+                            flip(endpoint, position.board.player, position.board.opponent);
+                        while flipped != 0 {
+                            let square = flipped.trailing_zeros() as usize;
+                            flipped &= flipped - 1;
+                            let dx = ((endpoint % 8) as i32 - (square % 8) as i32).signum();
+                            let dy = ((endpoint / 8) as i32 - (square / 8) as i32).signum();
+                            let direction = Direction::all()
+                                .iter()
+                                .position(|direction| direction.to_offset() == (dx, dy))
+                                .unwrap();
+                            historical_axes[square] |= 1 << (direction & 3);
+                            retained_flips += 1;
+                        }
+                    }
+                    PlyAction::Pass => passes += 1,
+                }
+                position = target;
+                let occupied = position.board.player | position.board.opponent;
+                let order = occupancy_order(occupied);
+                let geometry = seg3_geometry(occupied, &order);
+                for (square, &historical) in historical_axes.iter().enumerate() {
+                    assert_eq!(
+                        historical & !geometry.canflip[square],
+                        0,
+                        "lost an actual flip axis: square={square}, position={position:?}",
+                    );
+                }
+                assert!(check_seg3_more_with_geometry(
+                    position.board.player,
+                    position.board.opponent,
+                    &geometry,
+                ));
+            }
+        }
+        assert!(passes > 0, "deterministic complete games must cover passes");
+        assert!(retained_flips > 0);
+    }
 }

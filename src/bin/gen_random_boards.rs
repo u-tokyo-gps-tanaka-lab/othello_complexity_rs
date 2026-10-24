@@ -34,11 +34,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("count must be positive".into());
     }
     let population = args.mode.metadata(args.discs)?;
-    create_output_dir(&args.out_dir)?;
+    create_output_dir(&args.out_dir, "sampling.json")?;
     let positions_path = args.out_dir.join("positions.txt");
     let mapping_path = args.out_dir.join("mapping.jsonl");
-    let mut output = BufWriter::new(File::create_new(&positions_path)?);
-    let mut mapping = BufWriter::new(File::create_new(&mapping_path)?);
+    let mut output = BufWriter::new(File::create(&positions_path)?);
+    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
     for index in 1..=args.count {
         let position = args.mode.sample(&mut rng, args.discs)?;

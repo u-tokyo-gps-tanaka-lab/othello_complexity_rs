@@ -6,8 +6,9 @@
 mod support;
 
 use othello_complexity_rs::filters::{
-    connectivity::is_connected, flip_sat::check_flip_sat, impossible_edges::check_edge_patterns,
-    linear_programming::check_lp, occupancy::check_occupancy, seg3::check_seg3_more,
+    connectivity::is_connected, flip_sat::check_flip_sat,
+    impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp,
+    occupancy::check_occupancy, seg3::check_seg3_more,
 };
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use othello_complexity_rs::record::PlyAction;
@@ -17,7 +18,7 @@ fn results(board: Board) -> [bool; 7] {
     let occupied = board.player | board.opponent;
     [
         is_connected(occupied),
-        check_edge_patterns(board.player, board.opponent),
+        check_virtual_edge_patterns(board.player, board.opponent),
         check_occupancy(occupied),
         check_seg3_more(board.player, board.opponent, false),
         check_lp(board.player, board.opponent, false, false)

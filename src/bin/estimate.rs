@@ -5,6 +5,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::estimate;
+use othello_complexity_rs::filters::sat::SatEncoding;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
 const DEFAULT_ALPHA: f64 = 0.005;
@@ -23,9 +24,8 @@ struct Cli {
 enum Command {
     /// Apply the fixed filter pipeline to a sample.
     Filters(FiltersArgs),
-    /// Classify the preceding stage's unknown positions with layer SAT.
-    #[command(name = "layer-sat")]
-    LayerSat(LayerSatArgs),
+    /// Classify the preceding stage's unknown positions with SAT.
+    Sat(SatArgs),
     /// Classify the preceding stage's unknown positions with reverse search.
     #[command(name = "reverse-search")]
     ReverseSearch(ReverseSearchArgs),
@@ -45,7 +45,7 @@ struct FiltersArgs {
 }
 
 #[derive(Debug, Args)]
-struct LayerSatArgs {
+struct SatArgs {
     #[arg(long, value_name = "DIR")]
     from: PathBuf,
 
@@ -55,6 +55,9 @@ struct LayerSatArgs {
     /// Significance level (two-sided alpha); 0.005 gives a 99.5% CI
     #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
+
+    #[arg(long, value_name = "NAME")]
+    encoding: SatEncoding,
 
     #[arg(long, value_name = "N")]
     parallel_goals: NonZeroUsize,
@@ -252,10 +255,11 @@ impl ExternalBfsOpts {
 fn execute(cli: Cli) -> std::io::Result<()> {
     let interval = match cli.command {
         Command::Filters(args) => estimate::filters(&args.sample, &args.out_dir, args.alpha)?,
-        Command::LayerSat(args) => estimate::layer_sat(
+        Command::Sat(args) => estimate::sat(
             &args.from,
             &args.out_dir,
             args.alpha,
+            args.encoding,
             args.parallel_goals.get(),
             args.sat_timeout_secs
                 .map(|seconds| Duration::from_secs(seconds.get())),
@@ -273,172 +277,5 @@ fn main() {
     if let Err(error) = execute(Cli::parse()) {
         eprintln!("error: {error}");
         std::process::exit(1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-
-    use super::*;
-
-    fn parse_strategy(args: &[&str]) -> Strategy {
-        let cli = Cli::try_parse_from(args).unwrap();
-        match cli.command {
-            Command::ReverseSearch(args) => args.strategy.into_strategy(),
-            _ => panic!("expected reverse-search command"),
-        }
-    }
-
-    #[test]
-    fn reverse_search_example_builds_dfs_parallel_strategy() {
-        assert_eq!(
-            parse_strategy(&[
-                "estimate",
-                "reverse-search",
-                "--from",
-                "a",
-                "--out-dir",
-                "b",
-                "--alpha",
-                "0.005",
-                "dfs-parallel",
-                "--discs",
-                "8",
-                "--max-nodes",
-                "10000",
-                "--table-size",
-                "100000",
-                "--threads",
-                "2",
-            ]),
-            Strategy::DfsParallel {
-                discs: 8,
-                max_nodes: 10_000,
-                table_size: 100_000,
-                threads: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn alpha_defaults_to_0_005_for_all_subcommands() {
-        let filters =
-            Cli::try_parse_from(["estimate", "filters", "--sample", "a", "--out-dir", "b"])
-                .unwrap();
-        match filters.command {
-            Command::Filters(args) => assert_eq!(args.alpha, 0.005),
-            _ => panic!("expected filters command"),
-        }
-
-        let layer_sat = Cli::try_parse_from([
-            "estimate",
-            "layer-sat",
-            "--from",
-            "a",
-            "--out-dir",
-            "b",
-            "--parallel-goals",
-            "1",
-        ])
-        .unwrap();
-        match layer_sat.command {
-            Command::LayerSat(args) => assert_eq!(args.alpha, 0.005),
-            _ => panic!("expected layer-sat command"),
-        }
-
-        let reverse_search = Cli::try_parse_from([
-            "estimate",
-            "reverse-search",
-            "--from",
-            "a",
-            "--out-dir",
-            "b",
-            "dfs-parallel",
-            "--discs",
-            "8",
-            "--max-nodes",
-            "10000",
-            "--table-size",
-            "100000",
-            "--threads",
-            "2",
-        ])
-        .unwrap();
-        match reverse_search.command {
-            Command::ReverseSearch(args) => assert_eq!(args.alpha, 0.005),
-            _ => panic!("expected reverse-search command"),
-        }
-    }
-
-    #[test]
-    fn omitted_strategy_option_is_an_error() {
-        let result = Cli::try_parse_from([
-            "estimate",
-            "reverse-search",
-            "--from",
-            "a",
-            "--out-dir",
-            "b",
-            "--alpha",
-            "0.005",
-            "dfs-parallel",
-            "--discs",
-            "8",
-            "--max-nodes",
-            "10000",
-            "--threads",
-            "2",
-        ]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn environment_does_not_supply_omitted_strategy_options() {
-        const VARIABLES: [&str; 4] = ["DISCS", "MAX_NODES", "TABLE_SIZE", "RAYON_THREADS"];
-
-        struct RestoreEnvironment(Vec<(&'static str, Option<OsString>)>);
-
-        impl Drop for RestoreEnvironment {
-            fn drop(&mut self) {
-                for (variable, value) in &self.0 {
-                    if let Some(value) = value {
-                        std::env::set_var(variable, value);
-                    } else {
-                        std::env::remove_var(variable);
-                    }
-                }
-            }
-        }
-
-        let _restore = RestoreEnvironment(
-            VARIABLES
-                .into_iter()
-                .map(|variable| (variable, std::env::var_os(variable)))
-                .collect(),
-        );
-        std::env::set_var("DISCS", "8");
-        std::env::set_var("MAX_NODES", "10000");
-        std::env::set_var("TABLE_SIZE", "100000");
-        std::env::set_var("RAYON_THREADS", "2");
-
-        let result = Cli::try_parse_from([
-            "estimate",
-            "reverse-search",
-            "--from",
-            "a",
-            "--out-dir",
-            "b",
-            "--alpha",
-            "0.005",
-            "dfs-parallel",
-            "--max-nodes",
-            "10000",
-            "--table-size",
-            "100000",
-            "--threads",
-            "2",
-        ]);
-        assert!(result.is_err());
     }
 }

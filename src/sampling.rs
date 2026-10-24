@@ -394,15 +394,15 @@ pub fn artifact(path: &Path) -> io::Result<Value> {
     }))
 }
 
-/// Make a new experiment directory; never overwrite or reuse an existing one.
-pub fn create_output_dir(path: &Path) -> io::Result<()> {
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent)?;
+/// Prepare an output directory and remove its previous completion record.
+/// Existing directories are reused, and all other files are left unchanged.
+pub fn create_output_dir(path: &Path, record: &str) -> io::Result<()> {
+    fs::create_dir_all(path)?;
+    match fs::remove_file(path.join(record)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
-    fs::create_dir(path)
 }
 
 /// Write a completed sampling record only after its referenced artifacts exist.
@@ -418,7 +418,7 @@ pub fn write_sampling_record(directory: &Path, mut record: Value) -> io::Result<
         "rand_chacha_version": lock_version("rand_chacha")?,
         "rand_version": lock_version("rand")?,
     });
-    let mut file = File::create_new(directory.join("sampling.json"))?;
+    let mut file = File::create(directory.join("sampling.json"))?;
     serde_json::to_writer_pretty(&mut file, &record)?;
     writeln!(file)?;
     file.sync_all()
