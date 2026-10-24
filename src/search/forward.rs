@@ -154,7 +154,9 @@ fn stable_discs(occupied: u64, target: u64) -> u64 {
     stable
 }
 
-fn compatible(position: Position, target: Position) -> bool {
+/// Necessary occupancy and immutable-color conditions for continuing to target.
+/// Also used when deriving a goal-specific frontier from a shared forward table.
+pub(crate) fn compatible(position: Position, target: Position) -> bool {
     let occupied = position.board.player | position.board.opponent;
     let target_occupied = target.board.player | target.board.opponent;
     if occupied & target_occupied != occupied {

@@ -4,6 +4,7 @@ pub mod impossible_edges;
 pub mod layer_sat;
 pub mod linear_programming;
 pub mod occupancy;
+pub(crate) mod reverse;
 pub mod seg3;
 
 use std::io;

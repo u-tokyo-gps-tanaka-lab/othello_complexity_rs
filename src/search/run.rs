@@ -18,6 +18,7 @@ use crate::search::{
     transposition::Btable,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ForwardMode {
     Shared,
     Targeted,
@@ -80,6 +81,18 @@ impl Strategy {
     }
 }
 
+fn forward_mode(strategy: &Strategy) -> ForwardMode {
+    match strategy {
+        Strategy::Dfs { .. }
+        | Strategy::DfsMoveOrdering { .. }
+        | Strategy::DfsParallel { .. }
+        | Strategy::GbfsParallel { .. } => ForwardMode::Shared,
+        Strategy::BfsExternal(_)
+        | Strategy::BfsExternalParallel(_)
+        | Strategy::BfsInmemoryParallel { .. } => ForwardMode::Targeted,
+    }
+}
+
 fn run_queries(
     input: &Path,
     out_dir: &Path,
@@ -105,8 +118,8 @@ fn run_queries(
             .open(out_dir.join(format!("{prefix}_records.csv")))?,
     );
     let mut node_counts = Vec::with_capacity(positions.len());
-    // DFS shares an unpruned table. No input needs states above the largest
-    // target, and an empty input needs no forward search at all.
+    // DFS and GBFS share an unpruned table. No input needs states above the
+    // largest target, and an empty input needs no forward search at all.
     let shared_table = match forward_mode {
         ForwardMode::Shared => positions
             .iter()
@@ -165,97 +178,6 @@ fn run_queries(
     records.flush()?;
     outputs.flush()?;
     Ok(node_counts)
-}
-
-pub fn run_dfs(
-    input: &Path,
-    out_dir: &Path,
-    discs: u32,
-    goal_match: GoalMatch,
-    node_limit: usize,
-) -> io::Result<Vec<usize>> {
-    let mut visited = Btable::new(0x1_0000_0000, 0x1_0000);
-    run_queries(
-        input,
-        out_dir,
-        discs,
-        goal_match,
-        ForwardMode::Shared,
-        |_, goal, table| {
-            visited.clear();
-            retrospective_search(goal, table, &mut visited, node_limit)
-        },
-    )
-}
-
-pub fn run_dfs_move_ordering(
-    input: &Path,
-    out_dir: &Path,
-    discs: u32,
-    goal_match: GoalMatch,
-    node_limit: usize,
-) -> io::Result<Vec<usize>> {
-    let mut visited = Btable::new(0x1_0000_0000, 0x1_0000);
-    run_queries(
-        input,
-        out_dir,
-        discs,
-        goal_match,
-        ForwardMode::Shared,
-        |_, goal, table| {
-            visited.clear();
-            retrospective_search_move_ordering(goal, table, &mut visited, node_limit)
-        },
-    )
-}
-
-pub fn run_parallel_dfs(
-    input: &Path,
-    out_dir: &Path,
-    discs: u32,
-    goal_match: GoalMatch,
-    node_limit: usize,
-    table_limit: usize,
-    threads: usize,
-) -> io::Result<Vec<usize>> {
-    run_queries(
-        input,
-        out_dir,
-        discs,
-        goal_match,
-        ForwardMode::Shared,
-        |_, goal, table| {
-            retrospective_search_parallel(goal, table, node_limit, table_limit, threads)
-        },
-    )
-}
-
-pub fn run_parallel_gbfs(
-    input: &Path,
-    out_dir: &Path,
-    discs: u32,
-    goal_match: GoalMatch,
-    node_limit: usize,
-    use_lp: bool,
-    threads: usize,
-) -> io::Result<Vec<usize>> {
-    let threads = if threads == 0 {
-        std::thread::available_parallelism()?.get().min(64)
-    } else {
-        threads
-    };
-    run_queries(
-        input,
-        out_dir,
-        discs,
-        goal_match,
-        ForwardMode::Targeted,
-        |_, goal, table| {
-            parallel_retrospective_greedy_best_first_search(
-                goal, table, node_limit, use_lp, threads,
-            )
-        },
-    )
 }
 
 pub fn run_parallel_inmemory_bfs(
@@ -442,33 +364,72 @@ pub fn run_strategy(
 ) -> io::Result<Vec<usize>> {
     match strategy {
         Strategy::Dfs { discs, max_nodes } => {
-            run_dfs(input, out_dir, *discs, goal_match, *max_nodes)
+            let mut visited = Btable::new(0x1_0000_0000, 0x1_0000);
+            run_queries(
+                input,
+                out_dir,
+                *discs,
+                goal_match,
+                forward_mode(strategy),
+                |_, goal, table| {
+                    visited.clear();
+                    retrospective_search(goal, table, &mut visited, *max_nodes)
+                },
+            )
         }
         Strategy::DfsMoveOrdering { discs, max_nodes } => {
-            run_dfs_move_ordering(input, out_dir, *discs, goal_match, *max_nodes)
+            let mut visited = Btable::new(0x1_0000_0000, 0x1_0000);
+            run_queries(
+                input,
+                out_dir,
+                *discs,
+                goal_match,
+                forward_mode(strategy),
+                |_, goal, table| {
+                    visited.clear();
+                    retrospective_search_move_ordering(goal, table, &mut visited, *max_nodes)
+                },
+            )
         }
         Strategy::DfsParallel {
             discs,
             max_nodes,
             table_size,
             threads,
-        } => run_parallel_dfs(
+        } => run_queries(
             input,
             out_dir,
             *discs,
             goal_match,
-            *max_nodes,
-            *table_size,
-            *threads,
+            forward_mode(strategy),
+            |_, goal, table| {
+                retrospective_search_parallel(goal, table, *max_nodes, *table_size, *threads)
+            },
         ),
         Strategy::GbfsParallel {
             discs,
             max_nodes,
             use_lp,
             threads,
-        } => run_parallel_gbfs(
-            input, out_dir, *discs, goal_match, *max_nodes, *use_lp, *threads,
-        ),
+        } => {
+            let threads = if *threads == 0 {
+                std::thread::available_parallelism()?.get().min(64)
+            } else {
+                *threads
+            };
+            run_queries(
+                input,
+                out_dir,
+                *discs,
+                goal_match,
+                forward_mode(strategy),
+                |_, goal, table| {
+                    parallel_retrospective_greedy_best_first_search(
+                        goal, table, *max_nodes, *use_lp, threads,
+                    )
+                },
+            )
+        }
         Strategy::BfsExternal(config) => run_bfs(&external_cfg(config, input, out_dir), goal_match),
         Strategy::BfsExternalParallel(config) => {
             run_parallel_bfs(&external_cfg(config, input, out_dir), goal_match)
@@ -489,5 +450,77 @@ pub fn run_strategy(
             *use_occupancy_cache,
             *threads,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strategies_select_the_expected_forward_table_mode() {
+        let external = ExternalBfs {
+            discs: 4,
+            jobs: 1,
+            verbose: 0,
+            block_size: 1,
+            tmp_dir: PathBuf::from("unused"),
+            resume: false,
+        };
+        let cases = [
+            (
+                Strategy::Dfs {
+                    discs: 4,
+                    max_nodes: 1,
+                },
+                ForwardMode::Shared,
+            ),
+            (
+                Strategy::DfsMoveOrdering {
+                    discs: 4,
+                    max_nodes: 1,
+                },
+                ForwardMode::Shared,
+            ),
+            (
+                Strategy::DfsParallel {
+                    discs: 4,
+                    max_nodes: 1,
+                    table_size: 1,
+                    threads: 1,
+                },
+                ForwardMode::Shared,
+            ),
+            (
+                Strategy::GbfsParallel {
+                    discs: 4,
+                    max_nodes: 1,
+                    use_lp: false,
+                    threads: 1,
+                },
+                ForwardMode::Shared,
+            ),
+            (
+                Strategy::BfsExternal(external.clone()),
+                ForwardMode::Targeted,
+            ),
+            (
+                Strategy::BfsExternalParallel(external),
+                ForwardMode::Targeted,
+            ),
+            (
+                Strategy::BfsInmemoryParallel {
+                    discs: 4,
+                    max_nodes: 1,
+                    use_lp: false,
+                    use_occupancy_cache: false,
+                    threads: 1,
+                },
+                ForwardMode::Targeted,
+            ),
+        ];
+        for (strategy, expected) in cases {
+            assert_eq!(forward_mode(&strategy), expected, "{strategy:?}");
+        }
     }
 }

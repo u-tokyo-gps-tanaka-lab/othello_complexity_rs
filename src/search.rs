@@ -1,7 +1,9 @@
+pub(crate) mod constraints;
 pub mod core;
 pub mod dfs;
 pub mod external_bfs;
 pub mod forward;
+pub(crate) mod frontier;
 pub mod inmemory_bfs;
 pub mod move_ordering;
 pub mod parallel_dfs;

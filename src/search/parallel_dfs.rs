@@ -4,11 +4,11 @@ use std::sync::Mutex;
 
 use ordered_float::OrderedFloat;
 
-use crate::filters::{occupancy::check_occupancy, seg3::check_seg3_more};
 use crate::othello::Position;
 use crate::record::PlyAction;
 use crate::search::{
-    core::{found, predecessors, SearchNode, SearchOutcome},
+    constraints::ReverseConstraints,
+    core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},
     forward::ForwardTable,
     move_ordering::h_function,
     transposition::Visited,
@@ -23,6 +23,7 @@ struct Progress {
 
 struct Context<'a> {
     table: &'a ForwardTable,
+    constraints: ReverseConstraints,
     node_limit: usize,
     table_limit: usize,
     progress: Mutex<Progress>,
@@ -68,13 +69,14 @@ impl Context<'_> {
                 return Ok(None);
             }
         }
-        let board = node.position.board;
-        if !check_occupancy(board.player | board.opponent)
-            || !check_seg3_more(board.player, board.opponent, false)
-        {
+        let Some(candidates) = self.constraints.candidates(node.position) else {
             return Ok(None);
+        };
+        let mut previous = Vec::new();
+        if let Some(position) = pass_predecessor(node.position) {
+            previous.push((position, PlyAction::Pass));
         }
-        let mut previous = predecessors(node.position);
+        append_placement_predecessors(node.position, candidates, &mut previous);
         order_children(&mut previous);
         if depth < 12 && previous.len() >= 4 {
             let mut children = previous.into_iter();
@@ -88,6 +90,9 @@ impl Context<'_> {
             let joined = Mutex::new(Ok(None));
             rayon::scope_fifo(|scope| {
                 for (position, action) in children {
+                    if self.stopped.load(Ordering::Acquire) {
+                        break;
+                    }
                     let child = node.preceding(position, action);
                     let joined = &joined;
                     scope.spawn_fifo(move |_| {
@@ -132,12 +137,19 @@ pub fn retrospective_search_parallel(
     threads: usize,
 ) -> io::Result<SearchOutcome> {
     table.validate_goal(goal)?;
+    if table.contains(goal) {
+        return found(table, goal, &SearchNode::root(goal), 0);
+    }
+    if goal.board.popcount() <= table.discs() {
+        return Ok(SearchOutcome::NotFound { nodes: 0 });
+    }
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
         .map_err(io::Error::other)?;
     let context = Context {
         table,
+        constraints: ReverseConstraints::new(table, goal),
         node_limit,
         table_limit,
         progress: Mutex::new(Progress {
