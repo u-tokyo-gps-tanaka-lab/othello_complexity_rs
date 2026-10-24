@@ -14,6 +14,7 @@ use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
+use std::io;
 use std::num::NonZeroU128;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -305,6 +306,26 @@ fn file_names(directory: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+fn directory_files(directory: &Path) -> Vec<(String, Vec<u8>)> {
+    file_names(directory)
+        .into_iter()
+        .map(|name| {
+            let bytes = fs::read(directory.join(&name)).unwrap();
+            (name, bytes)
+        })
+        .collect()
+}
+
+fn assert_rejected_without_changes<T>(directory: &Path, operation: impl FnOnce() -> io::Result<T>) {
+    let before = directory_files(directory);
+    let error = match operation() {
+        Ok(_) => panic!("input directory was accepted as output"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(directory_files(directory), before);
 }
 
 fn assert_stage_rejected(fixture: &Fixture, from: &Path, output_name: &str) {
@@ -1340,20 +1361,100 @@ fn reverse_summary_has_positive_nodes_for_searched_ok_and_ng_without_search_csv(
 }
 
 #[test]
-fn all_stages_require_new_output_directories() {
+fn all_stages_write_to_existing_directories_and_preserve_unrelated_files() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample("sample", &[initial(), after_d3()], absolute_population());
+    let filters = fixture.path("filters");
+    fs::create_dir(&filters).unwrap();
+    fs::write(filters.join("keep.txt"), b"filters").unwrap();
+    estimate::filters(&sample, &filters, ALPHA).unwrap();
+
+    let sat = fixture.path("sat");
+    fs::create_dir(&sat).unwrap();
+    fs::write(sat.join("keep.txt"), b"sat").unwrap();
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+
+    let reverse = fixture.path("reverse");
+    fs::create_dir(&reverse).unwrap();
+    fs::write(reverse.join("keep.txt"), b"reverse").unwrap();
+    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
+
+    assert_eq!(fs::read(filters.join("keep.txt")).unwrap(), b"filters");
+    assert_eq!(fs::read(sat.join("keep.txt")).unwrap(), b"sat");
+    assert_eq!(fs::read(reverse.join("keep.txt")).unwrap(), b"reverse");
+}
+
+#[test]
+fn rerunning_all_stages_replaces_outputs_with_fresh_run_bytes() {
+    let fixture = Fixture::new();
+    let large_sample = fixture.sample(
+        "large-sample",
+        &[initial(), after_d3()],
+        absolute_population(),
+    );
+    let small_sample = fixture.sample("small-sample", &[initial()], absolute_population());
+
+    let filters = fixture.path("filters");
+    estimate::filters(&large_sample, &filters, ALPHA).unwrap();
+    let sat = fixture.path("sat");
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+    let reverse = fixture.path("reverse");
+    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
+
+    estimate::filters(&small_sample, &filters, ALPHA).unwrap();
+    let fresh_filters = fixture.path("fresh-filters");
+    estimate::filters(&small_sample, &fresh_filters, ALPHA).unwrap();
+    assert_eq!(directory_files(&filters), directory_files(&fresh_filters));
+
+    estimate::sat(&filters, &sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+    let fresh_sat = fixture.path("fresh-sat");
+    estimate::sat(&filters, &fresh_sat, ALPHA, SatEncoding::Ply, 1, None).unwrap();
+    assert_eq!(directory_files(&sat), directory_files(&fresh_sat));
+
+    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
+    let fresh_reverse = fixture.path("fresh-reverse");
+    estimate::reverse_search(&filters, &fresh_reverse, ALPHA, &limited_dfs()).unwrap();
+    assert_eq!(directory_files(&reverse), directory_files(&fresh_reverse));
+}
+
+#[test]
+fn stages_reject_input_directories_as_outputs_without_modifying_them() {
+    let fixture = Fixture::new();
+    let (filters, reverse) = fixture.unknown_reverse();
+    let sample = fixture.path("sample");
+
+    assert_rejected_without_changes(&sample, || estimate::filters(&sample, &sample, ALPHA));
+    for output in [&reverse, &filters, &sample] {
+        assert_rejected_without_changes(output, || {
+            estimate::sat(&reverse, output, ALPHA, SatEncoding::Ply, 1, None)
+        });
+        assert_rejected_without_changes(output, || {
+            estimate::reverse_search(&reverse, output, ALPHA, &limited_dfs())
+        });
+    }
+}
+
+#[test]
+fn all_stages_reject_regular_file_outputs_without_modifying_them() {
     let fixture = Fixture::new();
     let sample = fixture.sample("sample", &[initial()], absolute_population());
     let filters = fixture.path("filters");
     estimate::filters(&sample, &filters, ALPHA).unwrap();
-    let output = fixture.path("existing");
-    fs::create_dir(&output).unwrap();
-    fs::write(output.join("keep.txt"), "keep").unwrap();
 
-    assert!(estimate::filters(&sample, &output, ALPHA).is_err());
-    assert!(estimate::sat(&filters, &output, ALPHA, SatEncoding::Ply, 1, None).is_err());
-    assert!(estimate::reverse_search(&filters, &output, ALPHA, &limited_dfs()).is_err());
-    assert_eq!(fs::read_to_string(output.join("keep.txt")).unwrap(), "keep");
-    assert_eq!(file_names(&output), ["keep.txt"]);
+    let filter_output = fixture.path("filter-output");
+    fs::write(&filter_output, b"filter marker").unwrap();
+    assert!(estimate::filters(&sample, &filter_output, ALPHA).is_err());
+    assert_eq!(fs::read(&filter_output).unwrap(), b"filter marker");
+
+    let sat_output = fixture.path("sat-output");
+    fs::write(&sat_output, b"sat marker").unwrap();
+    assert!(estimate::sat(&filters, &sat_output, ALPHA, SatEncoding::Ply, 1, None).is_err());
+    assert_eq!(fs::read(&sat_output).unwrap(), b"sat marker");
+
+    let reverse_output = fixture.path("reverse-output");
+    fs::write(&reverse_output, b"reverse marker").unwrap();
+    assert!(estimate::reverse_search(&filters, &reverse_output, ALPHA, &limited_dfs()).is_err());
+    assert_eq!(fs::read(&reverse_output).unwrap(), b"reverse marker");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,9 @@ use othello_complexity_rs::filters::{
     occupancy::{occupied_to_string, reachable_occupancy},
     Filter, FilterResult,
 };
-use othello_complexity_rs::io::{format_position, parse_file_to_positions, parse_position};
+use othello_complexity_rs::io::{
+    format_position, parse_file_to_positions, parse_position, reject_estimate_output_dir,
+};
 use othello_complexity_rs::othello::{Board, Position};
 
 #[derive(Parser, Debug)]
@@ -78,9 +80,7 @@ enum Command {
 }
 
 fn create_output(path: &Path) -> io::Result<BufWriter<File>> {
-    Ok(BufWriter::new(
-        OpenOptions::new().write(true).create_new(true).open(path)?,
-    ))
+    Ok(BufWriter::new(File::create(path)?))
 }
 
 fn write_results(
@@ -99,15 +99,6 @@ fn write_results(
             "occupancy_OK_explainable.csv".to_owned(),
             "occupancy_NG_explainable.csv".to_owned(),
         ]);
-    }
-    for name in &names {
-        let path = out_dir.join(name);
-        if path.try_exists()? {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!("output already exists: {}", path.display()),
-            ));
-        }
     }
     fs::create_dir_all(out_dir)?;
     let mut ok = create_output(&out_dir.join(&names[0]))?;
@@ -194,6 +185,7 @@ fn run_check(
     // Validate and solve the whole input before opening outputs. A solver failure
     // must never become an NG row, or leave a successful partial classification.
     let positions = parse_file_to_positions(&input.to_string_lossy())?;
+    reject_estimate_output_dir(out_dir)?;
     let results: io::Result<Vec<_>> = positions
         .par_iter()
         .enumerate()

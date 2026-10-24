@@ -71,6 +71,7 @@ struct SavedStage {
 
 struct ChainState {
     from_dir: PathBuf,
+    input_dirs: Vec<PathBuf>,
     sample: Sample,
     classifications: HashMap<Position, Status>,
     pending_path: PathBuf,
@@ -79,10 +80,10 @@ struct ChainState {
 
 /// Run the fixed filter pipeline over a validated sample.
 pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Interval> {
-    require_new_output_dir(out_dir)?;
     interval::validate_alpha(alpha)?;
 
     let sample_dir = canonical_directory(sample_dir, "sample directory")?;
+    check_output_dir(out_dir, std::slice::from_ref(&sample_dir))?;
     let sample = read_sample_dir(&sample_dir)?;
     let unique = deduplicate(&sample.positions);
     let mut classifications = unique
@@ -133,7 +134,7 @@ pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Inte
         outputs.push(FilterOutput { filter, ok, ng });
     }
 
-    create_output_dir(out_dir)?;
+    create_output_dir(out_dir, "summary.json")?;
     for output in &outputs {
         let prefix = output.filter.name();
         write_positions(&out_dir.join(format!("{prefix}_OK.txt")), &output.ok)?;
@@ -160,7 +161,6 @@ pub fn sat(
     parallel_goals: usize,
     sat_timeout_per_instance: Option<Duration>,
 ) -> io::Result<Interval> {
-    require_new_output_dir(out_dir)?;
     interval::validate_alpha(alpha)?;
     if parallel_goals == 0 {
         return Err(io::Error::new(
@@ -176,6 +176,7 @@ pub fn sat(
     }
 
     let mut chain = read_chain(from)?;
+    check_output_dir(out_dir, &chain.input_dirs)?;
     let goal_match = population_goal_match(chain.sample.population);
     let outcomes = run_with_options(
         RunOptions {
@@ -196,7 +197,7 @@ pub fn sat(
     .map_err(io::Error::other)?;
     validate_sat_outcomes(&outcomes, &chain.pending, goal_match)?;
 
-    create_output_dir(out_dir)?;
+    create_output_dir(out_dir, "summary.json")?;
     let prefix = format!("sat_{goal_match}");
     write_sat_outputs(out_dir, &prefix, &chain.pending, &outcomes)?;
     let output_dir = canonical_directory(out_dir, "SAT output directory")?;
@@ -220,12 +221,12 @@ pub fn reverse_search(
     alpha: f64,
     strategy: &Strategy,
 ) -> io::Result<Interval> {
-    require_new_output_dir(out_dir)?;
     interval::validate_alpha(alpha)?;
 
     let mut chain = read_chain(from)?;
+    check_output_dir(out_dir, &chain.input_dirs)?;
     let goal_match = population_goal_match(chain.sample.population);
-    create_output_dir(out_dir)?;
+    create_output_dir(out_dir, "summary.json")?;
     let nodes = run_strategy(strategy, &chain.pending_path, out_dir, goal_match)?;
     if nodes.len() != chain.pending.len() {
         return Err(io::Error::other(format!(
@@ -282,6 +283,11 @@ fn read_chain(from: &Path) -> io::Result<ChainState> {
 
     stages.reverse();
     let sample_dir = canonical_directory(&sample_dir, "sample directory in summary")?;
+    let input_dirs = stages
+        .iter()
+        .map(|stage| stage.directory.clone())
+        .chain(std::iter::once(sample_dir.clone()))
+        .collect();
     let sample = read_sample_dir(&sample_dir)?;
     let unique = deduplicate(&sample.positions);
     let mut classifications = unique
@@ -300,6 +306,7 @@ fn read_chain(from: &Path) -> io::Result<ChainState> {
     )?;
     let mut state = ChainState {
         from_dir,
+        input_dirs,
         sample,
         classifications,
         pending_path,
@@ -601,14 +608,10 @@ fn write_sat_outputs(
     input: &[Position],
     outcomes: &[GoalClassification],
 ) -> io::Result<()> {
-    let mut ok = BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_OK.txt")))?);
-    let mut ng = BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_NG.txt")))?);
-    let mut unknown = BufWriter::new(File::create_new(
-        out_dir.join(format!("{prefix}_UNKNOWN.txt")),
-    )?);
-    let mut records = BufWriter::new(File::create_new(
-        out_dir.join(format!("{prefix}_records.csv")),
-    )?);
+    let mut ok = BufWriter::new(File::create(out_dir.join(format!("{prefix}_OK.txt")))?);
+    let mut ng = BufWriter::new(File::create(out_dir.join(format!("{prefix}_NG.txt")))?);
+    let mut unknown = BufWriter::new(File::create(out_dir.join(format!("{prefix}_UNKNOWN.txt")))?);
+    let mut records = BufWriter::new(File::create(out_dir.join(format!("{prefix}_records.csv")))?);
     for (&position, outcome) in input.iter().zip(outcomes) {
         let line = format_position(position);
         match outcome {
@@ -668,7 +671,7 @@ fn write_summary(
     if let Some(nodes) = nodes {
         summary["nodes"] = json!(nodes);
     }
-    let mut file = File::create_new(out_dir.join("summary.json"))?;
+    let mut file = File::create(out_dir.join("summary.json"))?;
     serde_json::to_writer_pretty(&mut file, &summary).map_err(io::Error::other)?;
     writeln!(file)?;
     file.sync_all()?;
@@ -763,7 +766,7 @@ fn read_records(path: &Path) -> io::Result<Vec<ReachabilityRecord>> {
 }
 
 fn write_positions(path: &Path, positions: &[Position]) -> io::Result<()> {
-    let mut file = BufWriter::new(File::create_new(path)?);
+    let mut file = BufWriter::new(File::create(path)?);
     for &position in positions {
         writeln!(file, "{}", format_position(position))?;
     }
@@ -809,15 +812,26 @@ fn canonical_file(path: &Path, context: &str) -> io::Result<PathBuf> {
     Ok(canonical)
 }
 
-fn require_new_output_dir(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(_) => Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("output directory already exists: {}", path.display()),
-        )),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+/// Reject an output directory that is not a directory or that this stage reads.
+fn check_output_dir(path: &Path, inputs: &[PathBuf]) -> io::Result<()> {
+    let canonical = match fs::canonicalize(path) {
+        Ok(canonical) => canonical,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if !fs::metadata(&canonical)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("output path is not a directory: {}", path.display()),
+        ));
     }
+    if inputs.contains(&canonical) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("output directory is also an input: {}", path.display()),
+        ));
+    }
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {

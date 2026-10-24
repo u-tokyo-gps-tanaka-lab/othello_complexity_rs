@@ -2,6 +2,7 @@ use clap::Parser;
 use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatEncoding};
 use othello_complexity_rs::io::{
     ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
+    reject_estimate_output_dir,
 };
 use othello_complexity_rs::othello::Position;
 use othello_complexity_rs::record::GoalMatch;
@@ -97,6 +98,8 @@ fn run_cli(cli: Cli) -> Result<(), String> {
     let start = resolve_start(&cli)?;
     let goals = resolve_goals(&cli)?;
     let goal_match = cli.mode;
+    reject_estimate_output_dir(&cli.out_dir)
+        .map_err(|e| format!("cannot use output directory {}: {e}", cli.out_dir.display()))?;
     let cnf_dump_dir = (cli.dump_dimacs_cnf || cli.cnf_dump_only).then(|| cli.out_dir.clone());
     print_config(&cli, start, &goals, goal_match, cnf_dump_dir.as_deref());
 
@@ -112,8 +115,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
         })?;
         let path = cli.out_dir.join(format!("{prefix}_records.csv"));
         let records = BufWriter::new(
-            File::create_new(&path)
-                .map_err(|e| format!("failed to create {}: {e}", path.display()))?,
+            File::create(&path).map_err(|e| format!("failed to create {}: {e}", path.display()))?,
         );
         Some((classifications, records))
     };

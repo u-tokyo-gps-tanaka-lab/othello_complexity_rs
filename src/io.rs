@@ -211,6 +211,22 @@ pub trait TriOutcome {
     fn category(&self) -> TriCategory;
 }
 
+/// Reject a standalone command output directory used by an estimate stage.
+pub fn reject_estimate_output_dir(out_dir: &Path) -> io::Result<()> {
+    let summary = out_dir.join("summary.json");
+    match fs::symlink_metadata(&summary) {
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "output directory contains an estimate summary: {}",
+                summary.display()
+            ),
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// 出力ディレクトリを作成し、TriOutputsを返す
 pub fn ensure_tri_outputs(out_dir: &Path, prefix: &str) -> io::Result<TriOutputs> {
     fs::create_dir_all(out_dir)?;
@@ -226,11 +242,10 @@ pub struct TriOutputs {
 
 impl TriOutputs {
     fn new(out_dir: &Path, prefix: &str) -> io::Result<Self> {
-        let ok = io::BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_OK.txt")))?);
-        let ng = io::BufWriter::new(File::create_new(out_dir.join(format!("{prefix}_NG.txt")))?);
-        let unknown = io::BufWriter::new(File::create_new(
-            out_dir.join(format!("{prefix}_UNKNOWN.txt")),
-        )?);
+        let ok = io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_OK.txt")))?);
+        let ng = io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_NG.txt")))?);
+        let unknown =
+            io::BufWriter::new(File::create(out_dir.join(format!("{prefix}_UNKNOWN.txt")))?);
         Ok(TriOutputs { ok, ng, unknown })
     }
 
@@ -283,6 +298,30 @@ mod tests {
         let result = parser(path.to_str().expect("temporary path is UTF-8"));
         fs::remove_file(path).expect("remove temporary input");
         result
+    }
+
+    #[test]
+    fn estimate_stage_output_directories_are_rejected_without_touching_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "othello-estimate-output-{}-{}",
+            std::process::id(),
+            FILE_INDEX.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let keep = directory.join("keep.txt");
+        fs::write(&keep, b"keep").unwrap();
+
+        reject_estimate_output_dir(&directory).unwrap();
+        assert_eq!(fs::read(&keep).unwrap(), b"keep");
+
+        let summary = directory.join("summary.json");
+        fs::write(&summary, b"summary").unwrap();
+        let error = reject_estimate_output_dir(&directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(fs::read(&keep).unwrap(), b"keep");
+        assert_eq!(fs::read(&summary).unwrap(), b"summary");
+
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

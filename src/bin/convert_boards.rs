@@ -97,11 +97,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let source = artifact(&sample.input)?;
     let provenance = artifact(&sample.provenance)?;
-    create_output_dir(&sample.out_dir)?;
+    create_output_dir(&sample.out_dir, "sampling.json")?;
     let positions_path = sample.out_dir.join("positions.txt");
     let mapping_path = sample.out_dir.join("mapping.jsonl");
-    let mut output = BufWriter::new(File::create_new(&positions_path)?);
-    let mut mapping = BufWriter::new(File::create_new(&mapping_path)?);
+    let mut output = BufWriter::new(File::create(&positions_path)?);
+    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(sample.seed);
     let mut accepted_count = 0;
     for (index, &board) in boards.iter().enumerate() {

@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -111,12 +111,7 @@ fn run_queries(
     let positions = parse_file_to_positions(&input.to_string_lossy())?;
     let prefix = format!("reverse_{goal_match}");
     let mut outputs = ensure_tri_outputs(out_dir, &prefix)?;
-    let mut records = BufWriter::new(
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(out_dir.join(format!("{prefix}_records.csv")))?,
-    );
+    let mut records = BufWriter::new(File::create(out_dir.join(format!("{prefix}_records.csv")))?);
     let mut node_counts = Vec::with_capacity(positions.len());
     // DFS and GBFS share an unpruned table. No input needs states above the
     // largest target, and an empty input needs no forward search at all.

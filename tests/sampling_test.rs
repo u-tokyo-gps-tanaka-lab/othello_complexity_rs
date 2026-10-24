@@ -5,14 +5,18 @@ mod support;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{
-    fixed_discs_class_population, fixed_discs_population, is_representative, position_from_rank,
-    rank_of_position, representative_candidates, sample_fixed_discs, select_representative,
-    Population, CLASS_POPULATION_SIZE, POPULATION_SIZE,
+    create_output_dir, fixed_discs_class_population, fixed_discs_population, is_representative,
+    position_from_rank, rank_of_position, read_sample_dir, representative_candidates,
+    sample_fixed_discs, select_representative, Population, CLASS_POPULATION_SIZE, POPULATION_SIZE,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use support::ArrayPosition;
+
+static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
 
 fn geometric_class_key(board: Board) -> (u64, u64) {
     ArrayPosition::from_relative(&board.to_string(), true)
@@ -394,4 +398,43 @@ fn changing_the_suffix_exchanges_absolute_colors_together_with_the_turn() {
         rank_of_position(turn_only).unwrap(),
         rank_of_position(color_exchanged).unwrap()
     );
+}
+
+#[test]
+fn create_output_dir_removes_sampling_record_and_preserves_other_files() {
+    let directory = std::env::temp_dir().join(format!(
+        "othello-sampling-output-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let positions = format!("{}\n", format_position(Position::initial()));
+    fs::write(directory.join("positions.txt"), &positions).unwrap();
+    fs::write(directory.join("keep.txt"), b"keep").unwrap();
+    fs::write(
+        directory.join("sampling.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "method": "fixed-discs",
+            "population": Population::Absolute.metadata(Some(4)).unwrap(),
+            "uniform": true,
+            "with_replacement": true,
+            "seed": 1,
+            "accepted_count": 1,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(read_sample_dir(&directory).is_ok());
+
+    create_output_dir(&directory, "sampling.json").unwrap();
+
+    assert!(!directory.join("sampling.json").exists());
+    assert_eq!(
+        fs::read_to_string(directory.join("positions.txt")).unwrap(),
+        positions
+    );
+    assert_eq!(fs::read(directory.join("keep.txt")).unwrap(), b"keep");
+    assert!(read_sample_dir(&directory).is_err());
+    fs::remove_dir_all(directory).unwrap();
 }
