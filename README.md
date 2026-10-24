@@ -37,7 +37,6 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 [最終結果 (OK / NG / UNKNOWN)]
 ```
 
----
 
 ## ビルド
 
@@ -48,7 +47,6 @@ cargo build --release
 cargo test
 ```
 
----
 
 ## 到達可能な局面数を推計する（実行手順）
 
@@ -123,7 +121,6 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
   * 区間の上端: 未判定 (UNKNOWN) をすべて「到達可能」とみなした Wilson 信頼区間の上端 × 母集団サイズ
 * `--alpha`: 有意水準（デフォルトは `0.005` = 99.5% 信頼区間）。
 
----
 
 ## 判定結果の仕様
 
@@ -135,7 +132,6 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 | `_OK` | 未確定（必要条件を満たしたに過ぎず、到達可能の証明ではない） | 到達可能が証明された（初期局面からの着手列が存在） |
 | `_UNKNOWN` | （フィルタでは出力されない） | 未確定（時間や探索ノードの上限に達した） |
 
----
 
 ## 判定モード (`--mode`)
 
@@ -150,7 +146,6 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 * 推計（`estimate`）では、母集団サイズが厳密に計算できる `exact` または `equivalence` のみを使用します。
 * `symmetry` は、単体コマンドのうち `layer_sat`、`reverse_search`、`verify_record` でのみ指定できます（`run_filters` には `--mode` がありません）。
 
----
 
 ## 単体コマンドによる個別判定
 
@@ -190,7 +185,6 @@ cargo run --release --bin reverse_search -- dfs-parallel \
   --out-dir out/reverse_search
 ```
 
----
 
 ## データフォーマット
 
