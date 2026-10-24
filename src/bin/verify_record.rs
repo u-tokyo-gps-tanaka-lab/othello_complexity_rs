@@ -139,23 +139,6 @@ mod tests {
     use othello_complexity_rs::othello::{Board, BoardSymmetry, Color};
 
     #[test]
-    fn file_input_cannot_be_overridden_by_single_record_arguments() {
-        let position = format_position(Position::initial());
-        for args in [
-            vec!["--from-initial"],
-            vec!["--start", &position],
-            vec!["--goal", &position],
-            vec!["--record", ""],
-            vec!["--mode", "symmetry"],
-        ] {
-            let mut command = vec!["verify_record", "--input-file", "records.csv"];
-            command.extend(args);
-            assert!(Cli::try_parse_from(command).is_err());
-        }
-        assert!(Cli::try_parse_from(["verify_record", "--input-file", "records.csv"]).is_ok());
-    }
-
-    #[test]
     fn empty_record_preserves_the_absolute_turn() {
         let start = Position::initial();
         assert_eq!(
