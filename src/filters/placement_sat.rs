@@ -103,17 +103,27 @@ impl Builder {
     fn exactly_one(&mut self, inputs: &[i32]) {
         let inputs: Vec<_> = inputs.iter().copied().filter(|&v| v != FALSE).collect();
         self.clause(inputs.clone());
-        let Some((&first, rest)) = inputs.split_first() else {
-            return;
-        };
-        // A prefix-OR ladder gives linear, exact at-most-one constraints.
-        let mut prefix = first;
-        for (index, &input) in rest.iter().enumerate() {
-            self.clause(vec![-prefix, -input]);
-            if index + 1 < rest.len() {
-                prefix = self.disjunction(&[prefix, input]);
+        if inputs.len() <= 5 {
+            for (index, &input) in inputs.iter().enumerate() {
+                for &earlier in &inputs[..index] {
+                    self.clause(vec![-input, -earlier]);
+                }
             }
+            return;
         }
+        // Only implications are needed: every true input sets its prefix,
+        // propagated prefixes forbid all later inputs. For zero or one true
+        // input, the actual prefix-OR values always extend the assignment.
+        let mut prefix = self.variable();
+        self.clause(vec![-inputs[0], prefix]);
+        for &input in &inputs[1..inputs.len() - 1] {
+            let next = self.variable();
+            self.clause(vec![-input, next]);
+            self.clause(vec![-prefix, next]);
+            self.clause(vec![-prefix, -input]);
+            prefix = next;
+        }
+        self.clause(vec![-prefix, -inputs[inputs.len() - 1]]);
     }
 
     fn xor(&mut self, output: i32, a: i32, b: i32) {
@@ -201,17 +211,21 @@ impl ModelDecoder for PlacementDecoder {
 }
 
 impl Variables {
-    fn new(
-        builder: &mut Builder,
-        placements: usize,
-        start_occupied: u64,
-        target_occupied: u64,
-    ) -> Self {
+    fn new(builder: &mut Builder, placements: usize, start: Position, goal: Position) -> Self {
+        let (start_black, start_white) = absolute_colors(start);
+        let (goal_black, goal_white) = absolute_colors(goal);
+        let start_occupied = start_black | start_white;
+        let target_occupied = goal_black | goal_white;
         let play_mask = target_occupied & !start_occupied;
         let black = (0..=placements)
-            .map(|_| {
+            .map(|layer| {
                 std::array::from_fn(|square| {
-                    if target_occupied & (1_u64 << square) != 0 {
+                    let bit = 1_u64 << square;
+                    if layer == 0 {
+                        constant(start_black & bit != 0)
+                    } else if layer == placements {
+                        constant(goal_black & bit != 0)
+                    } else if target_occupied & bit != 0 {
                         builder.variable()
                     } else {
                         FALSE
@@ -220,9 +234,14 @@ impl Variables {
             })
             .collect();
         let white = (0..=placements)
-            .map(|_| {
+            .map(|layer| {
                 std::array::from_fn(|square| {
-                    if target_occupied & (1_u64 << square) != 0 {
+                    let bit = 1_u64 << square;
+                    if layer == 0 {
+                        constant(start_white & bit != 0)
+                    } else if layer == placements {
+                        constant(goal_white & bit != 0)
+                    } else if target_occupied & bit != 0 {
                         builder.variable()
                     } else {
                         FALSE
@@ -230,7 +249,15 @@ impl Variables {
                 })
             })
             .collect();
-        let turn_black = (0..=placements).map(|_| builder.variable()).collect();
+        let turn_black = (0..=placements)
+            .map(|layer| {
+                if layer == 0 {
+                    constant(start.side_to_move == Color::Black)
+                } else {
+                    builder.variable()
+                }
+            })
+            .collect();
         let pass_before = (0..placements).map(|_| builder.variable()).collect();
         let play = (0..placements)
             .map(|_| {
@@ -254,27 +281,18 @@ impl Variables {
     }
 }
 
+fn constant(value: bool) -> i32 {
+    if value {
+        TRUE
+    } else {
+        FALSE
+    }
+}
+
 fn absolute_colors(position: Position) -> (u64, u64) {
     match position.side_to_move {
         Color::Black => (position.board.player, position.board.opponent),
         Color::White => (position.board.opponent, position.board.player),
-    }
-}
-
-fn fixed_board(builder: &mut Builder, vars: &Variables, layer: usize, position: Position) {
-    let (black, white) = absolute_colors(position);
-    for square in 0..SQUARES {
-        let bit = 1_u64 << square;
-        builder.unit(if black & bit != 0 {
-            vars.black[layer][square]
-        } else {
-            -vars.black[layer][square]
-        });
-        builder.unit(if white & bit != 0 {
-            vars.white[layer][square]
-        } else {
-            -vars.white[layer][square]
-        });
     }
 }
 
@@ -368,19 +386,14 @@ fn encode_problem(
     let target_occupied = goal.board.player | goal.board.opponent;
     let patterns = patterns(start_occupied, target_occupied);
     let mut builder = Builder::new();
-    let vars = Variables::new(&mut builder, placements, start_occupied, target_occupied);
+    // Endpoints are constants from the outset, so their consequences are
+    // simplified while building gates rather than only inside the solver.
+    let vars = Variables::new(&mut builder, placements, start, goal);
     for layer in 0..=placements {
         for square in 0..SQUARES {
             builder.clause(vec![-vars.black[layer][square], -vars.white[layer][square]]);
         }
     }
-    fixed_board(&mut builder, &vars, 0, start);
-    fixed_board(&mut builder, &vars, placements, goal);
-    builder.unit(if start.side_to_move == Color::Black {
-        vars.turn_black[0]
-    } else {
-        -vars.turn_black[0]
-    });
     for layer in 0..placements {
         encode_transition(&mut builder, &vars, layer, &patterns);
     }
@@ -580,6 +593,76 @@ mod tests {
 
     fn accepts(outcome: &ExactOutcome) -> bool {
         matches!(outcome, ExactOutcome::Reachable(_))
+    }
+
+    #[test]
+    fn exactly_one_counter_has_exact_projections_with_constants() {
+        for count in 0..=7 {
+            for true_inputs in 0..=2 {
+                let mut builder = Builder::new();
+                let variables: Vec<_> = (0..count).map(|_| builder.variable()).collect();
+                let mut inputs = variables.clone();
+                inputs.push(FALSE);
+                inputs.extend(std::iter::repeat_n(TRUE, true_inputs));
+                builder.exactly_one(&inputs);
+                let mut feasible = vec![false; 1 << count];
+                // Variable 1 is the constant true; exhaust every assignment
+                // to the input variables and existential counter auxiliaries.
+                for remaining in 0_u32..1 << (builder.variables - 1) {
+                    let assignment = (remaining << 1) | 1;
+                    if builder.clauses.iter().all(|clause| {
+                        clause.iter().any(|&literal| {
+                            let value = assignment & (1 << (literal.unsigned_abs() - 1)) != 0;
+                            value == (literal > 0)
+                        })
+                    }) {
+                        feasible[remaining as usize & ((1 << count) - 1)] = true;
+                    }
+                }
+                for (assignment, has_extension) in feasible.into_iter().enumerate() {
+                    assert_eq!(
+                        has_extension,
+                        assignment.count_ones() as usize + true_inputs == 1,
+                        "{count} inputs, {true_inputs} true constants"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_endpoint_boards_use_constants_in_both_absolute_colors() {
+        let initial = Position::initial();
+        for start in [
+            initial,
+            Position {
+                side_to_move: Color::White,
+                ..initial
+            },
+        ] {
+            let goal = *replay(start, &[PlyAction::Play(19), PlyAction::Play(18)])
+                .unwrap()
+                .last()
+                .unwrap();
+            let (vars, _) = encode_problem(start, goal, 2, false);
+            for (layer, position) in [(0, start), (2, goal)] {
+                let (black, white) = absolute_colors(position);
+                for square in 0..SQUARES {
+                    assert_eq!(
+                        vars.black[layer][square],
+                        constant(black & (1 << square) != 0)
+                    );
+                    assert_eq!(
+                        vars.white[layer][square],
+                        constant(white & (1 << square) != 0)
+                    );
+                }
+            }
+            assert_eq!(
+                vars.turn_black[0],
+                constant(start.side_to_move == Color::Black)
+            );
+        }
     }
 
     #[test]

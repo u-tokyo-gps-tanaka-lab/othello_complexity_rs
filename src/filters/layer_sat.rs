@@ -72,6 +72,31 @@ impl ClauseBuilder {
         self.add_implication_many(inputs, output);
     }
 
+    /// Existential prefix variables encode at most one input in linear space.
+    /// For up to five inputs the pairwise encoding uses fewer clauses instead.
+    fn add_at_most_one(&mut self, inputs: &[i32], prefixes: &[i32]) {
+        if inputs.len() <= 5 {
+            assert!(prefixes.is_empty());
+            for (index, &input) in inputs.iter().enumerate() {
+                for &earlier in &inputs[..index] {
+                    self.add_clause(vec![-input, -earlier]);
+                }
+            }
+            return;
+        }
+        assert_eq!(prefixes.len(), inputs.len() - 1);
+        self.add_implication(inputs[0], prefixes[0]);
+        for index in 1..inputs.len() - 1 {
+            self.add_implication(inputs[index], prefixes[index]);
+            self.add_implication(prefixes[index - 1], prefixes[index]);
+            self.add_clause(vec![-inputs[index], -prefixes[index - 1]]);
+        }
+        self.add_clause(vec![
+            -inputs[inputs.len() - 1],
+            -prefixes[prefixes.len() - 1],
+        ]);
+    }
+
     fn into_clauses(self) -> Vec<Vec<i32>> {
         self.clauses
     }
@@ -82,23 +107,25 @@ impl ClauseBuilder {
 struct SatVars {
     max_h: usize,                 // ありうる所要手数 (ply数) の最大値
     var_count: i32,               // これまでに割り当てた DIMACS 変数番号の最大値
-    placement_mask: u64,          // actual placements/flips are allocated only here
+    target_occupied: u64,         // stones and flips are allocated only here
     player: Vec<Vec<i32>>,        // player[layer][sq]: 手番側の石
     opponent: Vec<Vec<i32>>,      // opponent[layer][sq]: 相手側の石
     active: Vec<i32>,             // active[ply]: ply < h なら真
     end: Vec<i32>,                // end[layer]: layer = h なら真
     pass: Vec<i32>,               // pass[ply]: ply がパス手か否か
     play: Vec<Vec<i32>>,          // play[ply][sq]: ply で sq に着手する
+    action_prefix: Vec<Vec<i32>>, // auxiliary prefixes for at-most-one action
     legal: Vec<Vec<i32>>,         // legal[ply][sq]: sq が ply の合法手である
     flip: Vec<Vec<i32>>,          // flip[ply][sq]: sq が ply で反転する
     cap: Vec<Vec<Vec<Vec<i32>>>>, // cap[ply][sq][dir][k]: sq への着手が方向 dir で k 枚を挟む
-    cause: Vec<Vec<Vec<i32>>>,    // cause[ply][sq][i]: ply 手目で sq が反転する原因 i が成立する
+    // One selected-capture gate per ray pattern, shared by every captured stone.
+    cause: Vec<Vec<Vec<Vec<i32>>>>,
     reply_cap: Vec<Vec<Vec<Vec<i32>>>>,
     // reply_cap[ply][sq][dir][k]: 現手番が ply で pass するとき、相手が sq に着手し dir 方向に k 枚挟める
 }
 
 impl SatVars {
-    fn new(max_h: usize, rays: &Rays, flip_sources: &FlipSources, placement_mask: u64) -> Self {
+    fn new(max_h: usize, rays: &Rays, target_occupied: u64, play_mask: u64) -> Self {
         let mut next = 0_i32;
 
         let player = alloc_matrix(&mut next, max_h + 1, BOARD_SQUARES);
@@ -106,35 +133,31 @@ impl SatVars {
         let active = alloc_vector(&mut next, max_h);
         let end = alloc_vector(&mut next, max_h + 1);
         let pass = alloc_vector(&mut next, max_h);
-        let play = alloc_masked_matrix(&mut next, max_h, placement_mask);
+        let play = alloc_masked_matrix(&mut next, max_h, play_mask);
+        let action_count = play_mask.count_ones() as usize + 1;
+        let prefix_count = if action_count > 5 {
+            action_count - 1
+        } else {
+            0
+        };
+        let action_prefix = alloc_matrix(&mut next, max_h, prefix_count);
         let legal = alloc_matrix(&mut next, max_h, BOARD_SQUARES);
-        let flip = alloc_masked_matrix(&mut next, max_h, placement_mask);
-        let cap = alloc_cap_tensor(&mut next, max_h, rays);
-        let reply_cap = alloc_cap_tensor(&mut next, max_h, rays);
-
-        let mut cause: Vec<Vec<Vec<i32>>> = vec![vec![Vec::new(); BOARD_SQUARES]; max_h];
-        for ply_causes in &mut cause {
-            for (s, slot) in ply_causes.iter_mut().enumerate() {
-                // One variable per precomputed source in flip_sources[s].
-                let mut vars = vec![0_i32; flip_sources[s].len()];
-                for var in &mut vars {
-                    next += 1;
-                    *var = next;
-                }
-                *slot = vars;
-            }
-        }
+        let flip = alloc_masked_matrix(&mut next, max_h, target_occupied);
+        let cap = alloc_cap_tensor(&mut next, max_h, rays, u64::MAX);
+        let reply_cap = alloc_cap_tensor(&mut next, max_h, rays, u64::MAX);
+        let cause = alloc_cap_tensor(&mut next, max_h, rays, play_mask);
 
         Self {
             max_h,
             var_count: next,
-            placement_mask,
+            target_occupied,
             player,
             opponent,
             active,
             end,
             pass,
             play,
+            action_prefix,
             legal,
             flip,
             cap,
@@ -177,13 +200,16 @@ pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, 
     }
 
     let mut rays = precompute_rays();
-    let placement_mask = goal.board.player | goal.board.opponent;
-    restrict_capture_rays(&mut rays, placement_mask);
+    let start_occupied = start.board.player | start.board.opponent;
+    let target_occupied = goal.board.player | goal.board.opponent;
+    let play_mask = target_occupied & !start_occupied;
+    restrict_capture_rays(&mut rays, target_occupied);
+    exclude_occupied_sources(&mut rays, start_occupied);
     let mut flip_sources = precompute_flip_sources(&rays);
     for sources in &mut flip_sources {
-        sources.retain(|source| bit_is_set(placement_mask, source.play_sq));
+        sources.retain(|source| bit_is_set(play_mask, source.play_sq));
     }
-    let vars = SatVars::new(max_plies, &rays, &flip_sources, placement_mask);
+    let vars = SatVars::new(max_plies, &rays, target_occupied, play_mask);
     let clauses = encode_problem(&vars, start, goal, min_plies, &rays, &flip_sources);
     Ok(EncodingResult::Cnf(CnfProblem::new(
         vars.var_count as usize,
@@ -235,7 +261,7 @@ fn encode_problem(
     }
     for layer in 0..=vars.max_h {
         for sq in 0..BOARD_SQUARES {
-            if bit_is_set(vars.placement_mask, sq) {
+            if bit_is_set(vars.target_occupied, sq) {
                 builder.add_clause(vec![-vars.player[layer][sq], -vars.opponent[layer][sq]]);
             } else {
                 // Occupancy only grows. A square absent at the goal is empty
@@ -251,7 +277,7 @@ fn encode_problem(
             continue;
         }
         for sq in 0..BOARD_SQUARES {
-            if !bit_is_set(vars.placement_mask, sq) {
+            if !bit_is_set(vars.target_occupied, sq) {
                 continue;
             }
             builder.add_implication(
@@ -280,17 +306,14 @@ fn encode_problem(
         // (3) Exactly one action when active; no action after the endpoint.
         let mut action_required = vec![-active, pass];
         action_required.extend(vars.play[ply].iter().copied().filter(|&play| play != 0));
+        builder.add_at_most_one(&action_required[1..], &vars.action_prefix[ply]);
         builder.add_clause(action_required);
         builder.add_implication(pass, active);
-        for (sq, &play) in vars.play[ply].iter().enumerate() {
+        for &play in &vars.play[ply] {
             if play == 0 {
                 continue;
             }
             builder.add_implication(play, active);
-            builder.add_clause(vec![-pass, -play]);
-            for &earlier in vars.play[ply][..sq].iter().filter(|&&earlier| earlier != 0) {
-                builder.add_clause(vec![-play, -earlier]);
-            }
         }
 
         let mut pass_requires_reply = vec![-pass];
@@ -313,6 +336,14 @@ fn encode_problem(
                     builder.add_conjunction(cap, &capture);
                     builder.add_implication(cap, legal);
                     legal_requires_capture.push(cap);
+                    if vars.play[ply][sq] != 0 {
+                        // The same selected ray flips all k stones. Defining
+                        // this gate once avoids k identical conjunctions.
+                        builder.add_conjunction(
+                            vars.cause[ply][sq][dir][k],
+                            &[vars.play[ply][sq], cap],
+                        );
+                    }
 
                     // (5) The opponent must be able to move for a pass to be
                     // legal. Its capture conditions exchange player/opponent.
@@ -341,14 +372,8 @@ fn encode_problem(
                 continue;
             }
             let mut flip_requires_cause = vec![-flip];
-            for (source, &cause) in sources.iter().zip(&vars.cause[ply][sq]) {
-                builder.add_conjunction(
-                    cause,
-                    &[
-                        vars.play[ply][source.play_sq],
-                        vars.cap[ply][source.play_sq][source.dir][source.k],
-                    ],
-                );
+            for source in sources {
+                let cause = vars.cause[ply][source.play_sq][source.dir][source.k];
                 builder.add_implication(cause, flip);
                 flip_requires_cause.push(cause);
             }
@@ -361,16 +386,15 @@ fn encode_problem(
             let next_player = vars.player[ply + 1][sq];
             let next_opponent = vars.opponent[ply + 1][sq];
             builder.add_conjunction(next_player, &[vars.opponent[ply][sq], -flip]);
-            let additions = [vars.player[ply][sq], flip, vars.play[ply][sq]];
-            for added in additions {
+            let mut additions = vec![vars.player[ply][sq], flip];
+            if vars.play[ply][sq] != 0 {
+                additions.push(vars.play[ply][sq]);
+            }
+            for &added in &additions {
                 builder.add_implication(added, next_opponent);
             }
-            builder.add_clause(vec![
-                -next_opponent,
-                additions[0],
-                additions[1],
-                additions[2],
-            ]);
+            additions.push(-next_opponent);
+            builder.add_clause(additions);
         }
     }
     builder.into_clauses()
@@ -552,17 +576,24 @@ fn alloc_masked_matrix(next: &mut i32, rows: usize, mask: u64) -> Vec<Vec<i32>> 
     out
 }
 
-fn alloc_cap_tensor(next: &mut i32, h: usize, rays: &Rays) -> Vec<Vec<Vec<Vec<i32>>>> {
+fn alloc_cap_tensor(
+    next: &mut i32,
+    h: usize,
+    rays: &Rays,
+    source_mask: u64,
+) -> Vec<Vec<Vec<Vec<i32>>>> {
     let mut cap = vec![vec![vec![Vec::new(); DIRS.len()]; BOARD_SQUARES]; h];
     for ply_caps in &mut cap {
-        for (square_caps, square_rays) in ply_caps.iter_mut().zip(rays) {
+        for (square, (square_caps, square_rays)) in ply_caps.iter_mut().zip(rays).enumerate() {
             for (direction_caps, ray) in square_caps.iter_mut().zip(square_rays) {
                 let max_k = ray.len().saturating_sub(1);
                 // k = 0 is a dummy slot. Real capture variables are k >= 1 only.
                 let mut ks = vec![0_i32; max_k + 1];
-                for slot in ks.iter_mut().take(max_k + 1).skip(1) {
-                    *next += 1;
-                    *slot = *next;
+                if bit_is_set(source_mask, square) {
+                    for slot in ks.iter_mut().take(max_k + 1).skip(1) {
+                        *next += 1;
+                        *slot = *next;
+                    }
                 }
                 *direction_caps = ks;
             }
@@ -606,6 +637,19 @@ fn restrict_capture_rays(rays: &mut Rays, occupied: u64) {
     }
 }
 
+/// Occupied squares never become empty, so neither player can ever play on a
+/// square occupied at the start. Only these destinations are excluded; empty
+/// destinations outside the goal must still prohibit an illegal pass.
+fn exclude_occupied_sources(rays: &mut Rays, start_occupied: u64) {
+    for (square, square_rays) in rays.iter_mut().enumerate() {
+        if bit_is_set(start_occupied, square) {
+            for ray in square_rays {
+                ray.clear();
+            }
+        }
+    }
+}
+
 // Precomputes all capture patterns that can flip each target square.
 fn precompute_flip_sources(rays: &Rays) -> FlipSources {
     let mut sources: FlipSources = vec![Vec::new(); BOARD_SQUARES];
@@ -631,11 +675,76 @@ fn bit_is_set(bb: u64, sq: usize) -> bool {
 mod tests {
     use super::*;
     use crate::filters::sat::solve_problem;
-    use crate::io::{TriCategory, TriOutcome};
+    use crate::io::{parse_position, TriCategory, TriOutcome};
     use crate::othello::BoardSymmetry;
     use crate::query::{solve_query, GoalClassification};
     use crate::record::{GoalMatch, PositionTransform};
     use std::time::Duration;
+
+    #[test]
+    fn action_counter_has_exactly_the_at_most_one_projections() {
+        // Enumerate auxiliary assignments too, so this checks both directions
+        // of the existential encoding, including the pairwise/counter boundary.
+        for count in 0..=7 {
+            let inputs: Vec<i32> = (1..=count as i32).collect();
+            let prefixes: Vec<i32> = if count > 5 {
+                (count as i32 + 1..2 * count as i32).collect()
+            } else {
+                Vec::new()
+            };
+            let mut builder = ClauseBuilder::default();
+            builder.add_at_most_one(&inputs, &prefixes);
+            let mut feasible = vec![false; 1 << count];
+            for assignment in 0_u32..1 << (count + prefixes.len()) {
+                if builder.clauses.iter().all(|clause| {
+                    clause.iter().any(|&literal| {
+                        let value = assignment & (1 << (literal.unsigned_abs() - 1)) != 0;
+                        value == (literal > 0)
+                    })
+                }) {
+                    feasible[assignment as usize & ((1 << count) - 1)] = true;
+                }
+            }
+            for (assignment, has_extension) in feasible.into_iter().enumerate() {
+                assert_eq!(
+                    has_extension,
+                    assignment.count_ones() <= 1,
+                    "{count} inputs"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn selected_ray_gates_are_shared_by_all_captured_stones() {
+        let rays = precompute_rays();
+        let sources = precompute_flip_sources(&rays);
+        let vars = SatVars::new(1, &rays, u64::MAX, u64::MAX);
+        let old_cause_count: usize = sources.iter().map(Vec::len).sum();
+        let unique_cause_count = vars.cause[0]
+            .iter()
+            .flatten()
+            .flatten()
+            .filter(|&&variable| variable != 0)
+            .count();
+        assert!(unique_cause_count < old_cause_count);
+        for (square, directions) in rays.iter().enumerate() {
+            for (direction, ray) in directions.iter().enumerate() {
+                for length in 1..ray.len() {
+                    let cause = vars.cause[0][square][direction][length];
+                    assert_ne!(cause, 0);
+                    let references = sources
+                        .iter()
+                        .flatten()
+                        .filter(|source| {
+                            vars.cause[0][source.play_sq][source.dir][source.k] == cause
+                        })
+                        .count();
+                    assert_eq!(references, length);
+                }
+            }
+        }
+    }
 
     fn target_geometry(occupied: u64) -> (Rays, FlipSources) {
         let mut rays = precompute_rays();
@@ -660,7 +769,7 @@ mod tests {
 
         let original_rays = precompute_rays();
         let original_sources = precompute_flip_sources(&original_rays);
-        let original_vars = SatVars::new(max_plies, &original_rays, &original_sources, u64::MAX);
+        let original_vars = SatVars::new(max_plies, &original_rays, u64::MAX, u64::MAX);
         let original_cnf = encode_problem(
             &original_vars,
             start,
@@ -670,7 +779,7 @@ mod tests {
             &original_sources,
         );
         let (rays, sources) = target_geometry(occupied);
-        let vars = SatVars::new(max_plies, &rays, &sources, occupied);
+        let vars = SatVars::new(max_plies, &rays, occupied, occupied);
         let clauses = encode_problem(&vars, start, goal, min_plies, &rays, &sources);
         assert!(vars.var_count < original_vars.var_count);
         assert!(clauses.len() < original_cnf.len());
@@ -688,7 +797,7 @@ mod tests {
         // a legal initial Black move and must prevent an artificial pass.
         let occupied = crate::othello::CENTER_MASK | (1_u64 << 19);
         let (rays, sources) = target_geometry(occupied);
-        let vars = SatVars::new(2, &rays, &sources, occupied);
+        let vars = SatVars::new(2, &rays, occupied, occupied);
         let c4 = 26;
         let east = 2;
         assert!(!bit_is_set(occupied, c4));
@@ -705,6 +814,80 @@ mod tests {
     }
 
     #[test]
+    fn occupied_source_pruning_preserves_late_start_passes_and_reduces_cnf() {
+        let cases = [
+            (
+                parse_position(
+                    "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+                )
+                .unwrap(),
+                vec![PlyAction::Play(15), PlyAction::Pass, PlyAction::Play(55)],
+            ),
+            (
+                parse_position(
+                    "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+                )
+                .unwrap(),
+                vec![PlyAction::Pass, PlyAction::Play(8), PlyAction::Pass],
+            ),
+        ];
+        for (start, actions) in cases {
+            for start in [
+                start,
+                Position {
+                    side_to_move: start.side_to_move.opposite(),
+                    ..start
+                },
+            ] {
+                let trace = replay(start, &actions).unwrap();
+                for &endpoint in trace
+                    .iter()
+                    .filter(|position| position.board.popcount() > start.board.popcount())
+                {
+                    for goal in [
+                        endpoint,
+                        Position {
+                            board: endpoint.board.swapped(),
+                            side_to_move: endpoint.side_to_move.opposite(),
+                        },
+                    ] {
+                        let occupied = goal.board.player | goal.board.opponent;
+                        let min_plies = min_required_plies(start.board, goal.board).unwrap();
+                        let max_plies = max_plies_with_passes(start.board, min_plies);
+                        // Retain the old, redundant destinations at every
+                        // initially occupied square for the comparison model.
+                        let (rays, sources) = target_geometry(occupied);
+                        let vars = SatVars::new(max_plies, &rays, occupied, occupied);
+                        let clauses =
+                            encode_problem(&vars, start, goal, min_plies, &rays, &sources);
+                        let original = CnfProblem::new(
+                            vars.var_count as usize,
+                            clauses,
+                            LayerDecoder { vars, start, goal },
+                        );
+                        let EncodingResult::Cnf(reduced) = encode(start, goal).unwrap() else {
+                            panic!("nonzero placements should produce a CNF");
+                        };
+                        assert!(reduced.variable_count() < original.variable_count());
+                        assert!(reduced.clause_count() < original.clause_count());
+                        let expected = solve_problem(&original, None).unwrap();
+                        let actual = solve_problem(&reduced, None).unwrap();
+                        assert_eq!(
+                            matches!(actual, ExactOutcome::Reachable(_)),
+                            matches!(expected, ExactOutcome::Reachable(_)),
+                        );
+                        if goal == endpoint {
+                            assert!(matches!(actual, ExactOutcome::Reachable(_)));
+                        }
+                        assert!(!matches!(actual, ExactOutcome::Unknown));
+                        assert!(!matches!(expected, ExactOutcome::Unknown));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn target_occupancy_pruning_leaves_full_occupancy_cnf_unchanged() {
         let position = Position {
             board: Board::new(u64::MAX, 0),
@@ -712,9 +895,9 @@ mod tests {
         };
         let original_rays = precompute_rays();
         let original_sources = precompute_flip_sources(&original_rays);
-        let original_vars = SatVars::new(1, &original_rays, &original_sources, u64::MAX);
+        let original_vars = SatVars::new(1, &original_rays, u64::MAX, u64::MAX);
         let (rays, sources) = target_geometry(u64::MAX);
-        let vars = SatVars::new(1, &rays, &sources, u64::MAX);
+        let vars = SatVars::new(1, &rays, u64::MAX, u64::MAX);
         assert_eq!(vars.var_count, original_vars.var_count);
         assert_eq!(
             encode_problem(&vars, position, position, 0, &rays, &sources),
@@ -836,7 +1019,7 @@ mod tests {
             }
         }
         let rays = precompute_rays();
-        let vars = SatVars::new(0, &rays, &precompute_flip_sources(&rays), u64::MAX);
+        let vars = SatVars::new(0, &rays, u64::MAX, u64::MAX);
         let problem = CnfProblem::new(
             132,
             clauses,

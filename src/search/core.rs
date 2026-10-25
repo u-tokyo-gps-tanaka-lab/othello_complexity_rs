@@ -191,6 +191,9 @@ pub(crate) struct PlacementPredecessors {
     prefixes: [[u64; 7]; 8],
     radices: [u8; 8],
     digits: [u8; 8],
+    changing_directions: [u8; 8],
+    changing_count: usize,
+    unflips: u64,
     active: bool,
 }
 
@@ -203,6 +206,9 @@ impl PlacementPredecessors {
             prefixes: [[0; 7]; 8],
             radices: [1; 8],
             digits: [0; 8],
+            changing_directions: [0; 8],
+            changing_count: 0,
+            unflips: 0,
             active: false,
         }
     }
@@ -217,6 +223,8 @@ impl PlacementPredecessors {
                 continue;
             }
             self.digits = [0; 8];
+            self.changing_count = 0;
+            self.unflips = 0;
             // Keep the original order: -8, +8, -1, +1, -9, +9, -7, +7.
             for (direction, (dx, dy)) in [
                 (0, -1),
@@ -250,6 +258,10 @@ impl PlacementPredecessors {
                 // Empty and one-stone rays both allow only the empty prefix.
                 self.prefixes[direction][0] = 0;
                 self.radices[direction] = length.max(1) as u8;
+                if length > 1 {
+                    self.changing_directions[self.changing_count] = direction as u8;
+                    self.changing_count += 1;
+                }
             }
             self.active = true;
             return true;
@@ -267,23 +279,26 @@ impl Iterator for PlacementPredecessors {
                 return None;
             }
             // Advance before yielding, thereby omitting the all-zero choice.
-            let mut direction = 0;
-            while direction < 8 {
+            let mut changing = 0;
+            while changing < self.changing_count {
+                let direction = self.changing_directions[changing] as usize;
+                self.unflips ^= self.prefixes[direction][self.digits[direction] as usize];
                 self.digits[direction] += 1;
                 if self.digits[direction] < self.radices[direction] {
+                    self.unflips ^= self.prefixes[direction][self.digits[direction] as usize];
                     break;
                 }
                 self.digits[direction] = 0;
-                direction += 1;
+                changing += 1;
             }
-            if direction == 8 {
+            if changing == self.changing_count {
                 self.active = false;
                 continue;
             }
-            let mut flips = 0;
-            for direction in 0..8 {
-                flips |= self.prefixes[direction][self.digits[direction] as usize];
-            }
+            // Distinct rays do not intersect. Updating only changed prefixes
+            // therefore maintains their union exactly; radix-one directions
+            // contribute nothing and never need to enter the carry chain.
+            let flips = self.unflips;
             let Board { player, opponent } = self.position.board;
             let previous = Board::new(opponent & !(flips | (1_u64 << self.square)), player | flips);
             // Distinct rays are disjoint. Every selected nonempty prefix has

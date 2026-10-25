@@ -7,9 +7,8 @@ use crate::query::{solve_query, ExactOutcome, GoalClassification};
 use crate::record::{format_actions, replay, GoalMatch, PlyAction};
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
-    instances::Cnf,
     solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
-    types::{Clause, Lit},
+    types::Lit,
 };
 use std::fmt;
 use std::fs::{self, File};
@@ -385,19 +384,23 @@ pub(crate) fn solve_problem(
     timeout: Option<Duration>,
 ) -> Result<ExactOutcome, String> {
     let mut solver = rustsat_kissat::Kissat::default();
-    let mut cnf = Cnf::new();
+    // Reuse one conversion buffer instead of duplicating the complete CNF in
+    // RustSAT's representation before Kissat copies it into its own storage.
+    // Clause order and literal order are deliberately preserved.
+    let mut clause = Vec::new();
     for raw_clause in &problem.clauses {
-        let mut clause = Clause::new();
+        clause.clear();
         for &literal in raw_clause {
-            clause.add(to_rustsat_lit(literal)?);
+            clause.push(to_rustsat_lit(literal)?);
         }
-        cnf.add_clause(clause);
+        solver
+            .add_clause_ref(&clause)
+            .map_err(|error| format!("failed to add CNF to Kissat: {error}"))?;
     }
-    solver
-        .add_cnf(cnf)
-        .map_err(|error| format!("failed to add CNF to Kissat: {error}"))?;
 
     let timeout_guard = timeout.map(|limit| {
+        // Keep the asynchronous interrupter: the bundled Kissat 4.0.4 stores
+        // termination callbacks but does not poll them during its search.
         let interrupter = solver.interrupter();
         let (done_tx, done_rx) = mpsc::channel::<()>();
         let worker = std::thread::spawn(move || {
