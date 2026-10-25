@@ -1,0 +1,599 @@
+{
+  "schema": "learned-reverse-benchmark-report-v1",
+  "csv_path": "/tmp/othello-learned-evaluation-tan_8y2t/sampled_sat/sampled_sat.csv",
+  "csv_sha256": "4ee87223d3f7a93acc6ea843f28b8ef2346654c2bbf0b030f444505c2802383c",
+  "cases": 8,
+  "repeats": 3,
+  "baseline": {
+    "algorithm": "gbfs",
+    "width": 0,
+    "threads": 1,
+    "max_nodes": 100000,
+    "budget_counts": "registered",
+    "model_sha256": ""
+  },
+  "variants": [
+    {
+      "variant": {
+        "algorithm": "best-first-mobility",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 4,
+            "unknown": 4,
+            "generated": 25180,
+            "expanded": 5589,
+            "search_seconds": 0.013075915,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 4,
+            "unknown": 4,
+            "generated": 25180,
+            "expanded": 5589,
+            "search_seconds": 0.013861987,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 4,
+            "unknown": 4,
+            "generated": 25180,
+            "expanded": 5589,
+            "search_seconds": 0.016413128,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.013861987,
+        "median_model_inference_seconds": 0.0
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1030422,
+            "expanded": 299672,
+            "search_seconds": 0.708496855,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1030422,
+            "expanded": 299672,
+            "search_seconds": 0.7723210899999999,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1030422,
+            "expanded": 299672,
+            "search_seconds": 0.7540786119999999,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.7540786119999999,
+        "median_model_inference_seconds": 0.0,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0187187262650785,
+        "generated_ratio_to_gbfs": 1.0228742111955877,
+        "expanded_ratio_to_gbfs": 1.0174203251839302
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": []
+    },
+    {
+      "variant": {
+        "algorithm": "gbfs",
+        "width": 0,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "registered",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1007379,
+            "expanded": 294541,
+            "search_seconds": 0.697624493,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1007379,
+            "expanded": 294541,
+            "search_seconds": 0.76120742,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1007379,
+            "expanded": 294541,
+            "search_seconds": 0.740222588,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.740222588,
+        "median_model_inference_seconds": 0.0
+      }
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 16937,
+            "expanded": 4337,
+            "search_seconds": 0.013265895,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.003654995,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 16937,
+            "expanded": 4337,
+            "search_seconds": 0.013291733,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.003942774,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 16937,
+            "expanded": 4337,
+            "search_seconds": 0.012065932,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.0036359699999999997,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.013265895,
+        "median_model_inference_seconds": 0.003654995
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1024316,
+            "expanded": 298878,
+            "search_seconds": 0.7108903879999999,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.003654995,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1024316,
+            "expanded": 298878,
+            "search_seconds": 0.7744991529999999,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.003942774,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1024316,
+            "expanded": 298878,
+            "search_seconds": 0.7522885199999999,
+            "model_evaluations": 15337,
+            "model_inference_seconds": 0.0036359699999999997,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.7522885199999999,
+        "median_model_inference_seconds": 0.003654995,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0163004104381639,
+        "generated_ratio_to_gbfs": 1.016812937335402,
+        "expanded_ratio_to_gbfs": 1.014724605402983
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": []
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 13754,
+            "expanded": 2896,
+            "search_seconds": 0.030144765,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.022793298,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 13754,
+            "expanded": 2896,
+            "search_seconds": 0.033044074,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.025266837,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 13754,
+            "expanded": 2896,
+            "search_seconds": 0.028207956,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.021129957,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.030144765,
+        "median_model_inference_seconds": 0.022793298
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1021133,
+            "expanded": 297437,
+            "search_seconds": 0.727769258,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.022793298,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1021133,
+            "expanded": 297437,
+            "search_seconds": 0.794251494,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.025266837,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1021133,
+            "expanded": 297437,
+            "search_seconds": 0.768430544,
+            "model_evaluations": 12647,
+            "model_inference_seconds": 0.021129957,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.768430544,
+        "median_model_inference_seconds": 0.022793298,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0381073969604397,
+        "generated_ratio_to_gbfs": 1.0136532526487052,
+        "expanded_ratio_to_gbfs": 1.0098322474630017
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": []
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306998,
+            "expanded": 83721,
+            "search_seconds": 0.196873876,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.070431928,
+            "peak_frontier": 244
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306998,
+            "expanded": 83721,
+            "search_seconds": 0.222026861,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.075272909,
+            "peak_frontier": 244
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306998,
+            "expanded": 83721,
+            "search_seconds": 0.204133695,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.073601553,
+            "peak_frontier": 244
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.204133695,
+        "median_model_inference_seconds": 0.073601553
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314377,
+            "expanded": 378262,
+            "search_seconds": 0.894498369,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.070431928,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314377,
+            "expanded": 378262,
+            "search_seconds": 0.9832342809999999,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.075272909,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314377,
+            "expanded": 378262,
+            "search_seconds": 0.944356283,
+            "model_evaluations": 286825,
+            "model_inference_seconds": 0.073601553,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.944356283,
+        "median_model_inference_seconds": 0.073601553,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.2757733934485123,
+        "generated_ratio_to_gbfs": 1.304749255245543,
+        "expanded_ratio_to_gbfs": 1.2842422616885256
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": []
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306924,
+            "expanded": 87697,
+            "search_seconds": 0.657836109,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.510019804,
+            "peak_frontier": 235
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306924,
+            "expanded": 87697,
+            "search_seconds": 0.657274527,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.506320625,
+            "peak_frontier": 235
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 0,
+            "unknown": 8,
+            "generated": 306924,
+            "expanded": 87697,
+            "search_seconds": 0.653455915,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.508537086,
+            "peak_frontier": 235
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.657274527,
+        "median_model_inference_seconds": 0.508537086
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314303,
+            "expanded": 382238,
+            "search_seconds": 1.355460602,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.510019804,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 2,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314303,
+            "expanded": 382238,
+            "search_seconds": 1.4184819469999999,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.506320625,
+            "peak_frontier": 3979
+          },
+          {
+            "repeat": 3,
+            "ok": 0,
+            "ng": 5,
+            "unknown": 3,
+            "generated": 1314303,
+            "expanded": 382238,
+            "search_seconds": 1.393678503,
+            "model_evaluations": 284756,
+            "model_inference_seconds": 0.508537086,
+            "peak_frontier": 3979
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 1.393678503,
+        "median_model_inference_seconds": 0.508537086,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.882782997429957,
+        "generated_ratio_to_gbfs": 1.304675797291784,
+        "expanded_ratio_to_gbfs": 1.2977412312717076
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": []
+    }
+  ],
+  "notes": [
+    "All direct times include ranking-model inference and internal witness verification.",
+    "External independent witness verification is outside the search timers.",
+    "Model inference time is a component of search time, not an extra cost to add.",
+    "Estimated fallback is calculated from paired rows; actual pipeline times are measured separately.",
+    "GBFS max_nodes counts registrations; learned search max_nodes counts generated candidates."
+  ]
+}

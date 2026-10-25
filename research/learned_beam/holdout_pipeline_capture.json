@@ -1,0 +1,14 @@
+{
+  "schema": "verified-learned-benchmark-capture-v1",
+  "completed_at_utc": "2026-10-25T14:36:04.462600+00:00",
+  "driver_sha256": "759fb8c2ed96a5916f8f9bb30631dae1671cab7763685975b04c97247e94ecd1",
+  "independent_verifier_sha256": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+  "all_files_closed_before_publication": true,
+  "publication": "atomic replacement per file, followed by SHA-256 verification; marker written last",
+  "files": {
+    "holdout_pipeline.csv": "0338c941277e2c89a9707d4a08017b19244b778e5200984da849fbc42ffddd69",
+    "holdout_pipeline_records.csv": "87c142b65891c9eebddba0d3e0795b0e196a02e0f1d9de56c88ec3ec6ce8d7f3",
+    "holdout_pipeline_independent_verification.json": "451e5c994b0eab3a9a24cc2d1ea9e29b47ea2576b914a902f805063058ade702",
+    "holdout_pipeline_report.json": "d83aa3e0f55593f612527b296cdad429850c6ebb10eac2be541556893bbf282f"
+  }
+}

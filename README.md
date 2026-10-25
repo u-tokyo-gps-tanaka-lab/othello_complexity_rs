@@ -254,6 +254,26 @@ cargo run --release --bin estimate -- reverse-search \
 
 `summary.json` の `reverse_strategy_settings` に、幅、評価関数、探索上限、その上限の単位などを保存します。設定欄のない過去の出力も引き続き読み込めます。
 
+### 学習した評価によるビームサーチを試す
+
+`learned-beam` は、合法棋譜から学習した前駆局面の順位を使う実験用機能です。線形モデルと隠れ16ユニットのネットワークを比較し、別の検証集合で線形モデルを選びました。独立144局面では、線形ビームの未解決分をGBFSへ渡すと、GBFS単独の75成功を維持して76成功となり、共通の生成候補数は0.47%減りました。実CLIの中央値は19.120秒から18.986秒へ変わりましたが、3反復の時間差は増減が混在し、安定した高速化は確認できていません。SATの残存集合でも追加成功はなく、探索量は増えました。条件、生データ、学習済みモデル、再現手順は [学習ビームの実験報告](research/learned_beam/README.md) に保存しています。
+
+**学習した点数は探索順序だけに使います。** 学習探索は、合法な着手列を再生できた `OK` と、未確定の `UNKNOWN` のみを返し、幅制限の有無によらず `NG` を返しません。不正なモデルはエラーになります。最終実験の全成功証跡は、既存のビットボードを使わない別実装でも再生検証しました。
+
+```sh
+cargo run --release --bin reverse_search -- learned-beam positions.txt \
+  --mode exact --discs 8 --beam-width 32 --max-nodes 100000 \
+  --model research/learned_beam/models/linear.json \
+  --out-dir out/learned_beam
+
+cargo run --release --bin reverse_search -- gbfs-parallel \
+  out/learned_beam/reverse_exact_UNKNOWN.txt \
+  --mode exact --discs 8 --max-nodes 100000 --threads 1 \
+  --out-dir out/learned_beam_then_gbfs
+```
+
+`estimate reverse-search` でも `learned-beam --model <PATH>` を指定できます。モデルのSHA-256と判定方針を結果に保存し、次の段階へ `UNKNOWN` を引き継ぎます。コミット済みモデルを使う探索にはPythonは不要です。既存の探索方式の既定値は変更していません。
+
 ### 探索性能を比較する
 
 `bench_reverse_search` は、固定シードの合法対局から同じ局面集合を生成し、共有の前向き表を使って探索を比較します。生成元と発見した手順を再生して検証し、各試行の生成候補数、展開局面数、候補保持数、時間、判定を CSV に保存します。既存入力は `--input` で指定できます。

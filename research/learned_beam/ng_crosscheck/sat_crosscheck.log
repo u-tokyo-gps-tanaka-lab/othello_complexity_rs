@@ -1,0 +1,18 @@
+start: ---------------------------OX------XO--------------------------- b
+mode: exact
+encoding: ply
+goals: 5
+parallel goals: 1
+output directory: /tmp/othello-learned-ng-crosscheck-3z48nivo/results
+goal file: /tmp/othello-learned-ng-crosscheck-3z48nivo/positions.txt
+SAT timeout per exact candidate: 30 s
+[sat] encoding=ply goal=-XO---XOO-XXOXXOXXXOXXX--OXXXXOO-O-XOOOX--OOOOXOOOXXX-O-OOOXO-XO w vars=223045 clauses=1367235 build_secs=0.084820 solve_secs=30.201126
+[1] UNKNOWN
+[sat] encoding=ply goal=--OOO-XOOO--X-OXOOO--OOO-XOXXOOO-O-XXXXO-XX-OX-XOOOXXXX--XOOO--- b vars=141907 clauses=867123 build_secs=0.021209 solve_secs=24.807059
+[2] UNSAT
+[sat] encoding=ply goal=-XOXXO--XXXOO-OXOOO-OOXOOXXXXO-OXX-OXOX-X-OOOOOX-XO-X-XOOOX-XO-X w vars=170973 clauses=1058759 build_secs=0.034190 solve_secs=30.137837
+[3] UNKNOWN
+[sat] encoding=ply goal=-OX-XO--X-OXXOOO-X-XX-OOX-XXX-X-XX-OXXX-XX-X-OXO-XOXX-OOXXXXXOXX b vars=132999 clauses=813949 build_secs=0.017847 solve_secs=0.992587
+[4] UNSAT
+[sat] encoding=ply goal=-X-OOOO--XOXXXOXXXOXXOX-OX-OOOOXOOOXOOO-X-XX-OO-XOOOX-XXOX-X-OX- w vars=224885 clauses=1372755 build_secs=0.041364 solve_secs=1.186652
+[5] UNSAT

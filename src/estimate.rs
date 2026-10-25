@@ -18,12 +18,13 @@ use crate::record::{GoalMatch, ReachabilityRecord};
 use crate::sampling::{create_output_dir, read_sample_dir, Population, Sample};
 use crate::search::run::{run_strategy, Strategy};
 
-const REVERSE_STRATEGIES: [&str; 8] = [
+const REVERSE_STRATEGIES: [&str; 9] = [
     "dfs",
     "dfs-move-ordering",
     "dfs-parallel",
     "gbfs-parallel",
     "beam",
+    "learned-beam",
     "bfs-external",
     "bfs-external-parallel",
     "bfs-inmemory-parallel",
@@ -301,6 +302,20 @@ fn reverse_strategy_settings(strategy: &Strategy) -> Value {
             "beam_width": width,
             "order": "best-first",
             "heuristic": heuristic.to_string(),
+            "budget_counts": "generated",
+        }),
+        Strategy::LearnedBeam {
+            discs,
+            max_nodes,
+            width,
+            model,
+        } => json!({
+            "discs": discs,
+            "max_nodes": max_nodes,
+            "beam_width": width,
+            "order": "best-first",
+            "model_path": model,
+            "verdict_policy": "verified-witness-or-unknown",
             "budget_counts": "generated",
         }),
         Strategy::BfsExternal(config) | Strategy::BfsExternalParallel(config) => json!({
@@ -754,6 +769,24 @@ fn write_summary(
     }
     if let Some(strategy) = reverse_strategy {
         summary["reverse_strategy_settings"] = reverse_strategy_settings(strategy);
+        if matches!(strategy, Strategy::LearnedBeam { .. }) {
+            // Metadata comes from the loaded model instance used in the run,
+            // not a second read of a potentially changed source model file.
+            let metadata: Value =
+                serde_json::from_reader(File::open(out_dir.join("learned_model_metadata.json"))?)
+                    .map_err(io::Error::other)?;
+            for key in [
+                "model_sha256",
+                "model_schema",
+                "model_hidden_size",
+                "verdict_policy",
+            ] {
+                summary["reverse_strategy_settings"][key] = metadata
+                    .get(key)
+                    .ok_or_else(|| invalid(format!("learned model metadata lacks {key}")))?
+                    .clone();
+            }
+        }
     }
     let mut file = File::create(out_dir.join("summary.json"))?;
     serde_json::to_writer_pretty(&mut file, &summary).map_err(io::Error::other)?;

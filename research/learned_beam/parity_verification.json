@@ -1,0 +1,18 @@
+{
+  "cases": 32,
+  "max_feature_absolute_error": 5.551115123125783e-17,
+  "models": [
+    {
+      "max_score_absolute_error": 1.7763568394002505e-15,
+      "name": "linear",
+      "sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+    },
+    {
+      "max_score_absolute_error": 5.329070518200751e-15,
+      "name": "mlp16",
+      "sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+    }
+  ],
+  "passed": true,
+  "schema": "othello-ranker-parity-check-v1"
+}

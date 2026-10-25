@@ -1,0 +1,18 @@
+{
+  "schema": "verified-learned-benchmark-capture-v1",
+  "completed_at_utc": "2026-10-25T14:32:32.889086+00:00",
+  "driver_sha256": "759fb8c2ed96a5916f8f9bb30631dae1671cab7763685975b04c97247e94ecd1",
+  "independent_verifier_sha256": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+  "all_files_closed_before_publication": true,
+  "publication": "atomic replacement per file, followed by SHA-256 verification; marker written last",
+  "files": {
+    "holdout.csv": "25d8493e2a6e5477f76fbac2e359cb9a8fa479b0e0605521eab63892997a6b11",
+    "holdout_positions.txt": "5d9b6fdc107c7c462fea3b6339ae49c7fe59a241007984296301ce664fbda11b",
+    "holdout_records.csv": "c38a5cb91206626db166eea580fb067a73fa5fb09fe94d61b7d7b2ca6882f548",
+    "holdout_exclusions.json": "c115bcd2cf884eb3cad045f4974ba7f3e8eeb8dfb83a0df80baa4d25def05ee3",
+    "holdout_independent_verification.json": "7e6c7fc6f305fc5cfbcd93ad47a0ab7b69a0525cd80cc3a63ea24bbb66d29eec",
+    "holdout_source_records.csv": "1076f7ad35354fd9d968f614a7e33f3fb8d91ab07ff533f2d302a45858a25bad",
+    "holdout_source_independent_verification.json": "43def355c08090532f452cbfcb1f9af789de97331130c786aa288fb47608079a",
+    "holdout_report.json": "2163d4df5120e2640ecbf5c391126c87fa1d6bbe289073fcddfbced8bd128607"
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "schema": "learned-benchmark-ng-crosscheck-v1",
+  "purpose": "Cross-check the existing GBFS negative outcomes with a different SAT encoding; this does not change models or performance benchmark settings.",
+  "started_at_utc": "2026-10-25T14:40:15.473759+00:00",
+  "completed_at_utc": "2026-10-25T14:41:43.181693+00:00",
+  "original_sat_encoding": "placement-columns",
+  "crosscheck_encoding": "ply",
+  "mode": "exact",
+  "start": "standard initial position, black to move",
+  "timeout_seconds_per_exact_query": 30,
+  "parallel_goals": 1,
+  "command": [
+    "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/sat_reachability",
+    "--from-initial",
+    "--goal-file",
+    "/tmp/othello-learned-ng-crosscheck-3z48nivo/positions.txt",
+    "--mode",
+    "exact",
+    "--encoding",
+    "ply",
+    "--parallel-goals",
+    "1",
+    "--sat-timeout-secs",
+    "30",
+    "--verbose",
+    "--out-dir",
+    "/tmp/othello-learned-ng-crosscheck-3z48nivo/results"
+  ],
+  "original_benchmark_sha256": "4ee87223d3f7a93acc6ea843f28b8ef2346654c2bbf0b030f444505c2802383c",
+  "sat_binary_sha256": "aaa8b42001cf28d8b6372ab28662fdd80070b8a8d9d8742171ba3b6300eb0b34",
+  "results": [
+    {
+      "original_case": 2,
+      "position": "-XO---XOO-XXOXXOXXXOXXX--OXXXXOO-O-XOOOX--OOOOXOOOXXX-O-OOOXO-XO w",
+      "gbfs_result": "NG",
+      "gbfs_generated": 72,
+      "gbfs_expanded": 19,
+      "gbfs_registered": 19,
+      "sat_result": "UNKNOWN"
+    },
+    {
+      "original_case": 3,
+      "position": "--OOO-XOOO--X-OXOOO--OOO-XOXXOOO-O-XXXXO-XX-OX-XOOOXXXX--XOOO--- b",
+      "gbfs_result": "NG",
+      "gbfs_generated": 4593,
+      "gbfs_expanded": 1532,
+      "gbfs_registered": 1532,
+      "sat_result": "NG"
+    },
+    {
+      "original_case": 4,
+      "position": "-XOXXO--XXXOO-OXOOO-OOXOOXXXXO-OXX-OXOX-X-OOOOOX-XO-X-XOOOX-XO-X w",
+      "gbfs_result": "NG",
+      "gbfs_generated": 82,
+      "gbfs_expanded": 29,
+      "gbfs_registered": 29,
+      "sat_result": "UNKNOWN"
+    },
+    {
+      "original_case": 5,
+      "position": "-OX-XO--X-OXXOOO-X-XX-OOX-XXX-X-XX-OXXX-XX-X-OXO-XOXX-OOXXXXXOXX b",
+      "gbfs_result": "NG",
+      "gbfs_generated": 1962,
+      "gbfs_expanded": 405,
+      "gbfs_registered": 405,
+      "sat_result": "NG"
+    },
+    {
+      "original_case": 6,
+      "position": "-X-OOOO--XOXXXOXXXOXXOX-OX-OOOOXOOOXOOO-X-XX-OO-XOOOX-XXOX-X-OX- w",
+      "gbfs_result": "NG",
+      "gbfs_generated": 21,
+      "gbfs_expanded": 5,
+      "gbfs_registered": 5,
+      "sat_result": "NG"
+    }
+  ],
+  "counts": {
+    "OK": 0,
+    "NG": 3,
+    "UNKNOWN": 2
+  },
+  "interpretation": "NG means the SAT solver reported UNSAT for the ply encoding. This is a cross-check using another encoding, not an independently checked UNSAT proof certificate.",
+  "files_sha256": {
+    "positions.txt": "84283443375ae836e6e221793b23079ba425256e52623e1a83fc95f93f8182fa",
+    "sat_crosscheck.log": "60af9215fbdfb22ee8743820ae8bcb03d4f8d2e7e34c0dfd815033e3438d4ec3",
+    "sat_exact_NG.txt": "cc3babf3a7496ecf15fd13fb7c7cc4d331af6dda0f0f2cff2867c0dff1f6847a",
+    "sat_exact_OK.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sat_exact_UNKNOWN.txt": "e1d8596ebce112e73629f32f756a769a1c679b82db4db39147a5a0c35656ec90",
+    "sat_exact_records.csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "followup_crosscheck": {
+    "report": "placement_columns/summary.json",
+    "report_sha256": "7ee4ca02848c9d8b96fa2a15a70568127d73f5927fc458698290ff859ce08f8c",
+    "purpose": "The initial ply run left two cases UNKNOWN; the fixed 30-second placement-columns follow-up reported UNSAT for both. Original ply results above are unchanged."
+  },
+  "final_crosscheck_counts": {
+    "baseline_gbfs_ng": 5,
+    "sat_unsat_confirmed": 5,
+    "sat_ok_contradictions": 0,
+    "unconfirmed": 0
+  },
+  "final_results": [
+    {
+      "original_case": 2,
+      "sat_unsat_confirmed": true,
+      "confirming_encoding": "placement-columns"
+    },
+    {
+      "original_case": 3,
+      "sat_unsat_confirmed": true,
+      "confirming_encoding": "ply"
+    },
+    {
+      "original_case": 4,
+      "sat_unsat_confirmed": true,
+      "confirming_encoding": "placement-columns"
+    },
+    {
+      "original_case": 5,
+      "sat_unsat_confirmed": true,
+      "confirming_encoding": "ply"
+    },
+    {
+      "original_case": 6,
+      "sat_unsat_confirmed": true,
+      "confirming_encoding": "ply"
+    }
+  ],
+  "proof_checking_limit": "SAT UNSAT results were reported by the existing solver. No separate DRAT/LRAT certificate checker was run. The learned search produced no NG verdicts."
+}

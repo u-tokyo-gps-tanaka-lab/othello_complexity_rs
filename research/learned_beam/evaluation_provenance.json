@@ -1,0 +1,28 @@
+{
+  "created_at_utc": "2026-10-25T14:10:34.851909+00:00",
+  "real_distribution": {
+    "seed": 20261128,
+    "raw_exact_uniform_sample_count": 2000,
+    "filter_survivors": 8,
+    "sat_encoding": "placement-columns",
+    "sat_timeout_seconds_per_exact_input": 1,
+    "sat_parallel_goals": 1,
+    "sat_survivors": 8,
+    "selection": "all survivors, original order; UNKNOWN is not an unreachability label"
+  },
+  "historical_regression": {
+    "input": "research/beam_search/legacy_sat_positions.txt",
+    "cases": 58,
+    "independent": false
+  },
+  "input_sha256": {
+    "research/learned_beam/evaluation_sample/positions.txt": "b963466e5f002d4f42d503393481fc0624ccba316f7b6c7fb6d9f72506cc3bc5",
+    "research/learned_beam/evaluation_sample/sampling.json": "7fec4dbdab754d28521095cfc61553bfed1caa0fdee65ae2f7ed00330583155e",
+    "research/learned_beam/evaluation_filters/summary.json": "a93e7999cd5a58b270fb73cfd1f0eef047f807beab7371ae891df0fb5af21502",
+    "research/learned_beam/evaluation_sat/summary.json": "766f2589db0442d7b0e9d57292932595ec4d6f9d1d190cdde5c5751e7d06777f",
+    "research/learned_beam/evaluation_sat/sat_exact_UNKNOWN.txt": "0dcff3e3cd676fc0cce13553cbf6138e750672282155045e5aff1013d0b2aaa7",
+    "research/beam_search/legacy_sat_positions.txt": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737"
+  },
+  "schema": "learned-beam-evaluation-provenance-v1",
+  "experimental_plan": "experiment_plan.json"
+}

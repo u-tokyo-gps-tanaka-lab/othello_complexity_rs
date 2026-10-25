@@ -1,0 +1,193 @@
+{
+  "schema": "verified-learned-pipeline-report-v1",
+  "time_kind": "actual command wall time including model loading, forward-table construction and I/O",
+  "certificates": 0,
+  "combined_certificate_indices": "reindexed by exact goal into the original corpus; actions unchanged",
+  "stages": [
+    {
+      "stage": "repeat-001-baseline-16pxh7j_/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-001-two-stage-9cd9rqx1/beam/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-001-two-stage-9cd9rqx1/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-002-baseline-im3_11yi/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-002-two-stage-yff9kmh6/beam/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-002-two-stage-yff9kmh6/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-003-baseline-ipp5a1rf/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-003-two-stage-10ptjg4n/beam/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    },
+    {
+      "stage": "repeat-003-two-stage-10ptjg4n/gbfs/reverse_exact_records.csv",
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 0,
+      "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+      "mode": "exact",
+      "passes_replayed": 0,
+      "placements_replayed": 0,
+      "positions_sha256": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+      "records_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "standard_start": true,
+      "verified_records": 0,
+      "verifier": "independent-absolute-array-v1"
+    }
+  ],
+  "methods": {
+    "baseline": {
+      "ok_per_repeat": [
+        0,
+        0,
+        0
+      ],
+      "ng_per_repeat": [
+        0,
+        0,
+        0
+      ],
+      "unknown_per_repeat": [
+        58,
+        58,
+        58
+      ],
+      "total_seconds": [
+        14.003916432,
+        13.06346015,
+        13.830354013
+      ],
+      "median_total_seconds": 13.830354013,
+      "mean_total_seconds": 13.632576864999999
+    },
+    "two-stage": {
+      "ok_per_repeat": [
+        0,
+        0,
+        0
+      ],
+      "ng_per_repeat": [
+        0,
+        0,
+        0
+      ],
+      "unknown_per_repeat": [
+        58,
+        58,
+        58
+      ],
+      "total_seconds": [
+        13.589771267,
+        12.716475163,
+        13.325044969
+      ],
+      "median_total_seconds": 13.325044969,
+      "mean_total_seconds": 13.210430466333333
+    }
+  }
+}

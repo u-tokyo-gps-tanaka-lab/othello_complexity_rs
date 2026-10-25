@@ -1,0 +1,1362 @@
+{
+  "schema": "learned-reverse-benchmark-report-v1",
+  "csv_path": "research/learned_beam/search_validation.csv",
+  "csv_sha256": "e3bcf6335e68be3eb0dde329879bad5fd90c3ca1d9906b8ed97e7aa4d4b1c603",
+  "cases": 60,
+  "repeats": 3,
+  "baseline": {
+    "algorithm": "gbfs",
+    "width": 0,
+    "threads": 1,
+    "max_nodes": 100000,
+    "budget_counts": "registered",
+    "model_sha256": ""
+  },
+  "variants": [
+    {
+      "variant": {
+        "algorithm": "best-first-mobility",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 403687,
+            "expanded": 124880,
+            "search_seconds": 0.202394454,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 403687,
+            "expanded": 124880,
+            "search_seconds": 0.201453259,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 403687,
+            "expanded": 124880,
+            "search_seconds": 0.21943284,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.202394454,
+        "median_model_inference_seconds": 0.0
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9672539,
+            "expanded": 3372537,
+            "search_seconds": 7.655623001,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9672539,
+            "expanded": 3372537,
+            "search_seconds": 7.528249532,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9672539,
+            "expanded": 3372537,
+            "search_seconds": 7.776317086,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 7.655623001,
+        "median_model_inference_seconds": 0.0,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0229462494815453,
+        "generated_ratio_to_gbfs": 1.0392174200608928,
+        "expanded_ratio_to_gbfs": 1.0340872505569751
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": [
+        [
+          11,
+          1
+        ],
+        [
+          11,
+          2
+        ],
+        [
+          11,
+          3
+        ],
+        [
+          12,
+          1
+        ],
+        [
+          12,
+          2
+        ],
+        [
+          12,
+          3
+        ],
+        [
+          13,
+          1
+        ],
+        [
+          13,
+          2
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          17,
+          1
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          19,
+          1
+        ],
+        [
+          19,
+          2
+        ],
+        [
+          19,
+          3
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          20,
+          3
+        ],
+        [
+          21,
+          1
+        ],
+        [
+          21,
+          2
+        ],
+        [
+          21,
+          3
+        ],
+        [
+          22,
+          1
+        ],
+        [
+          22,
+          2
+        ],
+        [
+          22,
+          3
+        ],
+        [
+          23,
+          1
+        ],
+        [
+          23,
+          2
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          24,
+          1
+        ],
+        [
+          24,
+          2
+        ],
+        [
+          24,
+          3
+        ],
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          26,
+          1
+        ],
+        [
+          26,
+          2
+        ],
+        [
+          26,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "gbfs",
+        "width": 0,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "registered",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9307522,
+            "expanded": 3261366,
+            "search_seconds": 7.483895664,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9307522,
+            "expanded": 3261366,
+            "search_seconds": 7.356883952,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9307522,
+            "expanded": 3261366,
+            "search_seconds": 7.591643519,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 7.483895664,
+        "median_model_inference_seconds": 0.0
+      }
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 216449,
+            "expanded": 53060,
+            "search_seconds": 0.165472564,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.053965028,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 216449,
+            "expanded": 53060,
+            "search_seconds": 0.163264884,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.054786272,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 216449,
+            "expanded": 53060,
+            "search_seconds": 0.184837023,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.058026357,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.165472564,
+        "median_model_inference_seconds": 0.054786272
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9464291,
+            "expanded": 3292555,
+            "search_seconds": 7.6042734869999995,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.053965028,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9464291,
+            "expanded": 3292555,
+            "search_seconds": 7.475813062,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.054786272,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9464291,
+            "expanded": 3292555,
+            "search_seconds": 7.727601002,
+            "model_evaluations": 205827,
+            "model_inference_seconds": 0.058026357,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 7.6042734869999995,
+        "median_model_inference_seconds": 0.054786272,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0160849146493391,
+        "generated_ratio_to_gbfs": 1.0168432586030953,
+        "expanded_ratio_to_gbfs": 1.0095631707695487
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": [
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          12,
+          1
+        ],
+        [
+          12,
+          2
+        ],
+        [
+          12,
+          3
+        ],
+        [
+          14,
+          1
+        ],
+        [
+          14,
+          2
+        ],
+        [
+          14,
+          3
+        ],
+        [
+          17,
+          1
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          19,
+          1
+        ],
+        [
+          19,
+          2
+        ],
+        [
+          19,
+          3
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          20,
+          3
+        ],
+        [
+          21,
+          1
+        ],
+        [
+          21,
+          2
+        ],
+        [
+          21,
+          3
+        ],
+        [
+          22,
+          1
+        ],
+        [
+          22,
+          2
+        ],
+        [
+          22,
+          3
+        ],
+        [
+          23,
+          1
+        ],
+        [
+          23,
+          2
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          24,
+          1
+        ],
+        [
+          24,
+          2
+        ],
+        [
+          24,
+          3
+        ],
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          26,
+          1
+        ],
+        [
+          26,
+          2
+        ],
+        [
+          26,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 185659,
+            "expanded": 40248,
+            "search_seconds": 0.405974588,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.303110301,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 185659,
+            "expanded": 40248,
+            "search_seconds": 0.405971424,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.310048951,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 14,
+            "ng": 0,
+            "unknown": 46,
+            "generated": 185659,
+            "expanded": 40248,
+            "search_seconds": 0.426191705,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.322524523,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.405974588,
+        "median_model_inference_seconds": 0.310048951
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9437830,
+            "expanded": 3281081,
+            "search_seconds": 7.845036525,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.303110301,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9437830,
+            "expanded": 3281081,
+            "search_seconds": 7.718704175,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.310048951,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 29,
+            "ng": 0,
+            "unknown": 31,
+            "generated": 9437830,
+            "expanded": 3281081,
+            "search_seconds": 7.968516534,
+            "model_evaluations": 177900,
+            "model_inference_seconds": 0.322524523,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 7.845036525,
+        "median_model_inference_seconds": 0.310048951,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0482557316688963,
+        "generated_ratio_to_gbfs": 1.0140002892284325,
+        "expanded_ratio_to_gbfs": 1.006045013040548
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": [
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          11,
+          1
+        ],
+        [
+          11,
+          2
+        ],
+        [
+          11,
+          3
+        ],
+        [
+          12,
+          1
+        ],
+        [
+          12,
+          2
+        ],
+        [
+          12,
+          3
+        ],
+        [
+          13,
+          1
+        ],
+        [
+          13,
+          2
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          14,
+          1
+        ],
+        [
+          14,
+          2
+        ],
+        [
+          14,
+          3
+        ],
+        [
+          17,
+          1
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          20,
+          3
+        ],
+        [
+          21,
+          1
+        ],
+        [
+          21,
+          2
+        ],
+        [
+          21,
+          3
+        ],
+        [
+          22,
+          1
+        ],
+        [
+          22,
+          2
+        ],
+        [
+          22,
+          3
+        ],
+        [
+          23,
+          1
+        ],
+        [
+          23,
+          2
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          24,
+          1
+        ],
+        [
+          24,
+          2
+        ],
+        [
+          24,
+          3
+        ],
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 24,
+            "ng": 0,
+            "unknown": 36,
+            "generated": 4126572,
+            "expanded": 1235308,
+            "search_seconds": 2.807590211,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.005135723,
+            "peak_frontier": 5126
+          },
+          {
+            "repeat": 2,
+            "ok": 24,
+            "ng": 0,
+            "unknown": 36,
+            "generated": 4126572,
+            "expanded": 1235308,
+            "search_seconds": 2.789949342,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.001370061,
+            "peak_frontier": 5126
+          },
+          {
+            "repeat": 3,
+            "ok": 24,
+            "ng": 0,
+            "unknown": 36,
+            "generated": 4126572,
+            "expanded": 1235308,
+            "search_seconds": 3.03639374,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.078683237,
+            "peak_frontier": 5126
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 2.807590211,
+        "median_model_inference_seconds": 1.005135723
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 31,
+            "ng": 0,
+            "unknown": 29,
+            "generated": 12290511,
+            "expanded": 4083506,
+            "search_seconds": 9.444133891,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.005135723,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 31,
+            "ng": 0,
+            "unknown": 29,
+            "generated": 12290511,
+            "expanded": 4083506,
+            "search_seconds": 9.289228613999999,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.001370061,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 31,
+            "ng": 0,
+            "unknown": 29,
+            "generated": 12290511,
+            "expanded": 4083506,
+            "search_seconds": 9.686261581,
+            "model_evaluations": 3805530,
+            "model_inference_seconds": 1.078683237,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 9.444133891,
+        "median_model_inference_seconds": 1.005135723,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.2619275194374222,
+        "generated_ratio_to_gbfs": 1.3204922857018226,
+        "expanded_ratio_to_gbfs": 1.252084555980531
+      },
+      "additional_found_case_repeats": [
+        [
+          28,
+          1
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          30,
+          1
+        ],
+        [
+          30,
+          2
+        ],
+        [
+          30,
+          3
+        ]
+      ],
+      "missed_baseline_found_case_repeats": [
+        [
+          17,
+          1
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          20,
+          3
+        ],
+        [
+          21,
+          1
+        ],
+        [
+          21,
+          2
+        ],
+        [
+          21,
+          3
+        ],
+        [
+          23,
+          1
+        ],
+        [
+          23,
+          2
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 22,
+            "ng": 0,
+            "unknown": 38,
+            "generated": 3926793,
+            "expanded": 1161969,
+            "search_seconds": 8.228256496,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.355661893,
+            "peak_frontier": 2837
+          },
+          {
+            "repeat": 2,
+            "ok": 22,
+            "ng": 0,
+            "unknown": 38,
+            "generated": 3926793,
+            "expanded": 1161969,
+            "search_seconds": 8.030184715,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.199812365,
+            "peak_frontier": 2837
+          },
+          {
+            "repeat": 3,
+            "ok": 22,
+            "ng": 0,
+            "unknown": 38,
+            "generated": 3926793,
+            "expanded": 1161969,
+            "search_seconds": 8.516860567,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.522728867,
+            "peak_frontier": 2837
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 8.228256496,
+        "median_model_inference_seconds": 6.355661893
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 30,
+            "ng": 0,
+            "unknown": 30,
+            "generated": 12476566,
+            "expanded": 4149881,
+            "search_seconds": 15.115445678,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.355661893,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 2,
+            "ok": 30,
+            "ng": 0,
+            "unknown": 30,
+            "generated": 12476566,
+            "expanded": 4149881,
+            "search_seconds": 14.759974826999999,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.199812365,
+            "peak_frontier": 23366
+          },
+          {
+            "repeat": 3,
+            "ok": 30,
+            "ng": 0,
+            "unknown": 30,
+            "generated": 12476566,
+            "expanded": 4149881,
+            "search_seconds": 15.48616694,
+            "model_evaluations": 3623139,
+            "model_inference_seconds": 6.522728867,
+            "peak_frontier": 23366
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 15.115445678,
+        "median_model_inference_seconds": 6.355661893,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 2.019729610971231,
+        "generated_ratio_to_gbfs": 1.340482031629901,
+        "expanded_ratio_to_gbfs": 1.2724364576070273
+      },
+      "additional_found_case_repeats": [
+        [
+          30,
+          1
+        ],
+        [
+          30,
+          2
+        ],
+        [
+          30,
+          3
+        ]
+      ],
+      "missed_baseline_found_case_repeats": [
+        [
+          17,
+          1
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          20,
+          3
+        ],
+        [
+          22,
+          1
+        ],
+        [
+          22,
+          2
+        ],
+        [
+          22,
+          3
+        ],
+        [
+          23,
+          1
+        ],
+        [
+          23,
+          2
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ]
+      ]
+    }
+  ],
+  "notes": [
+    "All direct times include ranking-model inference and internal witness verification.",
+    "External independent witness verification is outside the search timers.",
+    "Model inference time is a component of search time, not an extra cost to add.",
+    "Estimated fallback is calculated from paired rows; actual pipeline times are measured separately.",
+    "GBFS max_nodes counts registrations; learned search max_nodes counts generated candidates."
+  ]
+}

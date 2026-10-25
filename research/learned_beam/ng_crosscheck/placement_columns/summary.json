@@ -1,0 +1,67 @@
+{
+  "schema": "learned-benchmark-ng-crosscheck-v1",
+  "purpose": "Bounded second cross-check for the two GBFS NG queries left UNKNOWN by the ply encoding. This does not change models or performance benchmark settings.",
+  "started_at_utc": "2026-10-25T14:43:51.581556+00:00",
+  "completed_at_utc": "2026-10-25T14:43:59.620202+00:00",
+  "original_sat_encoding": "placement-columns",
+  "original_sat_timeout_seconds": 1,
+  "crosscheck_encoding": "placement-columns",
+  "prior_ply_timeout_seconds": 30,
+  "mode": "exact",
+  "start": "standard initial position, black to move",
+  "timeout_seconds_per_exact_query": 30,
+  "parallel_goals": 1,
+  "command": [
+    "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/sat_reachability",
+    "--from-initial",
+    "--goal-file",
+    "/tmp/othello-learned-ng-columns-vl83j23m/positions.txt",
+    "--mode",
+    "exact",
+    "--encoding",
+    "placement-columns",
+    "--parallel-goals",
+    "1",
+    "--sat-timeout-secs",
+    "30",
+    "--verbose",
+    "--out-dir",
+    "/tmp/othello-learned-ng-columns-vl83j23m/results"
+  ],
+  "original_benchmark_sha256": "4ee87223d3f7a93acc6ea843f28b8ef2346654c2bbf0b030f444505c2802383c",
+  "sat_binary_sha256": "aaa8b42001cf28d8b6372ab28662fdd80070b8a8d9d8742171ba3b6300eb0b34",
+  "results": [
+    {
+      "original_case": 2,
+      "position": "-XO---XOO-XXOXXOXXXOXXX--OXXXXOO-O-XOOOX--OOOOXOOOXXX-O-OOOXO-XO w",
+      "gbfs_result": "NG",
+      "gbfs_generated": 72,
+      "gbfs_expanded": 19,
+      "gbfs_registered": 19,
+      "sat_result": "NG"
+    },
+    {
+      "original_case": 4,
+      "position": "-XOXXO--XXXOO-OXOOO-OOXOOXXXXO-OXX-OXOX-X-OOOOOX-XO-X-XOOOX-XO-X w",
+      "gbfs_result": "NG",
+      "gbfs_generated": 82,
+      "gbfs_expanded": 29,
+      "gbfs_registered": 29,
+      "sat_result": "NG"
+    }
+  ],
+  "counts": {
+    "OK": 0,
+    "NG": 2,
+    "UNKNOWN": 0
+  },
+  "interpretation": "NG means the SAT solver reported UNSAT for the placement-columns encoding. UNKNOWN is not an unreachability proof. This is not an independently checked UNSAT proof certificate.",
+  "files_sha256": {
+    "positions.txt": "e1d8596ebce112e73629f32f756a769a1c679b82db4db39147a5a0c35656ec90",
+    "sat_crosscheck.log": "8cc20624c14f482e0fd6f773043afd706e0dfea5c6668c39db24c40962ce653b",
+    "sat_exact_NG.txt": "e1d8596ebce112e73629f32f756a769a1c679b82db4db39147a5a0c35656ec90",
+    "sat_exact_OK.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sat_exact_UNKNOWN.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sat_exact_records.csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "accepted_samples": 2000,
+  "alpha": 0.005,
+  "counts": {
+    "NG": 1992,
+    "OK": 0,
+    "UNKNOWN": 8
+  },
+  "from": "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/learned_beam/evaluation_filters",
+  "mode": "exact",
+  "population": {
+    "definition": "absolute_positions_center_occupied",
+    "size": "1356517064806918512457421862432"
+  },
+  "reachable_interval": [
+    "0",
+    "14044791921057142336714243216.4997234312281787493859042115218471735715866088867187500000"
+  ],
+  "stage": "sat:placement-columns",
+  "wilson_interval": [
+    0.0,
+    0.010353568182392327
+  ],
+  "with_replacement": true
+}

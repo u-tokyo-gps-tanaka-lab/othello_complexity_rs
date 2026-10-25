@@ -1,0 +1,65 @@
+{
+  "schema": "othello-learned-beam-experiment-plan-v1",
+  "date_jst": "2026-10-25",
+  "base_commit": "680848649b153ec55b16b70b4dbde27c8ead5d77",
+  "question": "Can a small learned predecessor ranker reduce reverse search effort and inference-inclusive time at matched proof counts?",
+  "safety_contract": {
+    "model_role": "candidate ordering only",
+    "learned_results": ["OK with replay-verified witness", "UNKNOWN"],
+    "learned_ng_permitted": false,
+    "malformed_model": "error, never a reachability result",
+    "independent_witness_check": "absolute-color array implementation of Othello rules",
+    "start": "standard initial position",
+    "mode": "exact"
+  },
+  "training": {
+    "feature_version": "reverse-board-v1",
+    "feature_count": 160,
+    "model_choices": ["linear", "one ReLU hidden layer with 16 units"],
+    "train_games": 1000,
+    "train_seed": 2026102501,
+    "validation_games": 200,
+    "validation_seed": 2026102502,
+    "optimizer_seed": 2026102503,
+    "stone_counts": [12,16,20,24,28,32,36,40,44,48,52,56],
+    "comparison_candidates_per_group": 7,
+    "candidate_draw_limit": 128,
+    "maximum_epochs": 30,
+    "epoch_selection": "minimum ranking validation loss within each architecture",
+    "labels": "observed predecessor versus unlabelled comparison; comparisons are never labelled unreachable",
+    "split_overlap_control": "source-game separation and exclusion of validation groups sharing goal or candidate keys under start-preserving symmetries"
+  },
+  "search_validation": {
+    "seed": 20261126,
+    "samples_per_stone_count": 10,
+    "stone_counts": [16,24,32,40,48,56],
+    "purpose": "select one frozen model before final holdout",
+    "selection": "maximize proved reachable count of learned-beam then GBFS; among ties minimize median sum of independently timed stage searches; if the two times differ by at most 5 percent prefer the simpler linear model; unbounded learned search is not used for model selection",
+    "repeats": 3
+  },
+  "search_conditions": {
+    "forward_discs": 8,
+    "beam_width": 32,
+    "gbfs_registered_limit": 100000,
+    "beam_generated_limit": 100000,
+    "threads": 1,
+    "comparison_algorithms": ["gbfs", "best-first-mobility", "learned-beam", "learned-best-first without width cuts"],
+    "budgets_have_different_units": true,
+    "width_or_budget_retuning_after_holdout": false
+  },
+  "final_evaluation": {
+    "legal_seed": 20261127,
+    "legal_samples_per_stone_count": 24,
+    "legal_stone_counts": [16,24,32,40,48,56],
+    "legal_count": 144,
+    "historical": "all 58 exact queries from research/beam_search/legacy_sat_positions.txt; historical UNKNOWN is not ground truth",
+    "new_target_distribution": "seed 20261128, 2000 exact population samples, existing necessary filters, placement-columns SAT at 1 second per goal and one concurrent goal; include every residual query",
+    "repeats": 3,
+    "model_comparison": "evaluate both prespecified architectures as an ablation; actual CLI pipeline uses the validation-selected model; no model reselection from final results",
+    "old_96_case_holdout": "development/regression only, never the sole independent evaluation",
+    "freeze_before_evaluation": ["model SHA-256", "search settings", "selection metrics"],
+    "primary_metrics": ["proof count at specified budgets", "common generated candidates", "common expansions", "inference-inclusive search time", "actual two-stage CLI wall time"],
+    "secondary_metrics": ["ranking validation loss", "demonstrated predecessor rank", "model evaluation count", "model inference time", "stone-count breakdown"]
+  },
+  "interpretation": "A lower node count or faster early termination with fewer proofs is not accepted as a matched-success improvement. A negative result will be retained. Learned exhaustion never supplies a negative reachability label."
+}

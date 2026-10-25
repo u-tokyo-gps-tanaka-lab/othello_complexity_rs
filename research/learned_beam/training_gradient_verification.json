@@ -1,0 +1,18 @@
+{
+  "method": "central finite difference of pairwise loss plus L2; compared with the first Adam moment divided by 1-beta1",
+  "epsilon": 1e-06,
+  "tolerance": 2e-08,
+  "checks": [
+    {
+      "hidden_size": 0,
+      "checked_parameters": 12,
+      "max_absolute_gradient_error": 8.052272737479882e-11
+    },
+    {
+      "hidden_size": 16,
+      "checked_parameters": 36,
+      "max_absolute_gradient_error": 1.2461902169913497e-10
+    }
+  ],
+  "passed": true
+}

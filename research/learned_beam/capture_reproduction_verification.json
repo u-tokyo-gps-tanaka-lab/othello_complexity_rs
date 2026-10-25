@@ -1,0 +1,68 @@
+{
+  "schema": "repeated-identical-search-capture-comparison-v1",
+  "original_csv_sha256": "f559722568191787a718bba4bc34f2e42676ce753313759c7a9d534ea6780b54",
+  "primary_csv_sha256": "25d8493e2a6e5477f76fbac2e359cb9a8fa479b0e0605521eab63892997a6b11",
+  "original_rows": 2592,
+  "primary_rows": 2592,
+  "excluded_comparison_fields": [
+    "forward_seconds",
+    "model_inference_seconds",
+    "search_seconds"
+  ],
+  "all_non_timing_columns_identical": true,
+  "differences": [],
+  "source_artifact_identity": {
+    "holdout_positions.txt": true,
+    "holdout_source_records.csv": true
+  },
+  "old_witnesses_are_exact_prefix_of_primary_witnesses": true,
+  "original_witness_count": 606,
+  "primary_witness_count": 921,
+  "capture_manifest_byte_checks": {
+    "holdout_capture.json": {
+      "holdout.csv": true,
+      "holdout_positions.txt": true,
+      "holdout_records.csv": true,
+      "holdout_exclusions.json": true,
+      "holdout_independent_verification.json": true,
+      "holdout_source_records.csv": true,
+      "holdout_source_independent_verification.json": true,
+      "holdout_report.json": true
+    },
+    "holdout_pipeline_capture.json": {
+      "holdout_pipeline.csv": true,
+      "holdout_pipeline_records.csv": true,
+      "holdout_pipeline_independent_verification.json": true,
+      "holdout_pipeline_report.json": true
+    },
+    "legacy_sat_capture.json": {
+      "legacy_sat.csv": true,
+      "legacy_sat_positions.txt": true,
+      "legacy_sat_records.csv": true,
+      "legacy_sat_exclusions.json": true,
+      "legacy_sat_independent_verification.json": true,
+      "legacy_sat_report.json": true
+    },
+    "legacy_sat_pipeline_capture.json": {
+      "legacy_sat_pipeline.csv": true,
+      "legacy_sat_pipeline_records.csv": true,
+      "legacy_sat_pipeline_independent_verification.json": true,
+      "legacy_sat_pipeline_report.json": true
+    },
+    "sampled_sat_capture.json": {
+      "sampled_sat.csv": true,
+      "sampled_sat_positions.txt": true,
+      "sampled_sat_records.csv": true,
+      "sampled_sat_exclusions.json": true,
+      "sampled_sat_independent_verification.json": true,
+      "sampled_sat_report.json": true
+    },
+    "sampled_sat_pipeline_capture.json": {
+      "sampled_sat_pipeline.csv": true,
+      "sampled_sat_pipeline_records.csv": true,
+      "sampled_sat_pipeline_independent_verification.json": true,
+      "sampled_sat_pipeline_report.json": true
+    }
+  },
+  "interpretation": "The incomplete original record file is an exact deterministic prefix. The repeat preserved every decision, count, model identity and source goal; only its complete capture is the primary measurement."
+}

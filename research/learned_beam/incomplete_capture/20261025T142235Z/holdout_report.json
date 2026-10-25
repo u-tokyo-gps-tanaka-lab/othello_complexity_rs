@@ -1,0 +1,2587 @@
+{
+  "schema": "learned-reverse-benchmark-report-v1",
+  "csv_path": "research/learned_beam/holdout.csv",
+  "csv_sha256": "f559722568191787a718bba4bc34f2e42676ce753313759c7a9d534ea6780b54",
+  "cases": 144,
+  "repeats": 3,
+  "baseline": {
+    "algorithm": "gbfs",
+    "width": 0,
+    "threads": 1,
+    "max_nodes": 100000,
+    "budget_counts": "registered",
+    "model_sha256": ""
+  },
+  "variants": [
+    {
+      "variant": {
+        "algorithm": "best-first-mobility",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 39,
+            "ng": 0,
+            "unknown": 105,
+            "generated": 991103,
+            "expanded": 319426,
+            "search_seconds": 0.53561801,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 39,
+            "ng": 0,
+            "unknown": 105,
+            "generated": 991103,
+            "expanded": 319426,
+            "search_seconds": 0.510219941,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 39,
+            "ng": 0,
+            "unknown": 105,
+            "generated": 991103,
+            "expanded": 319426,
+            "search_seconds": 0.558099428,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.53561801,
+        "median_model_inference_seconds": 0.0
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 22237177,
+            "expanded": 7705679,
+            "search_seconds": 18.557757085,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 22237177,
+            "expanded": 7705679,
+            "search_seconds": 18.457996978,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 22237177,
+            "expanded": 7705679,
+            "search_seconds": 18.575506208,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 18.557757085,
+        "median_model_inference_seconds": 0.0,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0192302662048938,
+        "generated_ratio_to_gbfs": 1.0377327197550827,
+        "expanded_ratio_to_gbfs": 1.0337645650025664
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": [
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          28,
+          1
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          30,
+          1
+        ],
+        [
+          30,
+          2
+        ],
+        [
+          30,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          34,
+          1
+        ],
+        [
+          34,
+          2
+        ],
+        [
+          34,
+          3
+        ],
+        [
+          40,
+          1
+        ],
+        [
+          40,
+          2
+        ],
+        [
+          40,
+          3
+        ],
+        [
+          43,
+          1
+        ],
+        [
+          43,
+          2
+        ],
+        [
+          43,
+          3
+        ],
+        [
+          44,
+          1
+        ],
+        [
+          44,
+          2
+        ],
+        [
+          44,
+          3
+        ],
+        [
+          45,
+          1
+        ],
+        [
+          45,
+          2
+        ],
+        [
+          45,
+          3
+        ],
+        [
+          46,
+          1
+        ],
+        [
+          46,
+          2
+        ],
+        [
+          46,
+          3
+        ],
+        [
+          48,
+          1
+        ],
+        [
+          48,
+          2
+        ],
+        [
+          48,
+          3
+        ],
+        [
+          50,
+          1
+        ],
+        [
+          50,
+          2
+        ],
+        [
+          50,
+          3
+        ],
+        [
+          51,
+          1
+        ],
+        [
+          51,
+          2
+        ],
+        [
+          51,
+          3
+        ],
+        [
+          52,
+          1
+        ],
+        [
+          52,
+          2
+        ],
+        [
+          52,
+          3
+        ],
+        [
+          54,
+          1
+        ],
+        [
+          54,
+          2
+        ],
+        [
+          54,
+          3
+        ],
+        [
+          55,
+          1
+        ],
+        [
+          55,
+          2
+        ],
+        [
+          55,
+          3
+        ],
+        [
+          56,
+          1
+        ],
+        [
+          56,
+          2
+        ],
+        [
+          56,
+          3
+        ],
+        [
+          57,
+          1
+        ],
+        [
+          57,
+          2
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          58,
+          1
+        ],
+        [
+          58,
+          2
+        ],
+        [
+          58,
+          3
+        ],
+        [
+          59,
+          1
+        ],
+        [
+          59,
+          2
+        ],
+        [
+          59,
+          3
+        ],
+        [
+          60,
+          1
+        ],
+        [
+          60,
+          2
+        ],
+        [
+          60,
+          3
+        ],
+        [
+          62,
+          1
+        ],
+        [
+          62,
+          2
+        ],
+        [
+          62,
+          3
+        ],
+        [
+          63,
+          1
+        ],
+        [
+          63,
+          2
+        ],
+        [
+          63,
+          3
+        ],
+        [
+          66,
+          1
+        ],
+        [
+          66,
+          2
+        ],
+        [
+          66,
+          3
+        ],
+        [
+          69,
+          1
+        ],
+        [
+          69,
+          2
+        ],
+        [
+          69,
+          3
+        ],
+        [
+          71,
+          1
+        ],
+        [
+          71,
+          2
+        ],
+        [
+          71,
+          3
+        ],
+        [
+          72,
+          1
+        ],
+        [
+          72,
+          2
+        ],
+        [
+          72,
+          3
+        ],
+        [
+          80,
+          1
+        ],
+        [
+          80,
+          2
+        ],
+        [
+          80,
+          3
+        ],
+        [
+          83,
+          1
+        ],
+        [
+          83,
+          2
+        ],
+        [
+          83,
+          3
+        ],
+        [
+          84,
+          1
+        ],
+        [
+          84,
+          2
+        ],
+        [
+          84,
+          3
+        ],
+        [
+          86,
+          1
+        ],
+        [
+          86,
+          2
+        ],
+        [
+          86,
+          3
+        ],
+        [
+          91,
+          1
+        ],
+        [
+          91,
+          2
+        ],
+        [
+          91,
+          3
+        ],
+        [
+          92,
+          1
+        ],
+        [
+          92,
+          2
+        ],
+        [
+          92,
+          3
+        ],
+        [
+          114,
+          1
+        ],
+        [
+          114,
+          2
+        ],
+        [
+          114,
+          3
+        ],
+        [
+          115,
+          1
+        ],
+        [
+          115,
+          2
+        ],
+        [
+          115,
+          3
+        ],
+        [
+          116,
+          1
+        ],
+        [
+          116,
+          2
+        ],
+        [
+          116,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "gbfs",
+        "width": 0,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "registered",
+        "model_sha256": ""
+      },
+      "model_path": "",
+      "model_hidden_size": null,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21428617,
+            "expanded": 7453998,
+            "search_seconds": 18.207619711,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21428617,
+            "expanded": 7453998,
+            "search_seconds": 18.111025564,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21428617,
+            "expanded": 7453998,
+            "search_seconds": 18.252007555,
+            "model_evaluations": 0,
+            "model_inference_seconds": 0.0,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 18.207619711,
+        "median_model_inference_seconds": 0.0
+      }
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 35,
+            "ng": 0,
+            "unknown": 109,
+            "generated": 501328,
+            "expanded": 112761,
+            "search_seconds": 0.378130302,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.11907697,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 35,
+            "ng": 0,
+            "unknown": 109,
+            "generated": 501328,
+            "expanded": 112761,
+            "search_seconds": 0.375164504,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.119937646,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 35,
+            "ng": 0,
+            "unknown": 109,
+            "generated": 501328,
+            "expanded": 112761,
+            "search_seconds": 0.410326628,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.133191713,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 0.378130302,
+        "median_model_inference_seconds": 0.119937646
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 76,
+            "ng": 0,
+            "unknown": 68,
+            "generated": 21328142,
+            "expanded": 7340701,
+            "search_seconds": 18.017028739,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.11907697,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 76,
+            "ng": 0,
+            "unknown": 68,
+            "generated": 21328142,
+            "expanded": 7340701,
+            "search_seconds": 17.961692302,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.119937646,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 76,
+            "ng": 0,
+            "unknown": 68,
+            "generated": 21328142,
+            "expanded": 7340701,
+            "search_seconds": 18.104254413,
+            "model_evaluations": 478484,
+            "model_inference_seconds": 0.133191713,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 18.017028739,
+        "median_model_inference_seconds": 0.119937646,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 0.9895323510142924,
+        "generated_ratio_to_gbfs": 0.995311176638231,
+        "expanded_ratio_to_gbfs": 0.984800505715188
+      },
+      "additional_found_case_repeats": [
+        [
+          79,
+          1
+        ],
+        [
+          79,
+          2
+        ],
+        [
+          79,
+          3
+        ]
+      ],
+      "missed_baseline_found_case_repeats": [
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          26,
+          1
+        ],
+        [
+          26,
+          2
+        ],
+        [
+          26,
+          3
+        ],
+        [
+          27,
+          1
+        ],
+        [
+          27,
+          2
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          28,
+          1
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          29,
+          1
+        ],
+        [
+          29,
+          2
+        ],
+        [
+          29,
+          3
+        ],
+        [
+          30,
+          1
+        ],
+        [
+          30,
+          2
+        ],
+        [
+          30,
+          3
+        ],
+        [
+          31,
+          1
+        ],
+        [
+          31,
+          2
+        ],
+        [
+          31,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          34,
+          1
+        ],
+        [
+          34,
+          2
+        ],
+        [
+          34,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ],
+        [
+          39,
+          1
+        ],
+        [
+          39,
+          2
+        ],
+        [
+          39,
+          3
+        ],
+        [
+          42,
+          1
+        ],
+        [
+          42,
+          2
+        ],
+        [
+          42,
+          3
+        ],
+        [
+          44,
+          1
+        ],
+        [
+          44,
+          2
+        ],
+        [
+          44,
+          3
+        ],
+        [
+          46,
+          1
+        ],
+        [
+          46,
+          2
+        ],
+        [
+          46,
+          3
+        ],
+        [
+          48,
+          1
+        ],
+        [
+          48,
+          2
+        ],
+        [
+          48,
+          3
+        ],
+        [
+          49,
+          1
+        ],
+        [
+          49,
+          2
+        ],
+        [
+          49,
+          3
+        ],
+        [
+          50,
+          1
+        ],
+        [
+          50,
+          2
+        ],
+        [
+          50,
+          3
+        ],
+        [
+          51,
+          1
+        ],
+        [
+          51,
+          2
+        ],
+        [
+          51,
+          3
+        ],
+        [
+          52,
+          1
+        ],
+        [
+          52,
+          2
+        ],
+        [
+          52,
+          3
+        ],
+        [
+          54,
+          1
+        ],
+        [
+          54,
+          2
+        ],
+        [
+          54,
+          3
+        ],
+        [
+          55,
+          1
+        ],
+        [
+          55,
+          2
+        ],
+        [
+          55,
+          3
+        ],
+        [
+          56,
+          1
+        ],
+        [
+          56,
+          2
+        ],
+        [
+          56,
+          3
+        ],
+        [
+          57,
+          1
+        ],
+        [
+          57,
+          2
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          58,
+          1
+        ],
+        [
+          58,
+          2
+        ],
+        [
+          58,
+          3
+        ],
+        [
+          60,
+          1
+        ],
+        [
+          60,
+          2
+        ],
+        [
+          60,
+          3
+        ],
+        [
+          62,
+          1
+        ],
+        [
+          62,
+          2
+        ],
+        [
+          62,
+          3
+        ],
+        [
+          63,
+          1
+        ],
+        [
+          63,
+          2
+        ],
+        [
+          63,
+          3
+        ],
+        [
+          66,
+          1
+        ],
+        [
+          66,
+          2
+        ],
+        [
+          66,
+          3
+        ],
+        [
+          67,
+          1
+        ],
+        [
+          67,
+          2
+        ],
+        [
+          67,
+          3
+        ],
+        [
+          69,
+          1
+        ],
+        [
+          69,
+          2
+        ],
+        [
+          69,
+          3
+        ],
+        [
+          71,
+          1
+        ],
+        [
+          71,
+          2
+        ],
+        [
+          71,
+          3
+        ],
+        [
+          72,
+          1
+        ],
+        [
+          72,
+          2
+        ],
+        [
+          72,
+          3
+        ],
+        [
+          80,
+          1
+        ],
+        [
+          80,
+          2
+        ],
+        [
+          80,
+          3
+        ],
+        [
+          83,
+          1
+        ],
+        [
+          83,
+          2
+        ],
+        [
+          83,
+          3
+        ],
+        [
+          84,
+          1
+        ],
+        [
+          84,
+          2
+        ],
+        [
+          84,
+          3
+        ],
+        [
+          86,
+          1
+        ],
+        [
+          86,
+          2
+        ],
+        [
+          86,
+          3
+        ],
+        [
+          91,
+          1
+        ],
+        [
+          91,
+          2
+        ],
+        [
+          91,
+          3
+        ],
+        [
+          92,
+          1
+        ],
+        [
+          92,
+          2
+        ],
+        [
+          92,
+          3
+        ],
+        [
+          114,
+          1
+        ],
+        [
+          114,
+          2
+        ],
+        [
+          114,
+          3
+        ],
+        [
+          115,
+          1
+        ],
+        [
+          115,
+          2
+        ],
+        [
+          115,
+          3
+        ],
+        [
+          116,
+          1
+        ],
+        [
+          116,
+          2
+        ],
+        [
+          116,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-beam",
+        "width": 32,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 36,
+            "ng": 0,
+            "unknown": 108,
+            "generated": 537257,
+            "expanded": 128515,
+            "search_seconds": 1.248272055,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.931322838,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 2,
+            "ok": 36,
+            "ng": 0,
+            "unknown": 108,
+            "generated": 537257,
+            "expanded": 128515,
+            "search_seconds": 1.177691525,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.893106354,
+            "peak_frontier": 33
+          },
+          {
+            "repeat": 3,
+            "ok": 36,
+            "ng": 0,
+            "unknown": 108,
+            "generated": 537257,
+            "expanded": 128515,
+            "search_seconds": 1.233217116,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.927184906,
+            "peak_frontier": 33
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 1.233217116,
+        "median_model_inference_seconds": 0.927184906
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21797581,
+            "expanded": 7519116,
+            "search_seconds": 19.302154464,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.931322838,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21797581,
+            "expanded": 7519116,
+            "search_seconds": 19.143866682,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.893106354,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 75,
+            "ng": 0,
+            "unknown": 69,
+            "generated": 21797581,
+            "expanded": 7519116,
+            "search_seconds": 19.295292371,
+            "model_evaluations": 508321,
+            "model_inference_seconds": 0.927184906,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 19.295292371,
+        "median_model_inference_seconds": 0.927184906,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.0597372241547252,
+        "generated_ratio_to_gbfs": 1.0172182833824506,
+        "expanded_ratio_to_gbfs": 1.0087359830254852
+      },
+      "additional_found_case_repeats": [],
+      "missed_baseline_found_case_repeats": [
+        [
+          25,
+          1
+        ],
+        [
+          25,
+          2
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          26,
+          1
+        ],
+        [
+          26,
+          2
+        ],
+        [
+          26,
+          3
+        ],
+        [
+          28,
+          1
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          30,
+          1
+        ],
+        [
+          30,
+          2
+        ],
+        [
+          30,
+          3
+        ],
+        [
+          33,
+          1
+        ],
+        [
+          33,
+          2
+        ],
+        [
+          33,
+          3
+        ],
+        [
+          34,
+          1
+        ],
+        [
+          34,
+          2
+        ],
+        [
+          34,
+          3
+        ],
+        [
+          35,
+          1
+        ],
+        [
+          35,
+          2
+        ],
+        [
+          35,
+          3
+        ],
+        [
+          36,
+          1
+        ],
+        [
+          36,
+          2
+        ],
+        [
+          36,
+          3
+        ],
+        [
+          39,
+          1
+        ],
+        [
+          39,
+          2
+        ],
+        [
+          39,
+          3
+        ],
+        [
+          40,
+          1
+        ],
+        [
+          40,
+          2
+        ],
+        [
+          40,
+          3
+        ],
+        [
+          44,
+          1
+        ],
+        [
+          44,
+          2
+        ],
+        [
+          44,
+          3
+        ],
+        [
+          46,
+          1
+        ],
+        [
+          46,
+          2
+        ],
+        [
+          46,
+          3
+        ],
+        [
+          49,
+          1
+        ],
+        [
+          49,
+          2
+        ],
+        [
+          49,
+          3
+        ],
+        [
+          50,
+          1
+        ],
+        [
+          50,
+          2
+        ],
+        [
+          50,
+          3
+        ],
+        [
+          51,
+          1
+        ],
+        [
+          51,
+          2
+        ],
+        [
+          51,
+          3
+        ],
+        [
+          52,
+          1
+        ],
+        [
+          52,
+          2
+        ],
+        [
+          52,
+          3
+        ],
+        [
+          54,
+          1
+        ],
+        [
+          54,
+          2
+        ],
+        [
+          54,
+          3
+        ],
+        [
+          55,
+          1
+        ],
+        [
+          55,
+          2
+        ],
+        [
+          55,
+          3
+        ],
+        [
+          56,
+          1
+        ],
+        [
+          56,
+          2
+        ],
+        [
+          56,
+          3
+        ],
+        [
+          57,
+          1
+        ],
+        [
+          57,
+          2
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          58,
+          1
+        ],
+        [
+          58,
+          2
+        ],
+        [
+          58,
+          3
+        ],
+        [
+          59,
+          1
+        ],
+        [
+          59,
+          2
+        ],
+        [
+          59,
+          3
+        ],
+        [
+          60,
+          1
+        ],
+        [
+          60,
+          2
+        ],
+        [
+          60,
+          3
+        ],
+        [
+          62,
+          1
+        ],
+        [
+          62,
+          2
+        ],
+        [
+          62,
+          3
+        ],
+        [
+          63,
+          1
+        ],
+        [
+          63,
+          2
+        ],
+        [
+          63,
+          3
+        ],
+        [
+          66,
+          1
+        ],
+        [
+          66,
+          2
+        ],
+        [
+          66,
+          3
+        ],
+        [
+          67,
+          1
+        ],
+        [
+          67,
+          2
+        ],
+        [
+          67,
+          3
+        ],
+        [
+          69,
+          1
+        ],
+        [
+          69,
+          2
+        ],
+        [
+          69,
+          3
+        ],
+        [
+          71,
+          1
+        ],
+        [
+          71,
+          2
+        ],
+        [
+          71,
+          3
+        ],
+        [
+          72,
+          1
+        ],
+        [
+          72,
+          2
+        ],
+        [
+          72,
+          3
+        ],
+        [
+          80,
+          1
+        ],
+        [
+          80,
+          2
+        ],
+        [
+          80,
+          3
+        ],
+        [
+          83,
+          1
+        ],
+        [
+          83,
+          2
+        ],
+        [
+          83,
+          3
+        ],
+        [
+          84,
+          1
+        ],
+        [
+          84,
+          2
+        ],
+        [
+          84,
+          3
+        ],
+        [
+          86,
+          1
+        ],
+        [
+          86,
+          2
+        ],
+        [
+          86,
+          3
+        ],
+        [
+          91,
+          1
+        ],
+        [
+          91,
+          2
+        ],
+        [
+          91,
+          3
+        ],
+        [
+          92,
+          1
+        ],
+        [
+          92,
+          2
+        ],
+        [
+          92,
+          3
+        ],
+        [
+          114,
+          1
+        ],
+        [
+          114,
+          2
+        ],
+        [
+          114,
+          3
+        ],
+        [
+          115,
+          1
+        ],
+        [
+          115,
+          2
+        ],
+        [
+          115,
+          3
+        ],
+        [
+          116,
+          1
+        ],
+        [
+          116,
+          2
+        ],
+        [
+          116,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75"
+      },
+      "model_path": "research/learned_beam/models/linear.json",
+      "model_hidden_size": 0,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 59,
+            "ng": 0,
+            "unknown": 85,
+            "generated": 9334863,
+            "expanded": 2761393,
+            "search_seconds": 6.417229897,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.151244759,
+            "peak_frontier": 7811
+          },
+          {
+            "repeat": 2,
+            "ok": 59,
+            "ng": 0,
+            "unknown": 85,
+            "generated": 9334863,
+            "expanded": 2761393,
+            "search_seconds": 6.185281486,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.095735095,
+            "peak_frontier": 7811
+          },
+          {
+            "repeat": 3,
+            "ok": 59,
+            "ng": 0,
+            "unknown": 85,
+            "generated": 9334863,
+            "expanded": 2761393,
+            "search_seconds": 6.39940038,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.150835361,
+            "peak_frontier": 7811
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 6.39940038,
+        "median_model_inference_seconds": 2.150835361
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 79,
+            "ng": 0,
+            "unknown": 65,
+            "generated": 28848510,
+            "expanded": 9490518,
+            "search_seconds": 22.841394302,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.151244759,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 79,
+            "ng": 0,
+            "unknown": 65,
+            "generated": 28848510,
+            "expanded": 9490518,
+            "search_seconds": 22.62593011,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.095735095,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 79,
+            "ng": 0,
+            "unknown": 65,
+            "generated": 28848510,
+            "expanded": 9490518,
+            "search_seconds": 22.751932248,
+            "model_evaluations": 8604289,
+            "model_inference_seconds": 2.150835361,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 22.751932248,
+        "median_model_inference_seconds": 2.150835361,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.249583010252273,
+        "generated_ratio_to_gbfs": 1.3462609369517406,
+        "expanded_ratio_to_gbfs": 1.2732117717230405
+      },
+      "additional_found_case_repeats": [
+        [
+          61,
+          1
+        ],
+        [
+          61,
+          2
+        ],
+        [
+          61,
+          3
+        ],
+        [
+          68,
+          1
+        ],
+        [
+          68,
+          2
+        ],
+        [
+          68,
+          3
+        ],
+        [
+          79,
+          1
+        ],
+        [
+          79,
+          2
+        ],
+        [
+          79,
+          3
+        ],
+        [
+          102,
+          1
+        ],
+        [
+          102,
+          2
+        ],
+        [
+          102,
+          3
+        ]
+      ],
+      "missed_baseline_found_case_repeats": [
+        [
+          44,
+          1
+        ],
+        [
+          44,
+          2
+        ],
+        [
+          44,
+          3
+        ],
+        [
+          48,
+          1
+        ],
+        [
+          48,
+          2
+        ],
+        [
+          48,
+          3
+        ],
+        [
+          49,
+          1
+        ],
+        [
+          49,
+          2
+        ],
+        [
+          49,
+          3
+        ],
+        [
+          51,
+          1
+        ],
+        [
+          51,
+          2
+        ],
+        [
+          51,
+          3
+        ],
+        [
+          52,
+          1
+        ],
+        [
+          52,
+          2
+        ],
+        [
+          52,
+          3
+        ],
+        [
+          57,
+          1
+        ],
+        [
+          57,
+          2
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          58,
+          1
+        ],
+        [
+          58,
+          2
+        ],
+        [
+          58,
+          3
+        ],
+        [
+          60,
+          1
+        ],
+        [
+          60,
+          2
+        ],
+        [
+          60,
+          3
+        ],
+        [
+          69,
+          1
+        ],
+        [
+          69,
+          2
+        ],
+        [
+          69,
+          3
+        ],
+        [
+          71,
+          1
+        ],
+        [
+          71,
+          2
+        ],
+        [
+          71,
+          3
+        ],
+        [
+          72,
+          1
+        ],
+        [
+          72,
+          2
+        ],
+        [
+          72,
+          3
+        ],
+        [
+          80,
+          1
+        ],
+        [
+          80,
+          2
+        ],
+        [
+          80,
+          3
+        ],
+        [
+          83,
+          1
+        ],
+        [
+          83,
+          2
+        ],
+        [
+          83,
+          3
+        ],
+        [
+          84,
+          1
+        ],
+        [
+          84,
+          2
+        ],
+        [
+          84,
+          3
+        ],
+        [
+          86,
+          1
+        ],
+        [
+          86,
+          2
+        ],
+        [
+          86,
+          3
+        ],
+        [
+          91,
+          1
+        ],
+        [
+          91,
+          2
+        ],
+        [
+          91,
+          3
+        ],
+        [
+          92,
+          1
+        ],
+        [
+          92,
+          2
+        ],
+        [
+          92,
+          3
+        ],
+        [
+          114,
+          1
+        ],
+        [
+          114,
+          2
+        ],
+        [
+          114,
+          3
+        ],
+        [
+          115,
+          1
+        ],
+        [
+          115,
+          2
+        ],
+        [
+          115,
+          3
+        ],
+        [
+          116,
+          1
+        ],
+        [
+          116,
+          2
+        ],
+        [
+          116,
+          3
+        ]
+      ]
+    },
+    {
+      "variant": {
+        "algorithm": "learned-best-first",
+        "width": 18446744073709551615,
+        "threads": 1,
+        "max_nodes": 100000,
+        "budget_counts": "generated",
+        "model_sha256": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+      },
+      "model_path": "research/learned_beam/models/mlp16.json",
+      "model_hidden_size": 16,
+      "direct": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 63,
+            "ng": 0,
+            "unknown": 81,
+            "generated": 8963450,
+            "expanded": 2688965,
+            "search_seconds": 18.987892891,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.491505396,
+            "peak_frontier": 4067
+          },
+          {
+            "repeat": 2,
+            "ok": 63,
+            "ng": 0,
+            "unknown": 81,
+            "generated": 8963450,
+            "expanded": 2688965,
+            "search_seconds": 18.452003676,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.186167212,
+            "peak_frontier": 4067
+          },
+          {
+            "repeat": 3,
+            "ok": 63,
+            "ng": 0,
+            "unknown": 81,
+            "generated": 8963450,
+            "expanded": 2688965,
+            "search_seconds": 18.775315282,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.373619668,
+            "peak_frontier": 4067
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 18.775315282,
+        "median_model_inference_seconds": 14.373619668
+      },
+      "estimated_fallback": {
+        "per_repeat": [
+          {
+            "repeat": 1,
+            "ok": 81,
+            "ng": 0,
+            "unknown": 63,
+            "generated": 27457758,
+            "expanded": 9065183,
+            "search_seconds": 34.491708871,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.491505396,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 2,
+            "ok": 81,
+            "ng": 0,
+            "unknown": 63,
+            "generated": 27457758,
+            "expanded": 9065183,
+            "search_seconds": 33.925029295,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.186167212,
+            "peak_frontier": 28031
+          },
+          {
+            "repeat": 3,
+            "ok": 81,
+            "ng": 0,
+            "unknown": 63,
+            "generated": 27457758,
+            "expanded": 9065183,
+            "search_seconds": 34.264861091,
+            "model_evaluations": 8193399,
+            "model_inference_seconds": 14.373619668,
+            "peak_frontier": 28031
+          }
+        ],
+        "outcomes_and_search_counts_identical_across_repeats": true,
+        "median_search_seconds": 34.264861091,
+        "median_model_inference_seconds": 14.373619668,
+        "time_kind": "sum of independently timed searches; not an executed pipeline",
+        "median_time_ratio_to_gbfs": 1.8818967901828012,
+        "generated_ratio_to_gbfs": 1.2813593149758569,
+        "expanded_ratio_to_gbfs": 1.2161504470486846
+      },
+      "additional_found_case_repeats": [
+        [
+          68,
+          1
+        ],
+        [
+          68,
+          2
+        ],
+        [
+          68,
+          3
+        ],
+        [
+          70,
+          1
+        ],
+        [
+          70,
+          2
+        ],
+        [
+          70,
+          3
+        ],
+        [
+          81,
+          1
+        ],
+        [
+          81,
+          2
+        ],
+        [
+          81,
+          3
+        ],
+        [
+          93,
+          1
+        ],
+        [
+          93,
+          2
+        ],
+        [
+          93,
+          3
+        ],
+        [
+          119,
+          1
+        ],
+        [
+          119,
+          2
+        ],
+        [
+          119,
+          3
+        ],
+        [
+          136,
+          1
+        ],
+        [
+          136,
+          2
+        ],
+        [
+          136,
+          3
+        ]
+      ],
+      "missed_baseline_found_case_repeats": [
+        [
+          28,
+          1
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          44,
+          1
+        ],
+        [
+          44,
+          2
+        ],
+        [
+          44,
+          3
+        ],
+        [
+          49,
+          1
+        ],
+        [
+          49,
+          2
+        ],
+        [
+          49,
+          3
+        ],
+        [
+          52,
+          1
+        ],
+        [
+          52,
+          2
+        ],
+        [
+          52,
+          3
+        ],
+        [
+          55,
+          1
+        ],
+        [
+          55,
+          2
+        ],
+        [
+          55,
+          3
+        ],
+        [
+          57,
+          1
+        ],
+        [
+          57,
+          2
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          58,
+          1
+        ],
+        [
+          58,
+          2
+        ],
+        [
+          58,
+          3
+        ],
+        [
+          60,
+          1
+        ],
+        [
+          60,
+          2
+        ],
+        [
+          60,
+          3
+        ],
+        [
+          62,
+          1
+        ],
+        [
+          62,
+          2
+        ],
+        [
+          62,
+          3
+        ],
+        [
+          63,
+          1
+        ],
+        [
+          63,
+          2
+        ],
+        [
+          63,
+          3
+        ],
+        [
+          71,
+          1
+        ],
+        [
+          71,
+          2
+        ],
+        [
+          71,
+          3
+        ],
+        [
+          83,
+          1
+        ],
+        [
+          83,
+          2
+        ],
+        [
+          83,
+          3
+        ],
+        [
+          84,
+          1
+        ],
+        [
+          84,
+          2
+        ],
+        [
+          84,
+          3
+        ],
+        [
+          86,
+          1
+        ],
+        [
+          86,
+          2
+        ],
+        [
+          86,
+          3
+        ],
+        [
+          92,
+          1
+        ],
+        [
+          92,
+          2
+        ],
+        [
+          92,
+          3
+        ],
+        [
+          114,
+          1
+        ],
+        [
+          114,
+          2
+        ],
+        [
+          114,
+          3
+        ],
+        [
+          115,
+          1
+        ],
+        [
+          115,
+          2
+        ],
+        [
+          115,
+          3
+        ],
+        [
+          116,
+          1
+        ],
+        [
+          116,
+          2
+        ],
+        [
+          116,
+          3
+        ]
+      ]
+    }
+  ],
+  "notes": [
+    "All direct times include ranking-model inference and internal witness verification.",
+    "External independent witness verification is outside the search timers.",
+    "Model inference time is a component of search time, not an extra cost to add.",
+    "Estimated fallback is calculated from paired rows; actual pipeline times are measured separately.",
+    "GBFS max_nodes counts registrations; learned search max_nodes counts generated candidates."
+  ]
+}

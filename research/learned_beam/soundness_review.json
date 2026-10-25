@@ -1,0 +1,323 @@
+{
+  "schema": "othello-learned-soundness-review-v1",
+  "reviewed_at": "2026-10-25T23:16:12+09:00",
+  "review_conclusion": "No concrete soundness defect found in the reviewed learned ranking, classification, metadata, or benchmark paths.",
+  "scope": "Independent code review and tests for the learned ranking experiment. This is not a formal proof of the whole pre-existing solver or of every necessary-condition implementation.",
+  "classification_contract": "Learned search returns an exact replay-verified witness or UNKNOWN; it never returns NG, regardless of model quality, width pruning, or whether exploration appears exhausted.",
+  "checks": [
+    {
+      "property": "Learned scores cannot establish reachability",
+      "evidence": "The only successful return is core::found, which constructs and replays an exact ReachabilityRecord. Ranking, pruning, candidate constraints and caches never construct Found."
+    },
+    {
+      "property": "Learned search cannot establish unreachability",
+      "evidence": "Public retrospective_learned_beam_search converts all internal NotFound outcomes, including boundary misses and exhaustive-looking failures, to Unknown. run_strategy and bench_reverse_search independently reject any learned NotFound as an invariant error."
+    },
+    {
+      "property": "The query requested by the user is replay-verified again",
+      "evidence": "run_queries passes actions to query::solve_query, which constructs and verifies the exact or explicitly requested transformed goal. The record preserves the absolute side to move and explicit passes."
+    },
+    {
+      "property": "Incorrect model format and unsupported domains fail closed",
+      "evidence": "Schema, feature version/count, shapes, hidden size and every numerical parameter are checked. Parameters are finite and magnitude-bounded. Public learned search rejects nonstandard starts, invalid goals, mismatched target tables and zero width. Model loading precedes classification-output creation in run_strategy."
+    },
+    {
+      "property": "Inference cannot overflow on the valid feature domain",
+      "evidence": "160 features are bounded in [0,1], hidden width is at most 128 and all parameter magnitudes are at most 1e6. The resulting worst-case magnitude is below 2.1e16, far below f64 overflow. A nonfinite score still produces an error at score_priority."
+    },
+    {
+      "property": "Model metadata identifies the instance actually used",
+      "evidence": "The model is loaded once. SHA-256 hashes its exact JSON bytes. run_strategy writes metadata from that immutable instance; estimate copies the emitted metadata rather than reloading a possibly changed source path. Benchmark variants are keyed by the loaded model hash, and the pipeline checks the used hash against the setup hash."
+    },
+    {
+      "property": "Every benchmark success has a certificate and remains linked to its input",
+      "evidence": "bench_reverse_search validates start, goal, exact mode and record replay before saving an OK row, and --records-out saves a certificate with the case input index. The independent script checks absolute-board replay and can require certificate counts to match every OK row per input occurrence."
+    },
+    {
+      "property": "Two-stage classification preserves input multiplicities and prior exact results",
+      "evidence": "bench_reverse_pipeline checks OK/NG/UNKNOWN partitions, certificate/input-index linkage, learned NG absence, and contradictory or lost baseline decisions. The summary distinguishes generated and registered-state budgets and distinguishes estimated fallback times from actual pipeline measurements."
+    }
+  ],
+  "integration_tests": {
+    "command": "cargo test --release --locked --offline --test learned_search_soundness",
+    "passed": 5,
+    "failed": 0,
+    "runtime_seconds": 0.03,
+    "oracle": "tests/support/mod.rs; absolute-color array with independent coordinate-based legal moves, captures, explicit pass and terminal rules",
+    "reachable_positions_through_7_stones": 71,
+    "exact_queries_including_symmetries_colors_and_turns": 548,
+    "adversarial_rankers": 4,
+    "widths": [
+      "1",
+      "usize::MAX"
+    ],
+    "adversarial_searches": 4384,
+    "expected_unreachable_verdict": "UNKNOWN, even without width pruning",
+    "additional_cases": [
+      "zero budget",
+      "boundary miss",
+      "root rejected by necessary conditions",
+      "wrong target-pruned table",
+      "zero beam width",
+      "invalid schema/features/shapes",
+      "nonfinite or excessive parameters",
+      "maximum accepted parameter magnitudes"
+    ],
+    "certificate_check": "Every Found is replayed by the independent array rules and checked against the oracle reachable set and exact goal."
+  },
+  "independent_python_verifier": {
+    "path": "scripts/verify_records_independent.py",
+    "self_test": "passed",
+    "self_test_rejections": [
+      "changed exact endpoint/turn",
+      "placement on occupied square",
+      "pass despite legal moves",
+      "non-exact mode",
+      "wrong input index",
+      "omitted forced pass",
+      "pass after terminal position"
+    ],
+    "production_rules_reused": false,
+    "train_source_report": {
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 1000,
+      "mode": "exact",
+      "passes_replayed": 452,
+      "placements_replayed": 59990,
+      "positions_sha256": null,
+      "records_sha256": "29ab376c800ea6d82cda04285f2a988d18c48af80a601f2fed5e188cd14b77ab",
+      "standard_start": true,
+      "verified_records": 1000,
+      "verifier": "independent-absolute-array-v1"
+    },
+    "validation_source_report": {
+      "all_benchmark_ok_records_covered": false,
+      "benchmark_sha256": null,
+      "distinct_input_indices": 200,
+      "mode": "exact",
+      "passes_replayed": 92,
+      "placements_replayed": 11996,
+      "positions_sha256": null,
+      "records_sha256": "b571347b0829556ebaa8047939fb296b403d82f9e742ba7cdfec92eb2c2700ad",
+      "standard_start": true,
+      "verified_records": 200,
+      "verifier": "independent-absolute-array-v1"
+    }
+  },
+  "reviewed_file_sha256": {
+    "src/search/learned.rs": "55ab5db2c3ced5da6deab3eea45b3baa4f0de7177b13ef102f1227a75e0fd39b",
+    "src/search/beam.rs": "a152b3f27040d9d09c6f34201338e36f485225ba83af48fc34d67db7ec4c3292",
+    "src/search/core.rs": "bc91cac50a05cbfc502390a406bda4298f0fedb9fa264f5a5e2f9f5b2cda116d",
+    "src/search/forward.rs": "344aab50db962c484c4c567107c36db8cbaf08a33f80d3f2e8b30c9ac337e2bc",
+    "src/search/constraints.rs": "60ef3cf4a2b7d9bf9b69348e09be0ca59d44ad6032c78c3897b64ccf551f3266",
+    "src/record.rs": "11660bf97525ee67229a35219cda2d75793c11bf4027bb3fa71159f1e4e3e4c1",
+    "src/query.rs": "e114eadceb3c317ce14d62e31a40a5b099985df6bb422873b584157ded8e54c8",
+    "src/search/run.rs": "9de0d4aeeb54982d1efcfec5459b480bc69e5aee2b00e65cf71b72f5b58de4ac",
+    "src/estimate.rs": "5e0e03d7d016faa3f5f4702e23c6303052a36823edbc9e11329c8a2ae659530a",
+    "src/bin/reverse_search.rs": "92b2d68963910ea12cab2f46a14645c96198951c422c8e2f5e47bff7e09832c7",
+    "src/bin/estimate.rs": "744d49239f68e636ccd08eadd9c9a06649245095780bb1a17a3cdb94f2964c6f",
+    "src/bin/bench_reverse_search.rs": "a3160d3bda7a4988d46e80f37afd99f91ce7856a8aa8a6753585e7aed7aefa00",
+    "scripts/bench_reverse_pipeline.py": "d478a1be381d89584043b0814aea8ea560cf5d78c4239c8b3b4e3cad93107462",
+    "scripts/summarize_reverse_bench.py": "1e61cf9ebb55da6b1f057425a7c2fd631f42d5b5ec05df784c5fbd3df55dcaf9",
+    "scripts/verify_records_independent.py": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+    "tests/learned_search_soundness.rs": "30433dfd086fa881216755b1078ab12dc4acbd94a8ba5b6726f8dca5f0f9e0c1",
+    "tests/support/mod.rs": "ea6fcdc9e85666b4fc1f8a3d535c7d282a816cf4fe34107d50b6fd2725bd7474",
+    "scripts/capture_learned_benchmark.py": "759fb8c2ed96a5916f8f9bb30631dae1671cab7763685975b04c97247e94ecd1",
+    "scripts/report_learned_benchmark.py": "502c023e03510910547cfb8e061d0444f10751ca8c5311261517588bed525f74"
+  },
+  "pending_external_checks": "None for the reviewed experiment. Publication should preserve the evidence bytes identified by these hashes.",
+  "post_review_formatting": {
+    "command": "cargo fmt --all",
+    "scope": "Formatting only, as reported by the root agent after the independent review; no search/model semantics changed.",
+    "changed_reviewed_files": [
+      {
+        "file": "src/search/learned.rs",
+        "reviewed_sha256": "ef0e27c25cfb07bf89029676f52a0759e0809c78b1467a6aaa15a0ed5c401d56",
+        "formatted_sha256": "55ab5db2c3ced5da6deab3eea45b3baa4f0de7177b13ef102f1227a75e0fd39b"
+      },
+      {
+        "file": "src/search/beam.rs",
+        "reviewed_sha256": "4cc3ca9118fa3edee89083ded8d286d59fa8de8954dc3ce4f2fd6665baadf007",
+        "formatted_sha256": "a152b3f27040d9d09c6f34201338e36f485225ba83af48fc34d67db7ec4c3292"
+      }
+    ]
+  },
+  "full_repository_tests": {
+    "command": "cargo test --release --locked --offline",
+    "passed": 208,
+    "failed": 0,
+    "log_sha256": "9be4764df2445456850f00fc716288840d0f7d6e6fd2b789e4a22a9fd8f34347",
+    "verified_by": "root agent; complete output retained in scratch"
+  },
+  "cross_runtime_inference": {
+    "cases": 32,
+    "maximum_absolute_difference": 5.33e-15,
+    "report": "parity_verification.json",
+    "verified_by": "root agent"
+  },
+  "independent_experiment_verification_reports": [
+    {
+      "report": "train_source_independent_verification.json",
+      "report_sha256": "66fd0d9182f8266943facdef91b7a8401660312f3f0668f8362be0a2411d451e",
+      "verified_records": 1000,
+      "distinct_input_indices": 1000,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "validation_source_independent_verification.json",
+      "report_sha256": "cfbc29ff2b9eb727f3c585db1105869313c34b805e82e1377e6475b6d4656dea",
+      "verified_records": 200,
+      "distinct_input_indices": 200,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "search_validation_source_independent_verification.json",
+      "report_sha256": "7afe5c9d574145cdad1ee252d5f4820caa16ed75eae1fdffd96032069625ebf8",
+      "verified_records": 60,
+      "distinct_input_indices": 60,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "search_validation_independent_verification.json",
+      "report_sha256": "090a0ff22ace9d7b15837b387aeb91c533cdb58b61f91f3f8ae86f65fc7e05cd",
+      "verified_records": 351,
+      "distinct_input_indices": 31,
+      "all_benchmark_ok_records_covered": true
+    },
+    {
+      "report": "holdout_source_independent_verification.json",
+      "report_sha256": "43def355c08090532f452cbfcb1f9af789de97331130c786aa288fb47608079a",
+      "verified_records": 144,
+      "distinct_input_indices": 144,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "holdout_independent_verification.json",
+      "report_sha256": "7e6c7fc6f305fc5cfbcd93ad47a0ab7b69a0525cd80cc3a63ea24bbb66d29eec",
+      "verified_records": 921,
+      "distinct_input_indices": 84,
+      "all_benchmark_ok_records_covered": true
+    },
+    {
+      "report": "holdout_pipeline_independent_verification.json",
+      "report_sha256": "451e5c994b0eab3a9a24cc2d1ea9e29b47ea2576b914a902f805063058ade702",
+      "verified_records": 453,
+      "distinct_input_indices": 76,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "legacy_sat_independent_verification.json",
+      "report_sha256": "a3f87ea9d23ae69a9e63d70f846db962574f88e240ae8ebae574b19b1a341c40",
+      "verified_records": 0,
+      "distinct_input_indices": 0,
+      "all_benchmark_ok_records_covered": true
+    },
+    {
+      "report": "legacy_sat_pipeline_independent_verification.json",
+      "report_sha256": "3664f455a1b05a0bb2fbd475960ccb110d3a7404473766a69f25e68ef5ce3e14",
+      "verified_records": 0,
+      "distinct_input_indices": 0,
+      "all_benchmark_ok_records_covered": false
+    },
+    {
+      "report": "sampled_sat_independent_verification.json",
+      "report_sha256": "065f9de8376a5ce7377187fad85cbb3ec60e66e8933da8e77f4efc664dd6df59",
+      "verified_records": 0,
+      "distinct_input_indices": 0,
+      "all_benchmark_ok_records_covered": true
+    },
+    {
+      "report": "sampled_sat_pipeline_independent_verification.json",
+      "report_sha256": "7a17494444e5f3a6b8a5d5e0f0f5810c6642e3a5cca0f51751458e46c669459c",
+      "verified_records": 0,
+      "distinct_input_indices": 0,
+      "all_benchmark_ok_records_covered": false
+    }
+  ],
+  "evidence_encoding": "Benchmark CSV files retain their original CRLF bytes. Source and found-record CSVs use LF. Verification hashes identify the original bytes, without newline normalization.",
+  "post_review_verifier_change": {
+    "reason": "Guard against path replacement between replay and fingerprinting.",
+    "change": "Read every input once into immutable bytes and use those same bytes for CSV parsing and SHA-256; reject output paths that alias an input. No search/model/binary changes.",
+    "before_sha256": "57d836ab11227ccd2c18ec43388f1b4ed62951a5ddfaaef2da13a73e4c931fbb",
+    "after_sha256": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+    "validation": "self-test and all 351 search-validation OK certificates passed; input-index coverage and all original evidence hashes unchanged."
+  },
+  "final_capture_checks": {
+    "capture_markers": [
+      {
+        "file": "holdout_capture.json",
+        "sha256": "ad14d2639c79ac349dd6a7413030d8e89b562395ee29e3acd4c5639c28450d30",
+        "checked_files": 8
+      },
+      {
+        "file": "holdout_pipeline_capture.json",
+        "sha256": "cdfbee349f1beece59db922654a2c0ec113b5df947120de447312c27224904fd",
+        "checked_files": 4
+      },
+      {
+        "file": "legacy_sat_capture.json",
+        "sha256": "7d1c2007ad4f791a287965a6cbad5270cc1670f9a150994172cfba3369e3bc2e",
+        "checked_files": 6
+      },
+      {
+        "file": "legacy_sat_pipeline_capture.json",
+        "sha256": "649422b201344c10c53249ea83f7cf6c0fae96554ed8a6f6bdc8f332c4cf2d18",
+        "checked_files": 4
+      },
+      {
+        "file": "sampled_sat_capture.json",
+        "sha256": "1f8b8b9bec04c6b839665beca70d570298af910e85ada084e8c1a9eab016a5e7",
+        "checked_files": 6
+      },
+      {
+        "file": "sampled_sat_pipeline_capture.json",
+        "sha256": "c51e1477cc683683c756257701848d04c1e0b98c0962a950825151db25eed540",
+        "checked_files": 4
+      }
+    ],
+    "all_current_files_match_capture_sha256": true,
+    "source_and_found_certificates_verified_including_repetitions": 3129,
+    "capture_review": "All benchmark processes finish before evidence checks and publication. Direct runs require per-case OK/certificate multiplicity equality. Pipeline runs validate every stage, bind records to stage input occurrences, and verify a combined certificate file against the original goals. Immutable per-file copies are SHA-256 checked and a completion marker is written last."
+  },
+  "discarded_capture": {
+    "incident_report": "incomplete_capture/20261025T142235Z/capture_incident.json",
+    "incident_report_sha256": "01280a6ec47f5266b34b0a5b38950e935666ce1a209fe3f05f81383d892cb113",
+    "expected_ok_records": 921,
+    "persisted_records": 606,
+    "reason": "The full OK/certificate coverage check failed. The original capture is retained and excluded from the primary results. Cause of the path replacement remains unresolved.",
+    "resolution": "The same frozen models, binary, settings and inputs were rerun into an isolated temporary directory; all 921 OK records passed independent replay and coverage checks before publication. No missing record was fabricated or filled by duplication."
+  },
+  "negative_crosschecks": {
+    "baseline_method": "unchanged GBFS",
+    "all_five_baseline_ng_cases_confirmed_by_sat": true,
+    "baseline_ng_cases": [
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "ply_unsat_cases": [
+      3,
+      5,
+      6
+    ],
+    "ply_unknown_cases": [
+      2,
+      4
+    ],
+    "placement_columns_unsat_cases": [
+      2,
+      4
+    ],
+    "sat_ok_or_contradictions": 0,
+    "seconds_per_exact_query_per_encoding": 30,
+    "parallel_goals": 1,
+    "reports": {
+      "ng_crosscheck/summary.json": "c3f3f56d97e24aa20441f30e9f16069bf43dc06850881b0760901d7c214a90a9",
+      "ng_crosscheck/placement_columns/summary.json": "7ee4ca02848c9d8b96fa2a15a70568127d73f5927fc458698290ff859ce08f8c"
+    },
+    "interpretation": "These are independent checks relative to reverse search using SAT encodings. UNSAT was reported by the existing SAT solver; a separate DRAT/LRAT proof checker was not run. No performance result or model was changed by these post-benchmark correctness checks."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "verified-learned-benchmark-capture-v1",
+  "completed_at_utc": "2026-10-25T14:37:25.582110+00:00",
+  "driver_sha256": "759fb8c2ed96a5916f8f9bb30631dae1671cab7763685975b04c97247e94ecd1",
+  "independent_verifier_sha256": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+  "all_files_closed_before_publication": true,
+  "publication": "atomic replacement per file, followed by SHA-256 verification; marker written last",
+  "files": {
+    "legacy_sat_pipeline.csv": "71826cf6bb1a1569e8462a88e57603c6f6000fa80c7f14a756c0069cf0742a0a",
+    "legacy_sat_pipeline_records.csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "legacy_sat_pipeline_independent_verification.json": "3664f455a1b05a0bb2fbd475960ccb110d3a7404473766a69f25e68ef5ce3e14",
+    "legacy_sat_pipeline_report.json": "616d33049855cf1d9ed3e5d87950f1aaf3135ce80baf908c98bb065e9c98dba8"
+  }
+}

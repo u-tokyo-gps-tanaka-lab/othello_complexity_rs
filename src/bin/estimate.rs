@@ -98,6 +98,9 @@ enum StrategyArgs {
     GbfsParallel(GbfsOpts),
     /// Bounded best-first beam search; failure after width pruning is UNKNOWN.
     Beam(BeamOpts),
+    /// Learned ranking for witness search; every unsuccessful query is UNKNOWN.
+    #[command(name = "learned-beam")]
+    LearnedBeam(LearnedBeamOpts),
     /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     BfsExternal(ExternalBfsOpts),
@@ -163,6 +166,18 @@ struct BeamOpts {
     /// Ranking used to retain candidates; affects speed and success rate, not certificate validity.
     #[arg(long, value_enum, default_value = "mobility")]
     heuristic: BeamHeuristic,
+}
+
+#[derive(Debug, Args)]
+struct LearnedBeamOpts {
+    #[command(flatten)]
+    basic: BasicOpts,
+    /// Maximum open positions across all stone counts.
+    #[arg(long, default_value = "32")]
+    beam_width: NonZeroUsize,
+    /// Validated local JSON ranking model; never used as a reachability classifier.
+    #[arg(long)]
+    model: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -246,6 +261,12 @@ impl StrategyArgs {
                 max_nodes: opts.basic.max_nodes,
                 width: opts.beam_width.get(),
                 heuristic: opts.heuristic,
+            },
+            Self::LearnedBeam(opts) => Strategy::LearnedBeam {
+                discs: opts.basic.discs,
+                max_nodes: opts.basic.max_nodes,
+                width: opts.beam_width.get(),
+                model: opts.model,
             },
             Self::BfsExternal(opts) => Strategy::BfsExternal(opts.into_external_bfs()),
             Self::BfsExternalParallel(opts) => {
@@ -338,6 +359,43 @@ mod tests {
                 heuristic: BeamHeuristic::Branching,
             }
         );
+        let mut invalid = args;
+        invalid[12] = "0";
+        assert!(Cli::try_parse_from(invalid).is_err());
+    }
+
+    #[test]
+    fn estimate_accepts_a_required_learned_model() {
+        let args = [
+            "estimate",
+            "reverse-search",
+            "--from",
+            "out/sat",
+            "--out-dir",
+            "out/learned",
+            "learned-beam",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "5000",
+            "--beam-width",
+            "16",
+            "--model",
+            "ranker.json",
+        ];
+        let Command::ReverseSearch(opts) = Cli::try_parse_from(args).unwrap().command else {
+            panic!("expected reverse-search command");
+        };
+        assert_eq!(
+            opts.strategy.into_strategy(),
+            Strategy::LearnedBeam {
+                discs: 8,
+                max_nodes: 5000,
+                width: 16,
+                model: PathBuf::from("ranker.json"),
+            }
+        );
+        assert!(Cli::try_parse_from(&args[..13]).is_err());
         let mut invalid = args;
         invalid[12] = "0";
         assert!(Cli::try_parse_from(invalid).is_err());

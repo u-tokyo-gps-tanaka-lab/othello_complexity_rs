@@ -7,12 +7,15 @@ use crate::othello::Position;
 use crate::query::{solve_query, ExactOutcome};
 use crate::record::GoalMatch;
 use crate::search::{
-    beam::{retrospective_beam_search, BeamConfig, BeamHeuristic},
+    beam::{
+        retrospective_beam_search, retrospective_learned_beam_search, BeamConfig, BeamHeuristic,
+    },
     core::SearchOutcome,
     dfs::retrospective_search,
     external_bfs::{parallel_retrospective_bfs, sequential_retrospective_bfs, Cfg},
     forward::ForwardTable,
     inmemory_bfs::parallel_inmemory_retrospective_bfs,
+    learned::LearnedModel,
     move_ordering::retrospective_search_move_ordering,
     parallel_dfs::retrospective_search_parallel,
     parallel_gbfs::parallel_retrospective_greedy_best_first_search,
@@ -63,6 +66,12 @@ pub enum Strategy {
         width: usize,
         heuristic: BeamHeuristic,
     },
+    LearnedBeam {
+        discs: u32,
+        max_nodes: usize,
+        width: usize,
+        model: PathBuf,
+    },
     BfsExternal(ExternalBfs),
     BfsExternalParallel(ExternalBfs),
     BfsInmemoryParallel {
@@ -82,6 +91,7 @@ impl Strategy {
             Self::DfsParallel { .. } => "dfs-parallel",
             Self::GbfsParallel { .. } => "gbfs-parallel",
             Self::Beam { .. } => "beam",
+            Self::LearnedBeam { .. } => "learned-beam",
             Self::BfsExternal(_) => "bfs-external",
             Self::BfsExternalParallel(_) => "bfs-external-parallel",
             Self::BfsInmemoryParallel { .. } => "bfs-inmemory-parallel",
@@ -95,7 +105,8 @@ fn forward_mode(strategy: &Strategy) -> ForwardMode {
         | Strategy::DfsMoveOrdering { .. }
         | Strategy::DfsParallel { .. }
         | Strategy::GbfsParallel { .. }
-        | Strategy::Beam { .. } => ForwardMode::Shared,
+        | Strategy::Beam { .. }
+        | Strategy::LearnedBeam { .. } => ForwardMode::Shared,
         Strategy::BfsExternal(_)
         | Strategy::BfsExternalParallel(_)
         | Strategy::BfsInmemoryParallel { .. } => ForwardMode::Targeted,
@@ -471,6 +482,65 @@ pub fn run_strategy(
                 },
             )
         }
+        Strategy::LearnedBeam {
+            discs,
+            max_nodes,
+            width,
+            model,
+        } => {
+            if *width == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "beam width must be greater than zero",
+                ));
+            }
+            // Load and validate once, before creating any classification files.
+            let ranker = LearnedModel::load(model)?;
+            let config = BeamConfig {
+                width: *width,
+                max_nodes: *max_nodes,
+                // The learned API replaces only the tie-breaking score.
+                heuristic: BeamHeuristic::Mobility,
+            };
+            let nodes = run_queries(
+                input,
+                out_dir,
+                *discs,
+                goal_match,
+                forward_mode(strategy),
+                |index, goal, table| {
+                    let report = retrospective_learned_beam_search(goal, table, &config, &ranker)?;
+                    if matches!(report.outcome, SearchOutcome::NotFound { .. }) {
+                        return Err(io::Error::other(
+                            "learned witness search unexpectedly returned an unreachable verdict",
+                        ));
+                    }
+                    eprintln!(
+                        "input {index}: learned-beam generated={} expanded={} retained={} peak_frontier={} pruned={}",
+                        report.stats.generated,
+                        report.stats.expanded,
+                        report.stats.retained,
+                        report.stats.peak_frontier,
+                        report.stats.pruned,
+                    );
+                    Ok(report.outcome)
+                },
+            )?;
+            // These fields describe the exact instance used above, even if the
+            // source model file changes while a long batch is running.
+            let manifest = serde_json::json!({
+                "model_path": model,
+                "model_sha256": ranker.sha256(),
+                "model_schema": ranker.schema(),
+                "model_hidden_size": ranker.hidden_size(),
+                "verdict_policy": "verified-witness-or-unknown",
+            });
+            let mut file = File::create(out_dir.join("learned_model_metadata.json"))?;
+            serde_json::to_writer_pretty(&mut file, &manifest).map_err(io::Error::other)?;
+            writeln!(file)?;
+            file.sync_all()?;
+            Ok(nodes)
+        }
         Strategy::BfsExternal(config) => run_bfs(&external_cfg(config, input, out_dir), goal_match),
         Strategy::BfsExternalParallel(config) => {
             run_parallel_bfs(&external_cfg(config, input, out_dir), goal_match)
@@ -497,6 +567,87 @@ pub fn run_strategy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn learned_outputs_never_claim_unreachable_and_invalid_models_write_nothing() {
+        use crate::record::ReachabilityRecord;
+        use crate::search::core::successors;
+        use crate::search::learned::{FEATURE_COUNT, FEATURE_VERSION, MODEL_SCHEMA};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "othello-learned-run-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("positions.txt");
+        let initial = Position::initial();
+        let goal = successors(initial)[0].0;
+        let wrong_turn = Position {
+            board: initial.board,
+            side_to_move: initial.side_to_move.opposite(),
+        };
+        fs::write(
+            &input,
+            format!(
+                "{}\n{}\n{}\n",
+                format_position(initial),
+                format_position(goal),
+                format_position(wrong_turn)
+            ),
+        )
+        .unwrap();
+        let model_path = directory.join("ranker.json");
+        let model_text = serde_json::to_string(&serde_json::json!({
+            "schema": MODEL_SCHEMA, "feature_version": FEATURE_VERSION,
+            "feature_count": FEATURE_COUNT, "hidden_size": 0,
+            "input_weights": vec![0.0; FEATURE_COUNT], "hidden_bias": [],
+            "output_weights": [], "output_bias": 0.0,
+        }))
+        .unwrap();
+        fs::write(&model_path, &model_text).unwrap();
+        let ranker = LearnedModel::load(&model_path).unwrap();
+        let strategy = Strategy::LearnedBeam {
+            discs: 4,
+            max_nodes: 0,
+            width: 1,
+            model: model_path.clone(),
+        };
+        let stopped = directory.join("stopped");
+        run_strategy(&strategy, &input, &stopped, GoalMatch::Exact).unwrap();
+        assert!(fs::read_to_string(stopped.join("reverse_exact_NG.txt"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            fs::read_to_string(stopped.join("reverse_exact_UNKNOWN.txt")).unwrap(),
+            format!(
+                "{}\n{}\n",
+                format_position(goal),
+                format_position(wrong_turn)
+            )
+        );
+        let records = fs::read_to_string(stopped.join("reverse_exact_records.csv")).unwrap();
+        let record = ReachabilityRecord::from_csv(records.trim()).unwrap();
+        assert_eq!(record.goal, initial);
+        record.verify().unwrap();
+        let metadata: serde_json::Value = serde_json::from_reader(
+            File::open(stopped.join("learned_model_metadata.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(metadata["model_sha256"], ranker.sha256());
+        assert_eq!(metadata["model_schema"], MODEL_SCHEMA);
+        assert_eq!(metadata["verdict_policy"], "verified-witness-or-unknown");
+
+        fs::write(&model_path, "{}").unwrap();
+        let rejected = directory.join("invalid-model");
+        assert!(run_strategy(&strategy, &input, &rejected, GoalMatch::Exact).is_err());
+        assert!(!rejected.exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn beam_preserves_unknown_outputs_and_writes_verified_certificates() {

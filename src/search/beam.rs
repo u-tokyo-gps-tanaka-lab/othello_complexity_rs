@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::io;
+use std::time::Instant;
 
 use clap::ValueEnum;
 
@@ -20,6 +21,7 @@ use crate::search::{
     constraints::ReverseConstraints,
     core::{found, pass_predecessor, PlacementPredecessors, SearchNode, SearchOutcome},
     forward::{compatible, ForwardTable},
+    learned::{score_priority, LearnedModel},
     parallel_gbfs::placement_predecessor_count,
 };
 
@@ -84,6 +86,11 @@ pub struct BeamStats {
     pub peak_frontier: usize,
     /// At least one candidate was discarded solely to enforce the width.
     pub pruned: bool,
+    /// Number of learned scores computed, including rejected candidates.
+    pub model_evaluations: usize,
+    /// Time inside learned scoring, including feature construction. The
+    /// per-call timer overhead remains included in total search time.
+    pub model_inference_nanos: u64,
 }
 
 #[derive(Debug)]
@@ -247,6 +254,7 @@ struct Context<'a> {
     standard_start: bool,
     frontier: Vec<(u64, u64)>,
     expanded: ExpandedCache,
+    model: Option<&'a LearnedModel>,
 }
 
 /// A bounded cache of fully expanded exact positions. A hash collision evicts
@@ -370,7 +378,17 @@ impl Context<'_> {
         {
             return Ok(None);
         }
-        let mut rank = priority(position, self.config.heuristic, &self.frontier);
+        let mut rank = if let Some(model) = self.model {
+            let started = Instant::now();
+            let score = model.score(position);
+            stats.model_inference_nanos = stats
+                .model_inference_nanos
+                .saturating_add(started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64);
+            stats.model_evaluations += 1;
+            score_priority(score)?
+        } else {
+            priority(position, self.config.heuristic, &self.frontier)
+        };
         // All retained entries have passed the necessary conditions. During
         // one expansion the cutoff can only improve. A worse candidate cannot
         // enter the beam;
@@ -388,7 +406,7 @@ impl Context<'_> {
         if candidates == 0 {
             return Ok(None);
         }
-        if self.config.heuristic == BeamHeuristic::Continuation {
+        if self.model.is_none() && self.config.heuristic == BeamHeuristic::Continuation {
             // The cheap unfiltered last-move mask above is a superset of the
             // viable mask. Its score is an upper bound, so a failed early cut
             // remains valid. Rank retained entries by the exact viable count.
@@ -426,7 +444,7 @@ pub fn retrospective_layered_beam_search(
     table: &ForwardTable,
     config: &BeamConfig,
 ) -> io::Result<BeamReport> {
-    search(goal, table, config, false)
+    search(goal, table, config, false, None)
 }
 
 /// Bounded best-first beam: prefer fewer remaining stones, then the selected
@@ -440,7 +458,34 @@ pub fn retrospective_beam_search(
     table: &ForwardTable,
     config: &BeamConfig,
 ) -> io::Result<BeamReport> {
-    search(goal, table, config, true)
+    search(goal, table, config, true, None)
+}
+
+/// Witness-only learned best-first search, optionally width limited.
+///
+/// The model can only rank candidates. Every success uses the same replayed
+/// certificate as the exact search engines. Every other returned outcome is
+/// Unknown, including exhaustive-looking failures and boundary mismatches.
+/// This function never returns NotFound. Width usize::MAX disables width cuts
+/// but does not enable negative classification. Models currently describe only
+/// the standard initial position; other starts are rejected explicitly.
+pub fn retrospective_learned_beam_search(
+    goal: Position,
+    table: &ForwardTable,
+    config: &BeamConfig,
+    model: &LearnedModel,
+) -> io::Result<BeamReport> {
+    if table.start() != Position::initial() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "learned rankers require the standard initial position",
+        ));
+    }
+    let mut result = search(goal, table, config, true, Some(model))?;
+    if let SearchOutcome::NotFound { nodes } = result.outcome {
+        result.outcome = SearchOutcome::Unknown { nodes };
+    }
+    Ok(result)
 }
 
 fn search(
@@ -448,6 +493,7 @@ fn search(
     table: &ForwardTable,
     config: &BeamConfig,
     best_first: bool,
+    model: Option<&LearnedModel>,
 ) -> io::Result<BeamReport> {
     if config.width == 0 {
         return Err(io::Error::new(
@@ -470,7 +516,7 @@ fn search(
         constraints: ReverseConstraints::new(table, goal),
         config,
         standard_start: table.start() == Position::initial(),
-        frontier: if config.heuristic == BeamHeuristic::Frontier {
+        frontier: if model.is_none() && config.heuristic == BeamHeuristic::Frontier {
             table
                 .positions()
                 .filter(|position| {
@@ -487,6 +533,7 @@ fn search(
             Vec::new()
         },
         expanded: ExpandedCache::new(if best_first { 4096 } else { 0 }),
+        model,
     };
     let mut roots = Beam::new(config.width);
     if let Some(outcome) = context.offer(goal, || root.clone(), &mut roots, &mut stats)? {
@@ -577,7 +624,7 @@ mod tests {
                             max_nodes: 100_000,
                             heuristic,
                         };
-                        let report = search(goal, &table, &config, best_first).unwrap();
+                        let report = search(goal, &table, &config, best_first, None).unwrap();
                         assert!(!report.stats.pruned);
                         assert_eq!(
                             report.outcome.result() == SearchResult::Found,
@@ -682,6 +729,7 @@ mod tests {
                             ..BeamConfig::default()
                         },
                         best_first,
+                        None,
                     )
                     .unwrap();
                     let SearchOutcome::Found { record, .. } = report.outcome else {
@@ -692,6 +740,49 @@ mod tests {
                     assert!(report.stats.peak_frontier <= 128);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn learned_scores_preserve_reverse_pass_witnesses_and_reject_custom_start_api() {
+        use crate::search::learned::{FEATURE_COUNT, FEATURE_VERSION, MODEL_SCHEMA};
+        let model = LearnedModel::from_json(
+            &serde_json::json!({
+                "schema": MODEL_SCHEMA,
+                "feature_version": FEATURE_VERSION,
+                "feature_count": FEATURE_COUNT,
+                "hidden_size": 0,
+                "input_weights": vec![0.0; FEATURE_COUNT],
+                "hidden_bias": [],
+                "output_weights": [],
+                "output_bias": 0.0,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let start =
+            parse_position("OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w")
+                .unwrap();
+        let trace = replay(
+            start,
+            &[PlyAction::Play(15), PlyAction::Pass, PlyAction::Play(55)],
+        )
+        .unwrap();
+        let table = ForwardTable::from_start(start, 62, None).unwrap();
+        let config = BeamConfig {
+            width: usize::MAX,
+            ..BeamConfig::default()
+        };
+        for goal in [trace[2], trace[3]] {
+            // This internal call isolates pass handling with model scores.
+            // The public API separately enforces the trained start domain.
+            let report = search(goal, &table, &config, true, Some(&model)).unwrap();
+            let SearchOutcome::Found { record, .. } = report.outcome else {
+                panic!("learned ordering lost a complete pass suffix: {report:?}");
+            };
+            record.verify().unwrap();
+            assert!(record.actions.contains(&PlyAction::Pass));
+            assert!(retrospective_learned_beam_search(goal, &table, &config, &model).is_err());
         }
     }
 

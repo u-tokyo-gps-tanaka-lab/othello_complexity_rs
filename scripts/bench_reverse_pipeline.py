@@ -8,6 +8,8 @@ forward-table construction, search, and command I/O; verification is untimed.
 
 import argparse
 import csv
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -25,6 +27,7 @@ INITIAL = "---------------------------OX------XO--------------------------- b"
 FIELDS = (
     "repeat", "method", "cases", "ok", "ng", "unknown", "beam_seconds",
     "gbfs_seconds", "total_seconds", "beam_generated", "gbfs_registered",
+    "beam_algorithm", "beam_max_nodes", "gbfs_max_nodes", "model_sha256",
 )
 
 
@@ -117,11 +120,16 @@ def run_stage(args, trial, name, algorithm, source):
     command = [
         str(args.binary_dir / "reverse_search"), algorithm, str(source),
         "--mode", "exact", "--discs", str(args.discs),
-        "--max-nodes", str(args.max_nodes), "--out-dir", str(output),
+        "--max-nodes", str(args.beam_max_nodes if algorithm in ("beam", "learned-beam")
+                           else args.max_nodes), "--out-dir", str(output),
     ]
     if algorithm == "beam":
         command.extend([
             "--beam-width", str(args.beam_width), "--heuristic", args.heuristic,
+        ])
+    elif algorithm == "learned-beam":
+        command.extend([
+            "--beam-width", str(args.beam_width), "--model", str(args.model),
         ])
     else:
         command.extend(["--threads", str(args.threads)])
@@ -131,6 +139,14 @@ def run_stage(args, trial, name, algorithm, source):
         for status in STATUSES
     }
     check_partition(classifications, inputs, output)
+    if algorithm == "learned-beam":
+        if classifications["NG"]:
+            raise ValueError("learned witness search returned NG")
+        metadata = json.loads((output / "learned_model_metadata.json").read_text(encoding="utf-8"))
+        if metadata["model_sha256"] != args.model_sha256:
+            raise ValueError("the model changed between benchmark setup and search")
+        if metadata["verdict_policy"] != "verified-witness-or-unknown":
+            raise ValueError("unexpected learned-search verdict policy")
     nodes = parse_node_counts(stdout_path, inputs, classifications)
     verify_records(args, trial, name, output, inputs, classifications)
     return Stage(output, classifications, seconds, nodes)
@@ -146,7 +162,7 @@ def run_trial(args, repeat, method, inputs):
         classifications = gbfs.classifications
         gbfs_seconds, gbfs_registered = gbfs.seconds, gbfs.nodes
     else:
-        beam = run_stage(args, trial, "beam", "beam", args.input)
+        beam = run_stage(args, trial, "beam", "learned-beam" if args.model else "beam", args.input)
         beam_seconds, beam_generated = beam.seconds, beam.nodes
         classifications = {status: counts.copy() for status, counts in beam.classifications.items()}
         if classifications["UNKNOWN"]:
@@ -171,6 +187,10 @@ def run_trial(args, repeat, method, inputs):
         "total_seconds": f"{beam_seconds + gbfs_seconds:.9f}",
         "beam_generated": beam_generated,
         "gbfs_registered": gbfs_registered,
+        "beam_algorithm": ("learned-beam" if args.model else "beam") if method != "baseline" else "",
+        "beam_max_nodes": args.beam_max_nodes if method != "baseline" else "",
+        "gbfs_max_nodes": args.max_nodes,
+        "model_sha256": args.model_sha256 if method != "baseline" else "",
     }
     print(
         f"repeat {repeat} {method}: OK={row['ok']} NG={row['ng']} "
@@ -199,11 +219,15 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--discs", type=int, default=8)
     parser.add_argument("--max-nodes", type=int, default=100_000)
+    parser.add_argument("--beam-max-nodes", type=int, help="Override the first stage's generated-candidate budget")
     parser.add_argument("--beam-width", type=int, default=32)
-    parser.add_argument("--heuristic", choices=("branching", "mobility", "coherence", "frontier", "continuation"), default="mobility")
+    ranker = parser.add_mutually_exclusive_group()
+    ranker.add_argument("--heuristic", choices=("branching", "mobility", "coherence", "frontier", "continuation"), default="mobility")
+    ranker.add_argument("--model", type=Path, help="Use learned-beam with this model instead of the hand-written heuristic")
     parser.add_argument("--threads", type=int, default=1)
     args = parser.parse_args()
-    if min(args.repeats, args.beam_width, args.threads) <= 0 or args.max_nodes < 0:
+    args.beam_max_nodes = args.max_nodes if args.beam_max_nodes is None else args.beam_max_nodes
+    if min(args.repeats, args.beam_width, args.threads) <= 0 or min(args.max_nodes, args.beam_max_nodes) < 0:
         parser.error("repeats, beam-width, and threads must be positive; max-nodes must be nonnegative")
     if not 4 <= args.discs <= 64:
         parser.error("discs must be between 4 and 64")
@@ -211,10 +235,14 @@ def main():
     args.binary_dir = args.binary_dir.resolve(strict=True)
     args.work_dir = args.work_dir.resolve()
     args.output = args.output.resolve()
+    args.model_sha256 = ""
+    if args.model:
+        args.model = args.model.resolve(strict=True)
+        args.model_sha256 = hashlib.sha256(args.model.read_bytes()).hexdigest()
     binaries = [args.binary_dir / name for name in ("reverse_search", "verify_record")]
     if any(not binary.is_file() for binary in binaries):
         parser.error("binary-dir must contain reverse_search and verify_record")
-    if args.output in [args.input, *binaries]:
+    if args.output in [args.input, args.model, *binaries]:
         parser.error("output must not overwrite the input or an executable")
     inputs = read_positions(args.input)
     args.work_dir.mkdir(parents=True, exist_ok=True)

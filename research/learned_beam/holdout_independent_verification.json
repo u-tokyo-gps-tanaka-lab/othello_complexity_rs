@@ -1,0 +1,14 @@
+{
+  "all_benchmark_ok_records_covered": true,
+  "benchmark_sha256": "25d8493e2a6e5477f76fbac2e359cb9a8fa479b0e0605521eab63892997a6b11",
+  "distinct_input_indices": 84,
+  "input_snapshot_policy": "each input read once; parsing and hashing use the same bytes",
+  "mode": "exact",
+  "passes_replayed": 0,
+  "placements_replayed": 17028,
+  "positions_sha256": "5d9b6fdc107c7c462fea3b6339ae49c7fe59a241007984296301ce664fbda11b",
+  "records_sha256": "c38a5cb91206626db166eea580fb067a73fa5fb09fe94d61b7d7b2ca6882f548",
+  "standard_start": true,
+  "verified_records": 921,
+  "verifier": "independent-absolute-array-v1"
+}

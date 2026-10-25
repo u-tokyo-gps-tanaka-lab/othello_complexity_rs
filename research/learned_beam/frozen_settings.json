@@ -1,0 +1,45 @@
+{
+  "schema": "othello-learned-search-freeze-v1",
+  "frozen_at_utc": "2026-10-25T14:19:56.540115+00:00",
+  "plan_sha256": "d12e953fc28fc2b76df343d673f83a6c12c95aadddb06c21c32a58c39ebee925",
+  "selection_sha256": "53ed385d22931aadb964293224909f33cffe2b851cfe6755c1d8deb1f481cf78",
+  "selected_model": "research/learned_beam/models/linear.json",
+  "selected_model_sha256": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75",
+  "selected_hidden_size": 0,
+  "settings": {
+    "forward_discs": 8,
+    "width": 32,
+    "beam_generated_limit": 100000,
+    "gbfs_registered_limit": 100000,
+    "threads": 1
+  },
+  "candidate_models": {
+    "linear": "521d65599ebb380b8bb0d41956452cd95b765b4bc08f0d79afd56e27d4738f75",
+    "mlp16": "a4b4020472e15607fb172f09195724b45a03d4a078ef9f89f6a2ec993be38806"
+  },
+  "source_sha256": {
+    "Cargo.toml": "cf676d7f29e8ea7d157418bf8d4f92f1b51222c47d7bc8d85a17b586a4fa6dc8",
+    "Cargo.lock": "55223e786d15c9877f2a6e270597f743c10a7aa175779044cf8debff33fab327",
+    "src/search/beam.rs": "a152b3f27040d9d09c6f34201338e36f485225ba83af48fc34d67db7ec4c3292",
+    "src/search/learned.rs": "55ab5db2c3ced5da6deab3eea45b3baa4f0de7177b13ef102f1227a75e0fd39b",
+    "src/search/core.rs": "bc91cac50a05cbfc502390a406bda4298f0fedb9fa264f5a5e2f9f5b2cda116d",
+    "src/search/constraints.rs": "60ef3cf4a2b7d9bf9b69348e09be0ca59d44ad6032c78c3897b64ccf551f3266",
+    "src/search/parallel_gbfs.rs": "408d583ea2299b25c0dedc7897b3b0461b616cb31fd3cc66b8582f6a65b06bee",
+    "src/search/run.rs": "9de0d4aeeb54982d1efcfec5459b480bc69e5aee2b00e65cf71b72f5b58de4ac",
+    "src/bin/bench_reverse_search.rs": "a3160d3bda7a4988d46e80f37afd99f91ce7856a8aa8a6753585e7aed7aefa00",
+    "src/bin/reverse_search.rs": "92b2d68963910ea12cab2f46a14645c96198951c422c8e2f5e47bff7e09832c7",
+    "src/bin/estimate.rs": "744d49239f68e636ccd08eadd9c9a06649245095780bb1a17a3cdb94f2964c6f",
+    "scripts/report_learned_benchmark.py": "502c023e03510910547cfb8e061d0444f10751ca8c5311261517588bed525f74",
+    "scripts/summarize_reverse_bench.py": "1e61cf9ebb55da6b1f057425a7c2fd631f42d5b5ec05df784c5fbd3df55dcaf9",
+    "scripts/bench_reverse_pipeline.py": "d478a1be381d89584043b0814aea8ea560cf5d78c4239c8b3b4e3cad93107462"
+  },
+  "binary_sha256": {
+    "bench_reverse_search": "dd097e148260882e4a2a70cf7700403fc1e49d972df74b5b60088102d935f2d4",
+    "reverse_search": "827693dad145887716ace4d72c46ee63192f44a6ecd033eb7f84c5b0c2a7e615",
+    "estimate": "8fd3089188245c9721570e85f6e69ec4e72fb97529562ad6b3131d5b670a1c6c",
+    "verify_record": "ec251adfda9025fd34fd26197deabe1a6838adb389ddfd937957121e82e288b9",
+    "verify_reverse_ranker": "26af3d598b205d90d124a6d0d6a17aee0561e88b93a217618f8de6581bda324a"
+  },
+  "final_holdout_not_yet_run": true,
+  "rule": "Do not change model, width, budget, features, or search code using final evaluation results. Report all prespecified variants; actual pipeline uses the selected linear model."
+}

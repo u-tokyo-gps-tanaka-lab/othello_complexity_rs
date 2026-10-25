@@ -10,6 +10,7 @@ import csv
 import itertools
 import json
 import math
+import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
@@ -23,11 +24,15 @@ class Variant:
     threads: int
     max_nodes: int
     budget_counts: str
+    model_sha256: str = ""
 
     def label(self):
         width = f", width {self.width}" if self.algorithm != "gbfs" else ""
+        if self.algorithm == "learned-best-first":
+            width = ", no width limit"
+        model = f", model {self.model_sha256[:12]}" if self.model_sha256 else ""
         return (
-            f"{self.algorithm}{width}, {self.max_nodes} {self.budget_counts}, "
+            f"{self.algorithm}{width}{model}, {self.max_nodes} {self.budget_counts}, "
             f"{self.threads} thread(s)"
         )
 
@@ -67,9 +72,22 @@ def read_runs(path):
                     raise ValueError("known_reachable must be true or false")
                 if row["known_reachable"] == "true" and row["result"] == "NG":
                     raise ValueError("a known reachable position was classified NG")
+                row["model_evaluations"] = int(raw.get("model_evaluations") or 0)
+                row["model_inference_seconds"] = float(raw.get("model_inference_seconds") or 0)
+                if (row["model_evaluations"] < 0 or not math.isfinite(row["model_inference_seconds"])
+                        or row["model_inference_seconds"] < 0):
+                    raise ValueError("model evaluation counters must be finite and nonnegative")
+                model_sha256 = raw.get("model_sha256", "")
+                if raw["algorithm"].startswith("learned-"):
+                    if not re.fullmatch(r"[0-9a-f]{64}", model_sha256):
+                        raise ValueError("learned runs must identify the loaded model SHA-256")
+                    if row["result"] == "NG":
+                        raise ValueError("learned witness search must never return NG")
+                elif model_sha256:
+                    raise ValueError("non-learned runs must not identify a ranking model")
                 variant = Variant(
                     raw["algorithm"], int(raw["width"] or 0), row["threads"],
-                    row["max_nodes"], raw["budget_counts"],
+                    row["max_nodes"], raw["budget_counts"], model_sha256,
                 )
                 if variant.algorithm == "gbfs":
                     if variant.width != 0 or variant.budget_counts != "registered":
@@ -131,6 +149,8 @@ def summarize(rows):
         "expanded": sum(row["expanded"] for row in rows),
         "search_seconds": math.fsum(row["search_seconds"] for row in rows),
         "peak_frontier": max(row["peak_frontier"] for row in rows),
+        "model_evaluations": sum(row["model_evaluations"] for row in rows),
+        "model_inference_seconds": math.fsum(row["model_inference_seconds"] for row in rows),
     }
 
 
@@ -170,12 +190,15 @@ def make_report(grouped, baseline):
         "notes": [
             "Counts of OK, NG, UNKNOWN, and resolved refer to runs, including all repeats.",
             "Direct timings are measured searches; forward-table construction is excluded.",
-            "Fallback runs GBFS only after beam UNKNOWN; beam NG is already a proof.",
+            "Fallback runs GBFS only after UNKNOWN. Learned search emits only verified OK or UNKNOWN; "
+            "an NG from the existing non-learned algorithms is an exhaustive-search verdict.",
             "Fallback outcomes and costs are calculated from paired independent runs. "
             "The two-stage search was not executed or timed as a pipeline by this script.",
             "Fallback time is the sum of separately measured search times, not a pipeline measurement.",
             "Budget units differ: GBFS bounds registered positions; beam bounds generated candidates.",
             "peak_frontier counts retained/open positions, not process memory or cache storage.",
+            "Learned models are separate variants keyed by the SHA-256 of the loaded JSON bytes. "
+            "Reported inference time is included in total search time, not added to it.",
         ],
         "baseline": asdict(baseline),
         "cases": len({key[0] for key in reference}),

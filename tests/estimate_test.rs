@@ -984,6 +984,81 @@ fn beam_unknowns_feed_gbfs_and_settings_remain_optional_on_load() {
 }
 
 #[test]
+fn learned_unknowns_feed_gbfs_without_introducing_unreachable_verdicts() {
+    use othello_complexity_rs::search::learned::{FEATURE_COUNT, FEATURE_VERSION, MODEL_SCHEMA};
+
+    let fixture = Fixture::new();
+    let filters = fixture.filters(
+        "sample",
+        "filters",
+        &[disconnected(), initial(), after_d3(), after_d3()],
+        absolute_population(),
+    );
+    let model = fixture.path("ranker.json");
+    write_json(
+        &model,
+        &json!({
+            "schema": MODEL_SCHEMA, "feature_version": FEATURE_VERSION,
+            "feature_count": FEATURE_COUNT, "hidden_size": 0,
+            "input_weights": vec![0.0; FEATURE_COUNT], "hidden_bias": [],
+            "output_weights": [], "output_bias": 0.0,
+        }),
+    );
+    let learned = fixture.path("learned-limited");
+    estimate::reverse_search(
+        &filters,
+        &learned,
+        ALPHA,
+        &Strategy::LearnedBeam {
+            discs: 4,
+            max_nodes: 0,
+            width: 1,
+            model: model.clone(),
+        },
+    )
+    .unwrap();
+    assert!(fs::read_to_string(learned.join("reverse_exact_NG.txt"))
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fs::read_to_string(learned.join("reverse_exact_UNKNOWN.txt")).unwrap(),
+        position_text(&[after_d3()])
+    );
+    let summary = read_json(&learned.join("summary.json"));
+    assert_eq!(summary["stage"], "reverse-search:learned-beam");
+    // The one NG was proven by the preceding necessary-condition filter.
+    assert_eq!(summary["counts"], json!({"OK": 1, "NG": 1, "UNKNOWN": 2}));
+    let settings = &summary["reverse_strategy_settings"];
+    assert_eq!(settings["model_schema"], MODEL_SCHEMA);
+    assert_eq!(settings["verdict_policy"], "verified-witness-or-unknown");
+    assert_eq!(settings["budget_counts"], "generated");
+    let loaded = othello_complexity_rs::search::learned::LearnedModel::load(&model).unwrap();
+    assert_eq!(settings["model_sha256"], loaded.sha256());
+
+    let next = fixture.path("gbfs-after-learned");
+    estimate::reverse_search(
+        &learned,
+        &next,
+        ALPHA,
+        &Strategy::GbfsParallel {
+            discs: 4,
+            max_nodes: 128,
+            use_lp: false,
+            threads: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        read_json(&next.join("summary.json"))["counts"],
+        json!({"OK": 3, "NG": 1, "UNKNOWN": 0})
+    );
+    assert_eq!(
+        read_records(&next.join("reverse_exact_records.csv")),
+        [d3_record(1)]
+    );
+}
+
+#[test]
 fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
     for (stem, positions, population, mode) in [
         (

@@ -1,0 +1,25 @@
+{
+  "canonical_transforms": [
+    "identity",
+    "rotate180",
+    "transpose",
+    "anti_transpose"
+  ],
+  "checked_queries": 144,
+  "excluded_files": [
+    {
+      "path": "/workspace/scratch/0e62a86147a9/learned_beam_data/train_keys.txt",
+      "sha256": "625d0b488a35eb5149f306d0baacf66645967282f00d532ea8cf3ec765e69707"
+    },
+    {
+      "path": "/workspace/scratch/0e62a86147a9/learned_beam_data/validation_keys.txt",
+      "sha256": "f98032aac5fcdf9d3d23b1f32c4c1d569e6c00c4e527c5161aa61e7826c27623"
+    }
+  ],
+  "excluded_key_count": 107795,
+  "generated_goals_replaced_for_overlap": 0,
+  "remaining_goal_overlap": 0,
+  "schema": "reverse-search-query-exclusion-v1",
+  "seed": 20261127,
+  "source": null
+}

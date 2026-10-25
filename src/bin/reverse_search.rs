@@ -33,6 +33,9 @@ enum Command {
     GbfsPar(GbfsOpts),
     /// Bounded best-first beam search; failure after width pruning is UNKNOWN.
     Beam(BeamOpts),
+    /// Learned ranking for witness search; every unsuccessful query is UNKNOWN.
+    #[command(name = "learned-beam")]
+    LearnedBeam(LearnedBeamOpts),
     /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     ExternalBfs(BfsArgs),
@@ -94,6 +97,18 @@ struct BeamOpts {
     /// Ranking used to retain candidates; affects speed and success rate, not certificate validity.
     #[arg(long, value_enum, default_value = "mobility")]
     heuristic: BeamHeuristic,
+}
+
+#[derive(Args, Debug)]
+struct LearnedBeamOpts {
+    #[command(flatten)]
+    basic: BasicOpts,
+    /// Maximum open positions across all stone counts.
+    #[arg(long, default_value = "32")]
+    beam_width: NonZeroUsize,
+    /// Validated local JSON model. The model ranks candidates and cannot prove reachability.
+    #[arg(long)]
+    model: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -203,6 +218,14 @@ fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
             width: opts.beam_width.get(),
             heuristic: opts.heuristic,
         }),
+        Command::LearnedBeam(opts) => {
+            into_basic_strategy(opts.basic, |discs, max_nodes| Strategy::LearnedBeam {
+                discs,
+                max_nodes,
+                width: opts.beam_width.get(),
+                model: opts.model,
+            })
+        }
         Command::ExternalBfs(opts) => into_external_strategy(opts, Strategy::BfsExternal),
         Command::ExternalBfsPar(opts) => {
             into_external_strategy(opts, Strategy::BfsExternalParallel)
@@ -267,6 +290,41 @@ mod tests {
         );
         assert_eq!(input, PathBuf::from("positions.txt"));
         assert_eq!(mode, GoalMatch::Exact);
+        let mut invalid = args;
+        invalid[10] = "0";
+        assert!(Cli::try_parse_from(invalid).is_err());
+    }
+
+    #[test]
+    fn learned_beam_requires_a_model_and_propagates_the_path() {
+        let args = [
+            "reverse_search",
+            "learned-beam",
+            "positions.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "5000",
+            "--beam-width",
+            "16",
+            "--model",
+            "ranker.json",
+        ];
+        let (strategy, input, _, mode) = into_strategy(Cli::try_parse_from(args).unwrap());
+        assert_eq!(
+            strategy,
+            Strategy::LearnedBeam {
+                discs: 8,
+                max_nodes: 5000,
+                width: 16,
+                model: PathBuf::from("ranker.json"),
+            }
+        );
+        assert_eq!(input, PathBuf::from("positions.txt"));
+        assert_eq!(mode, GoalMatch::Exact);
+        assert!(Cli::try_parse_from(&args[..11]).is_err());
         let mut invalid = args;
         invalid[10] = "0";
         assert!(Cli::try_parse_from(invalid).is_err());

@@ -2,17 +2,20 @@
 
 use clap::{Parser, ValueEnum};
 use othello_complexity_rs::io::{format_position, parse_file_to_positions};
-use othello_complexity_rs::othello::Position;
+use othello_complexity_rs::othello::{BoardSymmetry, Position};
 use othello_complexity_rs::record::{GoalMatch, PositionTransform, ReachabilityRecord};
 use othello_complexity_rs::search::beam::{
-    retrospective_beam_search, retrospective_layered_beam_search, BeamConfig, BeamHeuristic,
-    BeamStats,
+    retrospective_beam_search, retrospective_layered_beam_search,
+    retrospective_learned_beam_search, BeamConfig, BeamHeuristic, BeamStats,
 };
 use othello_complexity_rs::search::core::{successors, SearchOutcome};
 use othello_complexity_rs::search::forward::ForwardTable;
+use othello_complexity_rs::search::learned::LearnedModel;
 use othello_complexity_rs::search::parallel_gbfs::parallel_retrospective_greedy_best_first_search_with_stats;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -32,6 +35,8 @@ enum Algorithm {
     BestFirstCoherence,
     BestFirstFrontier,
     BestFirstContinuation,
+    LearnedBeam,
+    LearnedBestFirst,
 }
 
 impl Algorithm {
@@ -48,7 +53,13 @@ impl Algorithm {
             Self::BestFirstCoherence => "best-first-coherence",
             Self::BestFirstFrontier => "best-first-frontier",
             Self::BestFirstContinuation => "best-first-continuation",
+            Self::LearnedBeam => "learned-beam",
+            Self::LearnedBestFirst => "learned-best-first",
         }
+    }
+
+    fn is_learned(self) -> bool {
+        matches!(self, Self::LearnedBeam | Self::LearnedBestFirst)
     }
 }
 
@@ -84,6 +95,9 @@ struct Args {
         default_value = "gbfs,best-first-branching,best-first-mobility"
     )]
     algorithms: Vec<Algorithm>,
+    /// Ranking model; repeat this option to compare several models in one run.
+    #[arg(long = "model", value_name = "FILE", action = clap::ArgAction::Append)]
+    models: Vec<PathBuf>,
     #[arg(long, value_delimiter = ',', default_value = "32")]
     widths: Vec<usize>,
     #[arg(long, default_value_t = 1)]
@@ -97,6 +111,15 @@ struct Args {
     /// Save source certificates for generated goals, before timing searches.
     #[arg(long, conflicts_with = "input")]
     source_records_out: Option<PathBuf>,
+    /// Save every Found certificate, including repeats and algorithms, for external verification.
+    #[arg(long)]
+    records_out: Option<PathBuf>,
+    /// Training/validation canonical positions; reject generated goals in these orbits.
+    #[arg(long, value_name = "FILE", action = clap::ArgAction::Append)]
+    exclude_keys: Vec<PathBuf>,
+    /// Record the goal-overlap check, replacements, and exclusion-file hashes.
+    #[arg(long)]
+    exclusion_report_out: Option<PathBuf>,
 }
 
 struct Case {
@@ -110,6 +133,8 @@ struct Metrics {
     retained: Option<usize>,
     peak_frontier: usize,
     pruned: bool,
+    model_evaluations: usize,
+    model_inference_nanos: u64,
 }
 
 impl From<BeamStats> for Metrics {
@@ -120,21 +145,94 @@ impl From<BeamStats> for Metrics {
             retained: Some(stats.retained),
             peak_frontier: stats.peak_frontier,
             pruned: stats.pruned,
+            model_evaluations: stats.model_evaluations,
+            model_inference_nanos: stats.model_inference_nanos,
         }
     }
 }
 
+fn canonical(position: Position) -> Position {
+    [
+        BoardSymmetry::Identity,
+        BoardSymmetry::Rotate180,
+        BoardSymmetry::Transpose,
+        BoardSymmetry::AntiTranspose,
+    ]
+    .into_iter()
+    .map(|symmetry| symmetry.apply_position(position))
+    .min()
+    .unwrap()
+}
+
+fn record_exclusions(
+    args: &Args,
+    keys: &HashSet<Position>,
+    cases: usize,
+    replacements: usize,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(path) = &args.exclusion_report_out {
+        let inputs = args
+            .exclude_keys
+            .iter()
+            .map(|source| {
+                Ok(serde_json::json!({
+                    "path": source,
+                    "sha256": format!("{:x}", Sha256::digest(std::fs::read(source)?)),
+                }))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let mut file = BufWriter::new(File::create(path)?);
+        serde_json::to_writer_pretty(
+            &mut file,
+            &serde_json::json!({
+                "schema": "reverse-search-query-exclusion-v1",
+                "excluded_key_count": keys.len(),
+                "checked_queries": cases,
+                "generated_goals_replaced_for_overlap": replacements,
+                "canonical_transforms": ["identity", "rotate180", "transpose", "anti_transpose"],
+                "excluded_files": inputs,
+                "source": args.input,
+                "seed": if args.input.is_none() { Some(args.seed) } else { None },
+                "remaining_goal_overlap": 0,
+            }),
+        )?;
+        writeln!(file)?;
+        file.flush()?;
+    }
+    Ok(())
+}
+
 fn corpus(args: &Args) -> Result<Vec<Case>, Box<dyn Error>> {
+    let mut excluded = HashSet::new();
+    for path in &args.exclude_keys {
+        excluded.extend(
+            parse_file_to_positions(&path.to_string_lossy())?
+                .into_iter()
+                .map(canonical),
+        );
+    }
     if let Some(path) = &args.input {
-        return Ok(parse_file_to_positions(&path.to_string_lossy())?
+        let cases: Vec<_> = parse_file_to_positions(&path.to_string_lossy())?
             .into_iter()
             .map(|position| Case {
                 position,
                 source_record: None,
             })
-            .collect());
+            .collect();
+        if cases
+            .iter()
+            .any(|case| excluded.contains(&canonical(case.position)))
+        {
+            return Err(
+                "an input goal overlaps training/validation keys; input queries were not dropped"
+                    .into(),
+            );
+        }
+        record_exclusions(args, &excluded, cases.len(), 0)?;
+        return Ok(cases);
     }
     let mut cases = Vec::new();
+    let mut replaced = 0;
     for &stones in &args.stones {
         // A stone-count group stays reproducible if other groups are added.
         let seed = args.seed ^ u64::from(stones).wrapping_mul(0x9e37_79b9_7f4a_7c15);
@@ -155,6 +253,10 @@ fn corpus(args: &Args) -> Result<Vec<Case>, Box<dyn Error>> {
                     actions.push(action);
                 }
                 if position.board.popcount() == stones {
+                    if excluded.contains(&canonical(position)) {
+                        replaced += 1;
+                        continue;
+                    }
                     let record = ReachabilityRecord {
                         input_index: cases.len() + 1,
                         start: Position::initial(),
@@ -178,6 +280,7 @@ fn corpus(args: &Args) -> Result<Vec<Case>, Box<dyn Error>> {
             })?);
         }
     }
+    record_exclusions(args, &excluded, cases.len(), replaced)?;
     Ok(cases)
 }
 
@@ -212,6 +315,27 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.threads == 0 {
         return Err("specify a positive GBFS thread count for reproducible comparisons".into());
     }
+    if args
+        .algorithms
+        .iter()
+        .any(|algorithm| algorithm.is_learned())
+        && args.models.is_empty()
+    {
+        return Err("learned algorithms require at least one --model FILE".into());
+    }
+    // Validate models before writing results, then reuse each exact instance.
+    let models = args
+        .models
+        .iter()
+        .map(|path| LearnedModel::load(path))
+        .collect::<io::Result<Vec<_>>>()?;
+    let mut model_hashes = std::collections::HashSet::new();
+    if models
+        .iter()
+        .any(|model| !model_hashes.insert(model.sha256()))
+    {
+        return Err("the same model JSON bytes were supplied more than once".into());
+    }
     let cases = corpus(&args)?;
     if let Some(path) = &args.positions_out {
         let mut file = BufWriter::new(File::create(path)?);
@@ -229,18 +353,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         file.flush()?;
     }
-    let variants: Vec<_> = args
-        .algorithms
-        .iter()
-        .flat_map(|&algorithm| {
-            let widths = if matches!(algorithm, Algorithm::Gbfs) {
-                vec![0]
+    let mut variants = Vec::new();
+    for &algorithm in &args.algorithms {
+        let widths = match algorithm {
+            Algorithm::Gbfs => vec![0],
+            Algorithm::LearnedBestFirst => vec![usize::MAX],
+            _ => args.widths.clone(),
+        };
+        for width in widths {
+            if algorithm.is_learned() {
+                for model_index in 0..models.len() {
+                    variants.push((algorithm, width, Some(model_index)));
+                }
             } else {
-                args.widths.clone()
-            };
-            widths.into_iter().map(move |width| (algorithm, width))
-        })
-        .collect();
+                variants.push((algorithm, width, None));
+            }
+        }
+    }
     if variants.is_empty() || cases.is_empty() {
         return Err("corpus and algorithm list must not be empty".into());
     }
@@ -266,6 +395,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => Box::new(io::stdout().lock()),
     };
     let mut csv = csv::Writer::from_writer(output);
+    let mut records = args
+        .records_out
+        .as_ref()
+        .map(|path| File::create(path).map(BufWriter::new))
+        .transpose()?;
     csv.write_record([
         "case",
         "stones",
@@ -289,12 +423,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         "forward_seconds",
         "seed",
         "position",
+        "model_sha256",
+        "model_schema",
+        "model_path",
+        "model_hidden_size",
+        "model_evaluations",
+        "model_inference_seconds",
     ])?;
     for repeat in 0..args.repeats {
         for (index, case) in cases.iter().enumerate() {
             // Rotate execution order to reduce a fixed warm-cache/order bias.
             for offset in 0..variants.len() {
-                let (algorithm, width) = variants[(offset + index + repeat) % variants.len()];
+                let (algorithm, width, model_index) =
+                    variants[(offset + index + repeat) % variants.len()];
                 let started = Instant::now();
                 let (outcome, stats): (SearchOutcome, Metrics) = match algorithm {
                     Algorithm::Gbfs => {
@@ -311,8 +452,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                             retained: None,
                             peak_frontier: report.stats.peak_frontier,
                             pruned: false,
+                            model_evaluations: 0,
+                            model_inference_nanos: 0,
                         };
                         (report.outcome, stats)
+                    }
+                    Algorithm::LearnedBeam | Algorithm::LearnedBestFirst => {
+                        let config = BeamConfig {
+                            width,
+                            max_nodes: args.beam_max_nodes.unwrap_or(args.max_nodes),
+                            heuristic: BeamHeuristic::Mobility,
+                        };
+                        let report = retrospective_learned_beam_search(
+                            case.position,
+                            &table,
+                            &config,
+                            &models[model_index.expect("learned variant has a model")],
+                        )?;
+                        if matches!(report.outcome, SearchOutcome::NotFound { .. }) {
+                            return Err(
+                                "learned witness search returned an unreachable verdict".into()
+                            );
+                        }
+                        (report.outcome, report.stats.into())
                     }
                     Algorithm::BeamBranching
                     | Algorithm::BeamMobility
@@ -360,6 +522,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 };
                 let seconds = started.elapsed().as_secs_f64();
                 validate_outcome(case, &outcome)?;
+                if let (Some(file), SearchOutcome::Found { record, .. }) = (&mut records, &outcome)
+                {
+                    let mut record = record.clone();
+                    record.input_index = index + 1;
+                    writeln!(file, "{}", record.to_csv())?;
+                    file.flush()?;
+                }
                 let result = match &outcome {
                     SearchOutcome::Found { .. } => "OK",
                     SearchOutcome::NotFound { .. } => "NG",
@@ -402,14 +571,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                         args.seed.to_string()
                     },
                     format_position(case.position),
+                    model_index
+                        .map(|i| models[i].sha256().to_owned())
+                        .unwrap_or_default(),
+                    model_index
+                        .map(|i| models[i].schema().to_owned())
+                        .unwrap_or_default(),
+                    model_index
+                        .map(|i| args.models[i].display().to_string())
+                        .unwrap_or_default(),
+                    model_index
+                        .map(|i| models[i].hidden_size().to_string())
+                        .unwrap_or_default(),
+                    stats.model_evaluations.to_string(),
+                    format!("{:.9}", stats.model_inference_nanos as f64 / 1e9),
                 ])?;
                 csv.flush()?;
                 eprintln!(
-                    "case {}/{} {} width={} repeat={} {} nodes={} {:.6}s",
+                    "case {}/{} {} width={} model={} repeat={} {} nodes={} {:.6}s",
                     index + 1,
                     cases.len(),
                     algorithm.name(),
                     width,
+                    model_index
+                        .map(|i| args.models[i].display().to_string())
+                        .unwrap_or_default(),
                     repeat + 1,
                     result,
                     outcome.nodes(),

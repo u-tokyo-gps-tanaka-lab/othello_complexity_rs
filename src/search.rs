@@ -6,6 +6,8 @@ pub mod external_bfs;
 pub mod forward;
 pub(crate) mod frontier;
 pub mod inmemory_bfs;
+pub mod learned;
+pub mod learning_data;
 pub mod move_ordering;
 pub mod parallel_dfs;
 pub mod parallel_gbfs;

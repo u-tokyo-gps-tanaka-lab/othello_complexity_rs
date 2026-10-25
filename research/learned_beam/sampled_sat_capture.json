@@ -1,0 +1,16 @@
+{
+  "schema": "verified-learned-benchmark-capture-v1",
+  "completed_at_utc": "2026-10-25T14:34:09.610435+00:00",
+  "driver_sha256": "759fb8c2ed96a5916f8f9bb30631dae1671cab7763685975b04c97247e94ecd1",
+  "independent_verifier_sha256": "856c15d6fbcb04c1c8da245c3cc86b1bf90ec286a62ffc5fac72b70cb1f89c26",
+  "all_files_closed_before_publication": true,
+  "publication": "atomic replacement per file, followed by SHA-256 verification; marker written last",
+  "files": {
+    "sampled_sat.csv": "4ee87223d3f7a93acc6ea843f28b8ef2346654c2bbf0b030f444505c2802383c",
+    "sampled_sat_positions.txt": "0dcff3e3cd676fc0cce13553cbf6138e750672282155045e5aff1013d0b2aaa7",
+    "sampled_sat_records.csv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sampled_sat_exclusions.json": "1f57fb19025ede2df8519caaea0fb5aaa508b4cccab338f0d8659c7d3cf9f4fe",
+    "sampled_sat_independent_verification.json": "065f9de8376a5ce7377187fad85cbb3ec60e66e8933da8e77f4efc664dd6df59",
+    "sampled_sat_report.json": "5bfdd7155f9a7b57a86196b41fd18df5fb566b37208c8848a95a85eecf2333d2"
+  }
+}
