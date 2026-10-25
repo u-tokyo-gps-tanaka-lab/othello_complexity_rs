@@ -1,0 +1,349 @@
+{
+  "format": "reachability-benchmark-v1",
+  "seed": 20261026,
+  "discs": [
+    30,
+    40,
+    50
+  ],
+  "count_per_kind": 1,
+  "cases": [
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "X--------X-O----XXXOOO---OXOO---OXOOXO--O--OOXO-OOOO--X----O---- b",
+      "kind": "legal-d30",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "X--------X-O----XXXOOO---OXOO---OXXOXO--O--OOXO-OOOO--X----O---- b",
+      "kind": "mutated-d30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "----O---OO--OO----XOOX-XOXXOOO-XO--XOO---X------XO--XO--X-XX--O- b",
+      "kind": "random-d30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-X---OXOX-X---XOOXXX-OXXOOOOO-XOXOXX-X-OOXXX----OXXX-------X- b",
+      "kind": "legal-d40",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-X---OXOX-X---XOOXXX-OXXOOOOO-XOXOOX-X-OOXXX----OXXX-------X- b",
+      "kind": "mutated-d40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-XOO-X-XOOO--X--OOOOX-OXXXOOXX--OOO-O---OXXOX-OO-X-X-OX---XX- w",
+      "kind": "random-d40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-X-O--OOOOO---XXXOOOOXXXOOOOXXXOOOOOXXOOOOXXX---OOOOO-XXXXXX- b",
+      "kind": "legal-d50",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-X-O--OOOOO---XXXOOOOXXXOOOOXXXOOOXOXXOOOOXXX---OOOOO-XXXXXX- b",
+      "kind": "mutated-d50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XO-O-OOXOOXOXXXXOO-XO-OOXXOOXX-OXOOOX---XO-XOXXXOO--XXOX-XO--OOO b",
+      "kind": "random-d50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "OOOOOOOOXOOXXXXXXXXOXOXOXXXOOXOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "OOOOOOOOXOOXXXXXXXXOXOXXXXXOOXOXXOXOXOXXXOOXXOOXOOOOOOOXOOOOOOOO w",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": false,
+        "symmetry": false,
+        "equivalence": false
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "XXXXXXXXOXXOOOOOOOOXOXOOOOOXXOXOOXOXOXOOOXXOOXXOXXXXXXXOXXXXXXXX b",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "XXXXXXXXOXXOOOOOOOOXOXOXOOOXXOXXOXOXOXOXOXXOOXXXXXXXXXX-XXXXXXXX b",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w",
+      "goal": "XXXXXXXXOXXOXXX-OOOXOXXXOOOXXXXXOXOXOXOXOXXOOXXXXXXXXXX-XXXXXXXX b",
+      "kind": "forced-pass-0",
+      "expected": {
+        "exact": false,
+        "symmetry": false,
+        "equivalence": false
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "-OXXXXXX-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX b",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX b",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "OOOOOOOO-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "XXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX b",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": false,
+        "symmetry": false,
+        "equivalence": false
+      }
+    },
+    {
+      "start": "-XOOOOOO-XOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO w",
+      "goal": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX b",
+      "kind": "forced-pass-1",
+      "expected": {
+        "exact": false,
+        "symmetry": false,
+        "equivalence": false
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--XXXXX---O-XX-----XXXOOXXXOOXOOOOOXO-OOOOO---XX-O-O--X--XO----- b",
+      "kind": "historical-lp-survivor-band30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 210
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOOXXXOOXOX--OXO-XXXX-XO--OOXXXOX--XOO-OOOOXXOXO-OOXOX-OXXO---X- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 209
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "-XXX--OXOOOO-OXOOOXXOO---O-OXO--OOXOXO--OOXXXOXOOOO-XXXX-X--XX-- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 121
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OX-OX-XOXOXXO-OOX-XOOOOO-XXOXX-OOXOXOOXOO-X-XX-OXOX-XXXXX-----O- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 457
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOXO-O-XXOX-XOXOOOO-OO-X-XOXOOOX-XOXXO-OOOX-O--OXXXX---OX-X-X--- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 388
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-XXXXOXXXOX-O-XXOXXOOOXOXOOO---XXXO-XOOXX-OXOOXXOX-OOOXOOOO-O b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 303
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XOX-XX-XXXOOOOXOXO-XOOX-X-XXO-OOX-OXXOXOOOOXOOO-XXOXOOOX-OXO--O- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 51
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOOOXOO--O-O-XOOOOXOO-XX-O-XX-XOXX-XOOOOXOOX--OXOXOOXOOXXXX-XOO- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 9
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--XOOXXOOXXX-OOXOOXXOOX-XXXOOO-OXOXXOXX-X-OXOXX-XO-OOXOO-XXXOO-- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 472
+    }
+  ],
+  "historical_source": {
+    "path": "result/thesis_layer_sat/lp_OK.txt",
+    "sha256": "c0a2fd25c28616b60b92979f171eafb081a71f8135a9010c9aaf8bea17c42b70",
+    "selection_seed": 20261026,
+    "max_per_decade_band": 4,
+    "relative_board_turn": "b",
+    "note": "Historical 64-character relative boards are assigned Black to move for this benchmark; historical reachability labels are not reused. Passing LP is not a reachability proof."
+  }
+}

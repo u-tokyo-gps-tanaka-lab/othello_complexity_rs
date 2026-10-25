@@ -1,0 +1,20 @@
+{
+  "source_commit_local": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+  "source_commit_github": "c6a0da3d15835e590aae877ae78705261e78b18d",
+  "source_tree_sha": "7277e3a9fe91e21714c2fbc4b1773b39267aca36",
+  "rust_toolchain": "1.99.0",
+  "command": "cargo +1.99.0 test --release --locked --offline -j4 -- --test-threads=2",
+  "passed": 192,
+  "failed": 0,
+  "ignored": 0,
+  "groups": 22,
+  "test_log_sha256": "cc40f4582c4f900f824a00dc9e2bd8e80ae91031b3443f28c4985f1e319313e5",
+  "scope": "All existing and added unit, integration, binary, and doc test targets. Finite tests are not a formal proof of the original solver for all positions.",
+  "binary_sha256": {
+    "sat_reachability": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed",
+    "verify_record": "419ea397bf05e7b39cde2ab0e77cc9d9664eb5528a604188f3d47589a584fc3b",
+    "run_filters": "9e4d09282eb7f0b2b91c89e9ff8a6727a33e01d7d4419de5e3b8a898c0a37682",
+    "reverse_search": "4e8e07710c5d078a0d4226d6de22cb74e660d83b3a7da612f89984d07e68223c"
+  },
+  "test_log": "benchmarks/results/tests.log"
+}

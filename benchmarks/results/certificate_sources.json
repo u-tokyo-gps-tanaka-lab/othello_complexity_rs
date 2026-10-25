@@ -1,0 +1,1447 @@
+{
+  "format": "reachability-certificate-sources-v1",
+  "description": "Unique six-field CSV certificates from both revisions of final official SAT runs; duplicates are removed only when all six fields agree.",
+  "certificates": [
+    {
+      "certificate_row": 1,
+      "sha256_utf8_record_without_newline": "272723a1fe6df8ff12ed5a9549c27e63beca7a2d7071a3ba12aeb1061d02b77c",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 16,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 2,
+      "sha256_utf8_record_without_newline": "f301cb3b386986745f63b1d30b33e19e2ecc5b2ecd9c6c247ca89e815add7572",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 7,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 3,
+      "sha256_utf8_record_without_newline": "2ab8226660107f368b8a2d3f00099b849192309c94d44de0f95fc1dc9cad5635",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 23,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 4,
+      "sha256_utf8_record_without_newline": "7db415a13d8123e65f1059adfc7bb8851b0761cb527ecdd49fd3406052d7d4a3",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 5,
+      "sha256_utf8_record_without_newline": "018136ac96a718c529bbea379a86d67269f4bc9629f0638f298ebb1fa23026a7",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 6,
+      "sha256_utf8_record_without_newline": "2d93b93ae7b726da5be93164a74f3044db592cf97ee27d6c59a3a565e9bbacf5",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 7,
+      "sha256_utf8_record_without_newline": "b104c1cac5faccb31cc6bb54caa5f2bfcdfd690c1d6d9170f0591d7482cc360b",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 22,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 8,
+      "sha256_utf8_record_without_newline": "6d5347841bb56c0eceb29a6ffe6b54828d05d712371baafaa94fe564dda7cf93",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 9,
+      "sha256_utf8_record_without_newline": "a2572b116ab5f1a67fb03583ccd150a0e4541e69a1f19cdbd1a8f5de1dd481b6",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 10,
+      "sha256_utf8_record_without_newline": "03001de5039a61e1c4114fcb5f6c9c17f2de3c948c305106c8e27c4e9f8729e9",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 11,
+      "sha256_utf8_record_without_newline": "da2ec508f5a6cc6ca2996f7cfca7b3a6e72f261eb73bc97909d0047959813b41",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 19,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 12,
+      "sha256_utf8_record_without_newline": "8d8cb313454394a06f1158caafbb26e121d5c17fe07b330dff7e4f2f48a500c9",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 13,
+      "sha256_utf8_record_without_newline": "d5405954b4d23d8c693ba5ed538d405a2a73ceb239e933aad1185485adc57bd7",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 14,
+      "sha256_utf8_record_without_newline": "bf897444eed2b86fc7175ded86eb23f04e7ab427a6b6d7f4bf602c190aaef26e",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 15,
+      "sha256_utf8_record_without_newline": "837ced8f83b960d8aae5928ff6ee07a0c38d7394b62aea95b64692fcb9710792",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 20,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 16,
+      "sha256_utf8_record_without_newline": "0a69e16825c875af8e6454f2fd82094aea424f3f352231ca146f293e2415ecb3",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 17,
+      "sha256_utf8_record_without_newline": "4c7c0688a27eb49b5404e8d27ab7a594851b3f42ca91547124dd7672ab3cd3eb",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 10,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 18,
+      "sha256_utf8_record_without_newline": "384038d48cfa9c24bd0c541beb2499a65c6a591287a55f9484425c6719f07731",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 11,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 19,
+      "sha256_utf8_record_without_newline": "34ffec1bf976ee71623d4802c848227e22d5e7c42647377d1f2065950a5558a0",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 37,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 20,
+      "sha256_utf8_record_without_newline": "a3054224bbdfec11a95405bb468da7c24c21da49e352c3b14b0504c260963389",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 37,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 37,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 21,
+      "sha256_utf8_record_without_newline": "3e19731ce2af75a454cf2d7bd688576ab30e2e28bd8d816001e3f935b7441294",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 37,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 37,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 22,
+      "sha256_utf8_record_without_newline": "4e9be86f23a1a286f8ed0107a22d593cfad90093ed59c9b8315101aaf09fddeb",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 4,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 23,
+      "sha256_utf8_record_without_newline": "37f003ec89007c99066e2ac321087f348f3af2c82985dd9e200b482b39dee185",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 1,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 24,
+      "sha256_utf8_record_without_newline": "96df24c846556e93fe02d800b031a5a510780c4ccf5b197bbf1b65680f4e5ced",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 13,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 25,
+      "sha256_utf8_record_without_newline": "d2cf9131458323b5facd2bc92d3981953a31a86c1f8f362e8321d9debd13e9a8",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 26,
+      "sha256_utf8_record_without_newline": "f392f8dca6c00162e6d48c52d5d0211122f6d734665c69eea88c4a25f92ef7b7",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 27,
+      "sha256_utf8_record_without_newline": "93adcc3e3c962cfeef72e023882225acecc3a80ca2bab831c453563ced3fd7e7",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 28,
+      "sha256_utf8_record_without_newline": "867d657a7d1338b3b7ebac377db97ab5c2ff1e24a2373985952d936825e8f626",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 28,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 29,
+      "sha256_utf8_record_without_newline": "55b3bc3680052c2a5c434c489bc95b36a18fd5cfc850f02e62dfdb5b0ab79e15",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 44,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 44,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 30,
+      "sha256_utf8_record_without_newline": "a03531a380a1746836cdd9c631f65a3693a1af85a656af16fce513e4df3723d1",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 43,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 43,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 31,
+      "sha256_utf8_record_without_newline": "2ee60744b1c8fbbb726734d2b61450eeff8d958cee473071332266a3072ae8d8",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 43,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 43,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 32,
+      "sha256_utf8_record_without_newline": "68c8c5f185bc0715d3a0f1cf3de4ff490469de8437163cf1859f34b8347c6081",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 33,
+      "sha256_utf8_record_without_newline": "1533bf22c7d73d8689349229d3f0982554c05e9333ac02dc8158fdfcd3a76d3c",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 34,
+      "sha256_utf8_record_without_newline": "527d348fadebea23fa38babfbe2338fcda6c9366735b7e7ff7c9921dfc16202e",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 35,
+      "sha256_utf8_record_without_newline": "a2a4b8343c0be6ff36d47676cc9cf02e24d55d316cbf53cef480515e1f2cf018",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 40,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 36,
+      "sha256_utf8_record_without_newline": "e448d162304ee6eb5c4e3537c969d2872172ca4cff52238137b99f5b92934529",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 37,
+      "sha256_utf8_record_without_newline": "a512935bde6444d9741bd27036dd80543b7b0abb8022f329a50ca8ced738d679",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 38,
+      "sha256_utf8_record_without_newline": "c8a3333be56812534a8a3dfa7caf51c2f2c8af41f1fecb2a0a96d5278a15e56a",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 34,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 39,
+      "sha256_utf8_record_without_newline": "fdab8a3c25ad88cfc427806a2940795411377556d4d45d9ae8b40a999d9635b3",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 40,
+      "sha256_utf8_record_without_newline": "b04cf8113ea35687cca1bfc0553dcb6d1d2564acb6d12dc9953f8ff7e32b6270",
+      "sources": [
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 41,
+      "sha256_utf8_record_without_newline": "1c33b6d45479b7297042015930dbe5d2b22d26dd16d6aefcf81c76e68248d085",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 42,
+      "sha256_utf8_record_without_newline": "a3e36c9c1004f8c02be4bdf099cb2f074590be52adbd49610f990e5fc5580234",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 31,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 43,
+      "sha256_utf8_record_without_newline": "1c84ddbbea98c3a2c143dff5037b797fc338a43de8afb0509e9cf8684728afd0",
+      "sources": [
+        {
+          "report": "final-small-placement.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-placement-columns.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "report": "final-small-ply.json",
+          "revision": "baseline",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "certificate_row": 44,
+      "sha256_utf8_record_without_newline": "e84405af02abe6528d1a72ce0e685c7db9e25514b4f13ec3f85ad32f979c1d09",
+      "sources": [
+        {
+          "report": "final-small-ply.json",
+          "revision": "candidate",
+          "group_index": 0,
+          "input_index": 25,
+          "repetitions": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    }
+  ]
+}

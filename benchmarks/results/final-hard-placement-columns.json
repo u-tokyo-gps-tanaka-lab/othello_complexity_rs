@@ -1,0 +1,842 @@
+{
+  "format": "reachability-benchmark-result-v1",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+  "python": "3.12.14",
+  "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+  "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+  "timing_method": "blocking-waitpid-with-separate-deadline",
+  "binary_sha256": {
+    "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+    "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+  },
+  "settings": {
+    "command": "compare",
+    "corpus": "benchmarks/reachability-hard.json",
+    "baseline": "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+    "candidate": "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+    "out": "/tmp/othello-bench-final-hard-placement-columns",
+    "engine": "sat",
+    "strategy": "dfs-move-ordering",
+    "mode": "exact",
+    "encoding": "placement-columns",
+    "repeat": 3,
+    "workers": 1,
+    "timeout": 1,
+    "process_timeout": 600,
+    "group": "^(legal|mutated|random)-|^historical-",
+    "limit": null,
+    "forward_discs": 8,
+    "max_nodes": 10000,
+    "table_size": 100000
+  },
+  "cases": [
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "X--------X-O----XXXOOO---OXOO---OXOOXO--O--OOXO-OOOO--X----O---- b",
+      "kind": "legal-d30",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "X--------X-O----XXXOOO---OXOO---OXXOXO--O--OOXO-OOOO--X----O---- b",
+      "kind": "mutated-d30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "----O---OO--OO----XOOX-XOXXOOO-XO--XOO---X------XO--XO--X-XX--O- b",
+      "kind": "random-d30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-X---OXOX-X---XOOXXX-OXXOOOOO-XOXOXX-X-OOXXX----OXXX-------X- b",
+      "kind": "legal-d40",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-X---OXOX-X---XOOXXX-OXXOOOOO-XOXOOX-X-OOXXX----OXXX-------X- b",
+      "kind": "mutated-d40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-XOO-X-XOOO--X--OOOOX-OXXXOOXX--OOO-O---OXXOX-OO-X-X-OX---XX- w",
+      "kind": "random-d40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-X-O--OOOOO---XXXOOOOXXXOOOOXXXOOOOOXXOOOOXXX---OOOOO-XXXXXX- b",
+      "kind": "legal-d50",
+      "expected": {
+        "exact": true,
+        "symmetry": true,
+        "equivalence": true
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--O-X-O--OOOOO---XXXOOOOXXXOOOOXXXOOOXOXXOOOOXXX---OOOOO-XXXXXX- b",
+      "kind": "mutated-d50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XO-O-OOXOOXOXXXXOO-XO-OOXXOOXX-OXOOOX---XO-XOXXXOO--XXOX-XO--OOO b",
+      "kind": "random-d50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      }
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--XXXXX---O-XX-----XXXOOXXXOOXOOOOOXO-OOOOO---XX-O-O--X--XO----- b",
+      "kind": "historical-lp-survivor-band30",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 210
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOOXXXOOXOX--OXO-XXXX-XO--OOXXXOX--XOO-OOOOXXOXO-OOXOX-OXXO---X- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 209
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "-XXX--OXOOOO-OXOOOXXOO---O-OXO--OOXOXO--OOXXXOXOOOO-XXXX-X--XX-- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 121
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OX-OX-XOXOXXO-OOX-XOOOOO-XXOXX-OOXOXOOXOO-X-XX-OXOX-XXXXX-----O- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 457
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOXO-O-XXOX-XOXOOOO-OO-X-XOXOOOX-XOXXO-OOOX-O--OXXXX---OX-X-X--- b",
+      "kind": "historical-lp-survivor-band40",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 388
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XXX-XXXXOXXXOX-O-XXOXXOOOXOXOOO---XXXO-XOOXX-OXOOXXOX-OOOXOOOO-O b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 303
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "XOX-XX-XXXOOOOXOXO-XOOX-X-XXO-OOX-OXXOXOOOOXOOO-XXOXOOOX-OXO--O- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 51
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "OOOOXOO--O-O-XOOOOXOO-XX-O-XX-XOXX-XOOOOXOOX--OXOXOOXOOXXXX-XOO- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 9
+    },
+    {
+      "start": "---------------------------OX------XO--------------------------- b",
+      "goal": "--XOOXXOOXXX-OOXOOXXOOX-XXXOOO-OXOXXOXX-X-OXOXX-XO-OOXOO-XXXOO-- b",
+      "kind": "historical-lp-survivor-band50",
+      "expected": {
+        "exact": null,
+        "symmetry": null,
+        "equivalence": null
+      },
+      "historical_source_line": 472
+    }
+  ],
+  "skipped_noninitial_cases": 0,
+  "runs": [
+    {
+      "revision": "baseline",
+      "repetition": 1,
+      "groups": [
+        {
+          "elapsed_seconds": 16.32683083899974,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.421007,
+          "solve_seconds_sum": 15.730076,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/1-baseline/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.32683083899974,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    },
+    {
+      "revision": "candidate",
+      "repetition": 1,
+      "groups": [
+        {
+          "elapsed_seconds": 16.089649721998285,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.391443,
+          "solve_seconds_sum": 15.523607,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/1-candidate/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.089649721998285,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    },
+    {
+      "revision": "candidate",
+      "repetition": 2,
+      "groups": [
+        {
+          "elapsed_seconds": 16.176336774999072,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.423965,
+          "solve_seconds_sum": 15.557077,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/2-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/2-candidate/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.176336774999072,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    },
+    {
+      "revision": "baseline",
+      "repetition": 2,
+      "groups": [
+        {
+          "elapsed_seconds": 16.404421592997096,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.397601,
+          "solve_seconds_sum": 15.821062,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/2-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/2-baseline/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.404421592997096,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    },
+    {
+      "revision": "baseline",
+      "repetition": 3,
+      "groups": [
+        {
+          "elapsed_seconds": 16.416822660001344,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.390034,
+          "solve_seconds_sum": 15.845581000000001,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/3-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/3-baseline/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.416822660001344,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    },
+    {
+      "revision": "candidate",
+      "repetition": 3,
+      "groups": [
+        {
+          "elapsed_seconds": 16.06185726900003,
+          "statuses": [
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "NG",
+            "NG",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN",
+            "UNKNOWN"
+          ],
+          "verified_records": 0,
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.399699,
+          "solve_seconds_sum": 15.456137,
+          "nodes": 0,
+          "node_counts": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "command": [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/3-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/3-candidate/0"
+          ]
+        }
+      ],
+      "elapsed_seconds": 16.06185726900003,
+      "statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "NG",
+        "NG",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "counts": {
+        "UNKNOWN": 14,
+        "NG": 4
+      }
+    }
+  ],
+  "summary": {
+    "median_seconds": {
+      "baseline": 16.404421592997096,
+      "candidate": 16.089649721998285
+    },
+    "baseline_over_candidate": 1.0195636248419035,
+    "transitions_by_repeat": [
+      {
+        "UNKNOWN->UNKNOWN": 14,
+        "NG->NG": 4
+      },
+      {
+        "UNKNOWN->UNKNOWN": 14,
+        "NG->NG": 4
+      },
+      {
+        "UNKNOWN->UNKNOWN": 14,
+        "NG->NG": 4
+      }
+    ],
+    "ok_ng_contradictions": 0
+  }
+}

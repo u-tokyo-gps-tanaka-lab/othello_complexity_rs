@@ -1,0 +1,326 @@
+   Compiling othello_complexity_rs v1.0.0 (/workspace/scratch/f5030692e002/othello_complexity_rs)
+    Finished `release` profile [optimized] target(s) in 1m 23s
+     Running unittests src/lib.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/othello_complexity_rs-6d7f73528b0f3564)
+
+running 101 tests
+test filters::flip_sat::tests::test_add_transitivity ... ok
+test filters::flip_sat::tests::test_add_antisymmetry ... ok
+test filters::flip_sat::tests::test_at_least_one ... ok
+test filters::flip_sat::tests::test_at_most_one ... ok
+test filters::flip_sat::tests::test_board_info_final_color ... ok
+test filters::flip_sat::tests::test_board_info_initial ... ok
+test filters::flip_sat::tests::test_board_info_validation ... ok
+test filters::flip_sat::tests::test_exactly_one ... ok
+test filters::flip_sat::tests::test_flip_id ... ok
+test filters::flip_sat::tests::test_implies ... ok
+test filters::flip_sat::tests::test_implies_all ... ok
+test filters::flip_sat::tests::unsat_interruption_and_solver_errors_are_distinct ... ok
+test filters::layer_sat::tests::candidate_aggregation_preserves_unknown_and_errors ... ok
+test filters::layer_sat::tests::action_counter_has_exactly_the_at_most_one_projections ... ok
+test filters::layer_sat::tests::candidate_sat_after_unknown_is_verified_and_wins ... ok
+test filters::layer_sat::tests::corrupt_model_layers_and_endpoint_are_execution_errors ... ok
+test filters::layer_sat::tests::selected_ray_gates_are_shared_by_all_captured_stones ... ok
+test filters::layer_sat::tests::solver_timeout_is_unknown ... ok
+test filters::layer_sat::tests::target_occupancy_pruning_keeps_legality_outside_the_goal ... ok
+test filters::layer_sat::tests::target_occupancy_pruning_leaves_full_occupancy_cnf_unchanged ... ok
+test filters::layer_sat::tests::target_occupancy_pruning_reduces_cnf_without_zero_literals ... ok
+test filters::linear_programming::tests::a_highs_status_without_a_certificate_never_rejects ... ok
+test filters::linear_programming::tests::binary_conversion_preserves_subnormals_signs_and_large_integers ... ok
+test filters::linear_programming::tests::exact_certificates_handle_inequalities_equalities_and_box_bounds ... ok
+test filters::linear_programming::tests::feasible_boxes_and_wrong_signs_never_certify_infeasibility ... ok
+test filters::linear_programming::tests::highs_rejection_requires_an_actual_exact_certificate ... ok
+test filters::linear_programming::tests::malformed_or_nonintegral_certificate_inputs_fail_closed ... ok
+test filters::layer_sat::tests::occupied_source_pruning_preserves_late_start_passes_and_reduces_cnf ... ok
+test filters::occupancy::tests::occupancy_order_matches_naive_random ... ok
+test filters::placement_sat::tests::exactly_one_counter_has_exact_projections_with_constants ... ok
+test filters::placement_sat::tests::goal_empty_squares_use_false_constants ... ok
+test filters::placement_sat::tests::placement_columns_preserve_a_legal_history_and_add_explicit_constraints ... ok
+test filters::placement_sat::tests::replay_comparison_rejects_an_incorrect_intermediate_absolute_turn ... ok
+test filters::placement_sat::tests::replay_comparison_rejects_an_incorrect_intermediate_board ... ok
+test filters::placement_sat::tests::target_pruning_keeps_off_target_legal_moves_that_forbid_a_pass ... ok
+test filters::reverse::tests::bounded_geometry_cache_evicts_and_recomputes ... ok
+test filters::reverse::tests::bounded_geometry_cache_keeps_its_limit_under_concurrent_misses ... ok
+test filters::reverse::tests::bounded_geometry_cache_preserves_candidates_for_color_variants ... ok
+test filters::reverse::tests::every_legal_transition_through_eight_discs_retains_its_last_placement ... ok
+test filters::reverse::tests::full_legal_games_retain_last_placements_including_after_passes ... ok
+test filters::reverse::tests::immutable_center_rejects_a_wrong_absolute_color_accepted_by_seg3 ... ok
+test filters::reverse::tests::removable_mask_matches_separate_occupancy_checks ... ok
+test filters::sat::tests::encoding_names_round_trip ... ok
+test filters::sat::tests::zero_placement_decision_accepts_empty_and_forced_pass_witnesses ... ok
+test filters::sat::tests::zero_placement_decision_rejects_other_equal_count_goals ... ok
+test filters::seg3::tests::canflip_retains_every_real_historical_flip_in_complete_games ... ok
+test interval::tests::display_keeps_compute_ci_output_format ... ok
+test interval::tests::even_the_smallest_positive_alpha_has_finite_bounds ... ok
+test interval::tests::extreme_outcomes_obey_the_score_quadratic ... ok
+test interval::tests::invalid_counts_and_significance_are_errors ... ok
+test interval::tests::known_outcomes_and_unknown_envelope_use_the_same_denominator ... ok
+test interval::tests::sample_counts_and_population_size_scale_the_interval ... ok
+test io::tests::action_tokens_preserve_empty_records_and_every_explicit_pass ... ok
+test io::tests::estimate_stage_output_directories_are_rejected_without_touching_files ... ok
+test io::tests::position_files_preserve_order_duplicates_and_physical_error_lines ... ok
+test io::tests::position_input_requires_the_full_valid_position ... ok
+test io::tests::positions_round_trip_without_changing_relative_colors_or_turn ... ok
+test io::tests::records_keep_six_columns_including_empty_actions ... ok
+test io::tests::symmetry_and_matching_identifiers_round_trip_strictly ... ok
+test io::tests::unreadable_text_reports_the_physical_line ... ok
+test othello::position_tests::initial_position_preserves_relative_and_absolute_colors ... ok
+test othello::position_tests::square_symmetries_preserve_relative_colors_and_absolute_turn ... ok
+test record::tests::legal_first_move_swaps_relative_view_and_absolute_turn ... ok
+test record::tests::pass_only_and_leading_middle_trailing_passes_are_explicit ... ok
+test record::tests::records_bind_the_goal_to_the_declared_matching_condition_and_symmetry ... ok
+test record::tests::records_reject_invalid_typed_boards_and_input_numbers ... ok
+test record::tests::replay_rejects_missing_extra_and_terminal_passes ... ok
+test record::tests::zero_actions_allow_equal_positions_including_terminal_positions ... ok
+test search::constraints::tests::forced_pass_and_terminal_suffix_survive_shared_constraints ... ok
+test search::constraints::tests::standard_opening_conditions_do_not_leak_into_custom_starts ... ok
+test search::constraints::tests::standard_opening_lp_does_not_reject_a_custom_start_suffix ... ok
+test filters::occupancy::tests::occupancy_order_matches_naive_random_with_center ... ok
+test search::core::placement_iterator_tests::lazy_placements_match_eager_order_in_full_legal_games ... ok
+test search::core::placement_iterator_tests::lazy_placements_match_eager_order_on_random_and_dense_boards ... ok
+test search::core::placement_iterator_tests::lazy_placements_match_eager_order_through_eight_discs ... ok
+test search::dfs::tests::lazy_dfs_preserves_eager_paths_counts_and_resource_stops ... ok
+test search::dfs::tests::lazy_dfs_preserves_pass_first_and_terminal_paths ... ok
+test search::frontier::tests::actual_forward_frontiers_match_linear_queries ... ok
+test search::frontier::tests::forward_occupancy_can_reject_a_colorless_reachable_occupancy ... ok
+test search::frontier::tests::forward_occupancy_index_filters_and_deduplicates_goal_masks ... ok
+test search::frontier::tests::forward_occupancy_keeps_all_shallow_reachable_ancestors ... ok
+test search::frontier::tests::forward_occupancy_removal_condition_matches_direct_frontier_scan ... ok
+test search::frontier::tests::occupancy_tree_handles_empty_leaf_and_mixed_subfamilies ... ok
+test search::frontier::tests::random_occupancy_trees_match_linear_intersections ... ok
+test search::frontier::tests::shared_frontier_rejects_goal_colors_that_cannot_change ... ok
+test search::frontier::tests::small_families_keep_linear_queries_after_deduplication ... ok
+test search::move_ordering::tests::bitboard_heuristic_preserves_scores_and_edge_boundaries ... ok
+test search::parallel_gbfs::tests::boundary_decisions_precede_zero_and_one_node_limits ... ok
+test search::parallel_gbfs::tests::exact_meetings_precede_heuristic_entries ... ok
+test search::parallel_gbfs::tests::forward_boundary_retains_a_pass_witness ... ok
+test search::parallel_gbfs::tests::opening_child_obeys_registered_node_limits ... ok
+test search::parallel_gbfs::tests::placement_child_registers_its_reverse_pass ... ok
+test search::parallel_gbfs::tests::predecessor_count_matches_legal_playouts ... ok
+test search::parallel_gbfs::tests::predecessor_count_matches_rays_from_every_square ... ok
+test search::parallel_gbfs::tests::predecessor_count_matches_sparse_and_dense_boards ... ok
+test search::parallel_gbfs::tests::pruned_children_do_not_consume_the_node_limit ... ok
+test search::parallel_gbfs::tests::rejected_root_completes_parallel_exhaustion ... ok
+test search::parallel_gbfs::tests::root_reverse_pass_reaches_the_forward_frontier ... ok
+test search::parallel_gbfs::tests::zero_placement_candidates_still_register_a_child_pass ... ok
+test search::run::tests::strategies_select_the_expected_forward_table_mode ... ok
+test search::constraints::tests::zero_placement_state_keeps_its_separately_registered_reverse_pass ... ok
+
+test result: ok. 101 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running unittests src/bin/bench_occupancy_order.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/bench_occupancy_order-b58f397a1a1e5e6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/compute_ci.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/compute_ci-6b0e43191a369366)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/convert_boards.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/convert_boards-bd66bf27333a8c75)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/edge_pattern.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/edge_pattern-ec9471d2c1a00b65)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/estimate.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/estimate-d362fcb77f2b57c2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gen_random_boards.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/gen_random_boards-61cb2d2500bf720a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/random_play.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/random_play-d86331bc2dd0e520)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/reverse_search.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/reverse_search-235baaedcb183626)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/run_filters.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/run_filters-03817be13fc1ea9f)
+
+running 2 tests
+test tests::solver_errors_leave_no_classification_files ... ok
+test tests::an_undetermined_filter_result_is_written_to_ok_with_a_recorded_reason ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/sat_reachability.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/sat_reachability-5a2e7c7838bd0321)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify_record.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/verify_record-a099ba8033458f96)
+
+running 4 tests
+test tests::a_legal_pass_must_be_explicit_and_change_the_absolute_turn ... ok
+test tests::empty_record_preserves_the_absolute_turn ... ok
+test tests::symmetry_query_reports_a_transform_mapping_the_requested_goal_to_the_endpoint ... ok
+test tests::terminal_positions_allow_empty_records_but_no_passes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/vis_occupancy_steps.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/vis_occupancy_steps-3cde77f98e0187ac)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/edge_model_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/edge_model_test-8460717629856d1c)
+
+running 1 test
+test edge_filters_match_the_independent_line_game_for_all_lengths_and_configurations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/estimate_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/estimate_test-b37a9f5a609b4496)
+
+running 30 tests
+test all_filter_ng_rows_produce_empty_sat_outputs ... ok
+test all_stages_write_to_existing_directories_and_preserve_unrelated_files ... ok
+test all_stages_reject_regular_file_outputs_without_modifying_them ... ok
+test converted_absolute_samples_use_only_accepted_rows_without_hash_checks ... ok
+test converted_methods_cannot_describe_the_whole_class_population ... ok
+test black_turn_d3_is_exact_ng_but_equivalence_ok_in_sat ... ok
+test duplicate_sample_rows_keep_their_weight_for_three_populations ... ok
+test external_bfs_resumes_only_the_same_input_and_settings ... ok
+test filter_ng_rows_skip_sat_and_sat_indices_use_lp_input_lines ... ok
+test filter_partitions_reject_missing_reordered_duplicate_overlapping_and_extra_rows ... ok
+test filters_match_the_deduplicated_reference_pipeline_and_write_only_stage_files ... ok
+test invalid_controls_and_empty_samples_fail ... ok
+test invalid_sampling_metadata_is_rejected_by_filters ... ok
+test limited_reverse_can_be_followed_by_sat_or_a_larger_reverse ... ok
+test rereading_revalidates_the_original_sample_files ... ok
+test every_reverse_strategy_proves_known_exact_and_equivalence_positions ... ok
+test rerunning_all_stages_replaces_outputs_with_fresh_run_bytes ... ok
+test reverse_ng_updates_all_duplicate_sample_rows_without_a_record ... ok
+test reverse_summary_has_positive_nodes_for_searched_ok_and_ng_without_search_csv ... ok
+test sample_rows_and_methods_must_match_the_declared_population ... ok
+test saved_sat_unknowns_flow_to_reverse_and_a_different_sat_encoding ... ok
+test sat_stage_names_for_every_encoding_are_reread ... ok
+test solver_record_goals_must_match_their_indexed_input_lines ... ok
+test solver_records_reject_a_valid_record_for_a_non_ok_input ... ok
+test solver_partitions_are_unordered_sets_but_reject_invalid_membership ... ok
+test stage_chains_reject_cycles_missing_summaries_and_missing_directories ... ok
+test stages_reject_input_directories_as_outputs_without_modifying_them ... ok
+test solver_records_reject_invalid_coverage_or_contents ... ok
+test summary_rejects_an_unknown_sat_encoding ... ok
+test summaries_reject_unknown_stages_and_invalid_from_or_sample_dir_keys ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/filters_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/filters_test-ea3cadcdf48dba5b)
+
+running 3 tests
+test every_independently_reachable_position_through_seven_discs_passes_every_filter ... ok
+test relaxed_conditions_are_invariant_even_for_inputs_they_reject ... ok
+test a_complete_independent_game_including_passes_and_terminal_passes_every_filter ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.36s
+
+     Running tests/reverse_filters_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/reverse_filters_test-f2889eea59b498b8)
+
+running 5 tests
+test predecessor_enumeration_matches_independent_legal_edges ... ok
+test predecessor_enumeration_preserves_forced_pass_and_terminal_turn ... ok
+test searches_match_all_seven_disc_oracle_queries_from_four_disc_boundary ... ok
+test targeted_tables_and_parallel_searches_match_representative_oracle_queries ... ok
+test dfs_and_gbfs_match_all_eight_disc_oracle_queries ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/sampling_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/sampling_test-509abebc308a0475)
+
+running 11 tests
+test changing_the_suffix_exchanges_absolute_colors_together_with_the_turn ... ok
+test create_output_dir_removes_sampling_record_and_preserves_other_files ... ok
+test each_orbit_size_has_exactly_m_accepted_draws_out_of_sixteen ... ok
+test exhaustive_two_by_two_model_gives_each_absolute_candidate_the_same_rational_mass ... ok
+test fixed_disc_sampling_has_its_own_population_and_keeps_both_turns ... ok
+test population_metadata_identifies_the_sampled_set_exactly ... ok
+test class_population_matches_independent_small_board_enumeration ... ok
+test population_sizes_include_self_symmetric_classes_and_partition_by_disc_count ... ok
+test ranks_use_the_declared_low_turn_bit_and_cell_radices ... ok
+test selected_population_sampling_preserves_disc_count_and_reproducibility ... ok
+test representative_rejection_gives_equal_mass_to_self_symmetric_classes ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/sat_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/sat_test-e426c9e6f4b4048f)
+
+running 20 tests
+test cnf_dump_only_writes_every_candidate_without_classifying ... ok
+test full_and_nonfull_terminal_positions_allow_only_zero_length ... ok
+test independent_initial_rules_and_geometric_transforms_match_the_contract ... ok
+test independent_start_and_goal_images_equal_fixed_start_orbit_query ... ok
+test invalid_input_is_rejected_before_creating_cnf_output ... ok
+test invalid_positions_and_callback_failures_are_execution_errors ... ok
+test known_single_pass_is_legal_in_both_absolute_colors ... ok
+test leading_middle_trailing_and_only_passes_have_verified_sat_records ... ok
+test one_placement_can_require_both_a_leading_and_a_trailing_pass ... ok
+test ordinary_cnf_is_nontrivial_for_every_encoding ... ok
+test parallel_duplicate_queries_each_keep_their_own_input_index ... ok
+test pass_only_reachable_cnf_is_empty_for_every_encoding ... ok
+test record_roundtrips_preserve_pass_tokens_and_reject_illegal_steps ... ok
+test recorded_symmetry_must_be_allowed_and_select_the_actual_endpoint ... ok
+test simultaneous_geometry_and_absolute_color_exchange_preserve_reachability ... ok
+test stone_count_cannot_decrease_and_opening_move_changes_turn ... ok
+test trivially_unreachable_cnf_contains_one_empty_clause_for_every_encoding ... ok
+test zero_length_and_reflected_initial_queries_preserve_absolute_turn ... ok
+test zero_placement_reachable_cnf_is_empty_for_every_encoding ... ok
+test all_seven_disc_targets_and_both_turns_agree_with_independent_enumeration ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/sat_variants_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/sat_variants_test-49a243b08c087e20)
+
+running 6 tests
+test a_single_placement_can_require_both_leading_and_trailing_passes ... ok
+test leading_middle_trailing_passes_and_terminal_turns_are_preserved ... ok
+test representative_seven_and_eight_disc_queries_match_independent_enumeration ... ok
+test target_mask_must_preserve_legal_moves_outside_the_goal_when_checking_passes ... ok
+test zero_placements_allow_identity_or_one_legal_pass_only ... ok
+test all_six_disc_queries_match_independent_enumeration ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/virtual_edges_test.rs (/workspace/scratch/f5030692e002/othello_target/release/deps/virtual_edges_test-813a4793933833d6)
+
+running 9 tests
+test alternating_line_through_initial_discs_can_be_reached ... ok
+test alternating_line_away_from_initial_discs_can_be_reached ... ok
+test edge_pipeline_classifies_virtual_patterns_and_legal_positions ... ok
+test each_transverse_capture_axis_must_be_blocked ... ok
+test forbidden_words_on_lines_without_transverse_captures_are_rejected ... ok
+test every_independently_reachable_position_through_nine_discs_passes ... ok
+test patterns_cannot_continue_across_a_board_boundary ... ok
+test short_words_and_words_interrupted_by_empty_squares_pass ... ok
+test independent_complete_games_including_passes_and_terminals_pass ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests othello_complexity_rs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

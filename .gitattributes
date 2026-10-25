@@ -1,0 +1,4 @@
+benchmarks/results/* linguist-generated=true
+benchmarks/measurements.json linguist-generated=true
+benchmarks/reachability-*.json linguist-generated=true
+benchmarks/validation.json linguist-generated=true

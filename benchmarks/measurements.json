@@ -1,0 +1,3835 @@
+{
+  "format": "reachability-measurements-v1",
+  "status": "complete; final official measurements use the delivered code; exploratory results are diagnostic",
+  "baseline_commit": "9208dbd",
+  "machine": {
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "python": "3.12.14",
+    "rust_toolchain": "1.99.0",
+    "logical_cpus": 9,
+    "cpu_quota": "800000 100000",
+    "allowed_cpus": 9,
+    "cpu_model": "AMD EPYC 9V74 80-Core Processor"
+  },
+  "method": {
+    "build": "release; final baseline and candidate executable SHA-256 hashes checked distinct",
+    "order": "alternate baseline/candidate order over repetitions; one experiment at a time",
+    "timing": "corrected runs block on child exit and use a separate timer for the emergency deadline",
+    "sat_timeout": "per exact endpoint; CNF generation and loading are outside the solver deadline",
+    "unknown": "reported separately; never treated as an unreachability proof",
+    "correctness": "all returned OK certificates replayed by independent coordinate-based Python rules; known oracle labels checked; decided statuses cross-checked across encodings, engines, revisions and repetitions",
+    "limits": "measurements concern these corpora and budgets; short runs can be noisy; time-limited timings are censored; tests and differential checks do not constitute a general proof of every UNSAT result"
+  },
+  "historical_corpus": {
+    "source": "result/thesis_layer_sat/lp_OK.txt",
+    "source_sha256": "c0a2fd25c28616b60b92979f171eafb081a71f8135a9010c9aaf8bea17c42b70",
+    "count": 567,
+    "recipe": "append one space and b to each 64-character relative board, keeping order and multiplicity",
+    "meaning": "the appended Black turn defines these benchmark queries; no historical reachability label is imported; LP-filter passage is not proof of reachability"
+  },
+  "cross_experiment_check": {
+    "key": [
+      "start",
+      "goal",
+      "mode"
+    ],
+    "unknown_ignored_only_for_contradiction": true,
+    "final_official": {
+      "reports": 7,
+      "runs_checked": 42,
+      "input_occurrences": 7830,
+      "unique_decided_queries": 465,
+      "ok_ng_contradictions": 0
+    },
+    "final_including_pilot": {
+      "reports": 8,
+      "runs_checked": 44,
+      "input_occurrences": 8964,
+      "unique_decided_queries": 465,
+      "ok_ng_contradictions": 0
+    },
+    "all_including_diagnostics_and_ablations": {
+      "reports": 23,
+      "runs_checked": 106,
+      "input_occurrences": 15282,
+      "unique_decided_queries": 465,
+      "ok_ng_contradictions": 0
+    },
+    "lp_excluded": "LP passage is not proof of reachability, so LP filter statuses do not enter the OK/NG cross-check."
+  },
+  "experiments": [
+    {
+      "id": "hard-dfs",
+      "role": "diagnostic-short-duration",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "065621146cbe86e6587af5039a042e1f4efc8aa4696dc8a69ff742b9f39cb9bf"
+      },
+      "harness_sha256": "4f017cbb70c60fb11272e8d1a008df467ae4f75eda6f450410592001d080fa74",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-hard-dfs/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs",
+            "/tmp/othello-bench-hard-dfs/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-hard-dfs/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs",
+            "/tmp/othello-bench-hard-dfs/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-hard-dfs/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 0.09851497300041956,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 0.09329880899895215,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 0.06919036299950676,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 0.0798082239998621,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 0.08934669200243661,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 0.09890749899932416,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 0.08934669200243661,
+          "candidate": 0.09329880899895215
+        },
+        "baseline_over_candidate": 0.957640220288772,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          },
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          },
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true,
+        true,
+        true
+      ],
+      "records_equal_by_repeat": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "hard-dfs-move-ordering",
+      "role": "diagnostic-before-final-build",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "065621146cbe86e6587af5039a042e1f4efc8aa4696dc8a69ff742b9f39cb9bf"
+      },
+      "harness_sha256": "4f017cbb70c60fb11272e8d1a008df467ae4f75eda6f450410592001d080fa74",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-hard-dfs-move-ordering/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-hard-dfs-move-ordering/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-hard-dfs-move-ordering/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-hard-dfs-move-ordering/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-hard-dfs-move-ordering/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 0.11211182499755523,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 0.06799606799904723,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 0.06697553599951789,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 0.12275024300106452,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 0.11574658500103396,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 0.06935408400022425,
+          "counts": {
+            "OK": 0,
+            "NG": 6,
+            "UNKNOWN": 12
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 128346,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 0.11574658500103396,
+          "candidate": 0.06799606799904723
+        },
+        "baseline_over_candidate": 1.7022540921433256,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          },
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          },
+          {
+            "UNKNOWN->UNKNOWN": 12,
+            "NG->NG": 6
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true,
+        true,
+        true
+      ],
+      "records_equal_by_repeat": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "hard-placement",
+      "role": "diagnostic-before-placement-ablation",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "3c131e631210d00a4c09c378ccf10ac359382de93d9cbe72c8711c50c8d62d07"
+      },
+      "harness_sha256": null,
+      "timing_method": "subprocess-wait-timeout-polling-diagnostic",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "placement",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-hard-placement/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-hard-placement/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-hard-placement/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-hard-placement/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-hard-placement/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 17.670217104001495,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1143888,
+          "clauses_sum": 6745158,
+          "build_seconds_sum": 0.441947,
+          "solve_seconds_sum": 17.018271,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 17.217417587002274,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1124123,
+          "clauses_sum": 6591205,
+          "build_seconds_sum": 0.415249,
+          "solve_seconds_sum": 16.60962,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 17.11419384400142,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1124123,
+          "clauses_sum": 6591205,
+          "build_seconds_sum": 0.380172,
+          "solve_seconds_sum": 16.548132,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 17.724993281000934,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1143888,
+          "clauses_sum": 6745158,
+          "build_seconds_sum": 0.429244,
+          "solve_seconds_sum": 17.070337,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 17.621812688998034,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1143888,
+          "clauses_sum": 6745158,
+          "build_seconds_sum": 0.438461,
+          "solve_seconds_sum": 16.966508,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 17.27268323899989,
+          "counts": {
+            "OK": 0,
+            "NG": 2,
+            "UNKNOWN": 16
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1124123,
+          "clauses_sum": 6591205,
+          "build_seconds_sum": 0.45259299999999997,
+          "solve_seconds_sum": 16.645165,
+          "nodes": 0,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 17.670217104001495,
+          "candidate": 17.217417587002274
+        },
+        "baseline_over_candidate": 1.026298921700142,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 16,
+            "NG->NG": 2
+          },
+          {
+            "UNKNOWN->UNKNOWN": 16,
+            "NG->NG": 2
+          },
+          {
+            "UNKNOWN->UNKNOWN": 16,
+            "NG->NG": 2
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "hard-ply",
+      "role": "diagnostic-before-placement-ablation",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "3c131e631210d00a4c09c378ccf10ac359382de93d9cbe72c8711c50c8d62d07"
+      },
+      "harness_sha256": null,
+      "timing_method": "subprocess-wait-timeout-polling-diagnostic",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "ply",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-hard-ply/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-hard-ply/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-hard-ply/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-hard-ply/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-hard-ply/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 20.230188945999544,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.593649,
+          "solve_seconds_sum": 19.028743,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 16.514709989998664,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.49279100000000003,
+          "solve_seconds_sum": 15.545002,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 16.41294808800012,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.403331,
+          "solve_seconds_sum": 15.517204,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 20.03656804399725,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.579236,
+          "solve_seconds_sum": 18.876716,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 20.428982292,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.505099,
+          "solve_seconds_sum": 19.34422,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 16.620271887000854,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.484776,
+          "solve_seconds_sum": 15.633276,
+          "nodes": 0,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 20.230188945999544,
+          "candidate": 16.514709989998664
+        },
+        "baseline_over_candidate": 1.2249799698723731,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          },
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          },
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "lp-survivors-dfs-move-ordering",
+      "role": "diagnostic-before-final-build",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 567,
+      "corpus": "/tmp/othello-lp-survivors-positions.txt",
+      "corpus_sha256": "8518240521dd5b52410b2bc16326a9a9ac23e091fecc2a71721ca6ec6dfc29aa",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "065621146cbe86e6587af5039a042e1f4efc8aa4696dc8a69ff742b9f39cb9bf"
+      },
+      "harness_sha256": "4f017cbb70c60fb11272e8d1a008df467ae4f75eda6f450410592001d080fa74",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": ".*",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-lp-survivors-dfs-move-ordering/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 3.3992713290026586,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 2.1418291310001223,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 1.9772585230020923,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 3.3251234639974427,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 3.3236143790018104,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 2.051615287997265,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.3251234639974427,
+          "candidate": 2.051615287997265
+        },
+        "baseline_over_candidate": 1.6207343956982032,
+        "transitions_by_repeat": [
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          },
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          },
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true,
+        true,
+        true
+      ],
+      "records_equal_by_repeat": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "lp-survivors-dfs-move-ordering-pilot",
+      "role": "diagnostic-before-final-build",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 567,
+      "corpus": "/tmp/othello-lp-survivors-positions.txt",
+      "corpus_sha256": "8518240521dd5b52410b2bc16326a9a9ac23e091fecc2a71721ca6ec6dfc29aa",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "065621146cbe86e6587af5039a042e1f4efc8aa4696dc8a69ff742b9f39cb9bf"
+      },
+      "harness_sha256": "4f017cbb70c60fb11272e8d1a008df467ae4f75eda6f450410592001d080fa74",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 1,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": ".*",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-lp-survivors-dfs-move-ordering-pilot/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering-pilot/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering-pilot/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering-pilot/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-lp-survivors-dfs-move-ordering-pilot/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 3.3357970530014427,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 2.2675784479979484,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.3357970530014427,
+          "candidate": 2.2675784479979484
+        },
+        "baseline_over_candidate": 1.471083417619632,
+        "transitions_by_repeat": [
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true
+      ],
+      "records_equal_by_repeat": [
+        true
+      ]
+    },
+    {
+      "id": "small-placement",
+      "role": "diagnostic-before-placement-ablation",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "3c131e631210d00a4c09c378ccf10ac359382de93d9cbe72c8711c50c8d62d07"
+      },
+      "harness_sha256": null,
+      "timing_method": "subprocess-wait-timeout-polling-diagnostic",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "placement",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-small-placement/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-placement/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-placement/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-placement/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-placement/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 3.1236747069997364,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.067649,
+          "solve_seconds_sum": 2.994161,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 3.7775767159982934,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 197814,
+          "clauses_sum": 914422,
+          "build_seconds_sum": 0.056143,
+          "solve_seconds_sum": 3.6943330000000003,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 3.978338564000296,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 197814,
+          "clauses_sum": 914422,
+          "build_seconds_sum": 0.061528,
+          "solve_seconds_sum": 3.851381,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 3.0733304240020516,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.060308,
+          "solve_seconds_sum": 2.976856,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 2.972723506998591,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.058495,
+          "solve_seconds_sum": 2.850351,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 4.177888422000251,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 197814,
+          "clauses_sum": 914422,
+          "build_seconds_sum": 0.064841,
+          "solve_seconds_sum": 4.040387,
+          "nodes": 0,
+          "verified_records": 18
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.0733304240020516,
+          "candidate": 3.978338564000296
+        },
+        "baseline_over_candidate": 0.7725160577866351,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "small-placement-columns",
+      "role": "diagnostic-before-placement-ablation",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "3c131e631210d00a4c09c378ccf10ac359382de93d9cbe72c8711c50c8d62d07"
+      },
+      "harness_sha256": null,
+      "timing_method": "subprocess-wait-timeout-polling-diagnostic",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-small-placement-columns/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-placement-columns/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-placement-columns/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-placement-columns/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-placement-columns/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 4.02953017499749,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.066411,
+          "solve_seconds_sum": 3.919866,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 3.6269450779982435,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 205086,
+          "clauses_sum": 936490,
+          "build_seconds_sum": 0.057531,
+          "solve_seconds_sum": 3.511567,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 3.4238723409980594,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 205086,
+          "clauses_sum": 936490,
+          "build_seconds_sum": 0.06017,
+          "solve_seconds_sum": 3.298012,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 3.2241218210001534,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.058508,
+          "solve_seconds_sum": 3.125416,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 3.2231311229988933,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.058459,
+          "solve_seconds_sum": 3.10128,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 3.377011123000557,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 205086,
+          "clauses_sum": 936490,
+          "build_seconds_sum": 0.054329,
+          "solve_seconds_sum": 3.29062,
+          "nodes": 0,
+          "verified_records": 18
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.2241218210001534,
+          "candidate": 3.4238723409980594
+        },
+        "baseline_over_candidate": 0.941659472052723,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "small-ply",
+      "role": "diagnostic-before-placement-ablation",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "2bcbcf6",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "3c131e631210d00a4c09c378ccf10ac359382de93d9cbe72c8711c50c8d62d07"
+      },
+      "harness_sha256": null,
+      "timing_method": "subprocess-wait-timeout-polling-diagnostic",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs",
+        "mode": "exact",
+        "encoding": "ply",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "/tmp/othello-bench-small-ply/results.json",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-ply/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-ply/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-small-ply/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-small-ply/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 5.7814676689995395,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.104824,
+          "solve_seconds_sum": 5.561279,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 5.228949324999121,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.095125,
+          "solve_seconds_sum": 5.041478,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 5.330845151001995,
+          "counts": {
+            "OK": 16,
+            "NG": 26,
+            "UNKNOWN": 3
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.095693,
+          "solve_seconds_sum": 5.117608,
+          "nodes": 0,
+          "verified_records": 16
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 5.830979585000023,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.099459,
+          "solve_seconds_sum": 5.604558,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 5.831858560999535,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.107881,
+          "solve_seconds_sum": 5.614018,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 5.482773413001269,
+          "counts": {
+            "OK": 16,
+            "NG": 26,
+            "UNKNOWN": 3
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.108258,
+          "solve_seconds_sum": 5.275442,
+          "nodes": 0,
+          "verified_records": 16
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 5.830979585000023,
+          "candidate": 5.330845151001995
+        },
+        "baseline_over_candidate": 1.0938189761343982,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 17,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 2
+          },
+          {
+            "OK->OK": 16,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1,
+            "UNKNOWN->UNKNOWN": 2
+          },
+          {
+            "OK->OK": 16,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1,
+            "UNKNOWN->UNKNOWN": 2
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "final-hard-placement-columns",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-hard-placement-columns.json",
+      "raw_results_sha256": "ce0f587ba3d4ccac253bba592db1652a0474938f60b095dbd8930ceb11690242",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-placement-columns/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-placement-columns/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 16.32683083899974,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.421007,
+          "solve_seconds_sum": 15.730076,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 16.089649721998285,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.391443,
+          "solve_seconds_sum": 15.523607,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 16.176336774999072,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.423965,
+          "solve_seconds_sum": 15.557077,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 16.404421592997096,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.397601,
+          "solve_seconds_sum": 15.821062,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 16.416822660001344,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.390034,
+          "solve_seconds_sum": 15.845581000000001,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 16.06185726900003,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 1172585,
+          "clauses_sum": 6861392,
+          "build_seconds_sum": 0.399699,
+          "solve_seconds_sum": 15.456137,
+          "nodes": 0,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 16.404421592997096,
+          "candidate": 16.089649721998285
+        },
+        "baseline_over_candidate": 1.0195636248419035,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 14,
+            "NG->NG": 4
+          },
+          {
+            "UNKNOWN->UNKNOWN": 14,
+            "NG->NG": 4
+          },
+          {
+            "UNKNOWN->UNKNOWN": 14,
+            "NG->NG": 4
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "final-hard-ply",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 18,
+      "corpus": "benchmarks/reachability-hard.json",
+      "corpus_sha256": "2d7acccdfc8f34c4970afd726ca2b59054f3b178c8e8877781b944301464812b",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "ply",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-hard-ply.json",
+      "raw_results_sha256": "11e626020c83835eba9bbdf30d5d0b13348cd2706b6e770133075915f7043c8d",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-ply/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-ply/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-hard-ply/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-hard-ply/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 20.065153865001776,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.592233,
+          "solve_seconds_sum": 18.930244000000002,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 16.51763228100026,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.480964,
+          "solve_seconds_sum": 15.596356,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 16.575306247999833,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.439791,
+          "solve_seconds_sum": 15.681648000000001,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 20.041969194000558,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.599995,
+          "solve_seconds_sum": 18.869827,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 19.833874815001764,
+          "counts": {
+            "OK": 0,
+            "NG": 4,
+            "UNKNOWN": 14
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2947016,
+          "clauses_sum": 17919960,
+          "build_seconds_sum": 0.592478,
+          "solve_seconds_sum": 18.667888,
+          "nodes": 0,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 16.761641664001218,
+          "counts": {
+            "OK": 0,
+            "NG": 5,
+            "UNKNOWN": 13
+          },
+          "candidate_calls": 18,
+          "variables_sum": 2244510,
+          "clauses_sum": 13634408,
+          "build_seconds_sum": 0.466008,
+          "solve_seconds_sum": 15.85206,
+          "nodes": 0,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 20.041969194000558,
+          "candidate": 16.575306247999833
+        },
+        "baseline_over_candidate": 1.2091462380321962,
+        "transitions_by_repeat": [
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          },
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          },
+          {
+            "UNKNOWN->UNKNOWN": 13,
+            "NG->NG": 4,
+            "UNKNOWN->NG": 1
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "final-historical-reverse-equivalence-pilot",
+      "role": "final-pilot",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 567,
+      "corpus": "/tmp/othello-lp-survivors-positions.txt",
+      "corpus_sha256": "8518240521dd5b52410b2bc16326a9a9ac23e091fecc2a71721ca6ec6dfc29aa",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "4e8e07710c5d078a0d4226d6de22cb74e660d83b3a7da612f89984d07e68223c"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "equivalence",
+        "encoding": "placement-columns",
+        "repeat": 1,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": ".*",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-historical-reverse-equivalence-pilot.json",
+      "raw_results_sha256": "3f457ecfbdc9353edf27411fe5fb45a455fbf962103d0452f12438f8765d1f09",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-equivalence-pilot/1-baseline/0/input.txt",
+            "--mode",
+            "equivalence",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-equivalence-pilot/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-equivalence-pilot/1-candidate/0/input.txt",
+            "--mode",
+            "equivalence",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-equivalence-pilot/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 14.390554681001959,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 8.619804221998493,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 14.390554681001959,
+          "candidate": 8.619804221998493
+        },
+        "baseline_over_candidate": 1.6694758152715357,
+        "transitions_by_repeat": [
+          {
+            "NG->NG": 207,
+            "UNKNOWN->UNKNOWN": 360
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true
+      ],
+      "records_equal_by_repeat": [
+        true
+      ]
+    },
+    {
+      "id": "final-historical-reverse-equivalence",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 567,
+      "corpus": "/tmp/othello-lp-survivors-positions.txt",
+      "corpus_sha256": "8518240521dd5b52410b2bc16326a9a9ac23e091fecc2a71721ca6ec6dfc29aa",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "4e8e07710c5d078a0d4226d6de22cb74e660d83b3a7da612f89984d07e68223c"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "equivalence",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": ".*",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-historical-reverse-equivalence.json",
+      "raw_results_sha256": "680f9a85f61a0b46985091ac2eff1279fbcd41ed7919433f6c84e91f3dd23b7e",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-equivalence/1-baseline/0/input.txt",
+            "--mode",
+            "equivalence",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-equivalence/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-equivalence/1-candidate/0/input.txt",
+            "--mode",
+            "equivalence",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-equivalence/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 14.983875730002183,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 8.410931497001002,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 8.642418081999494,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 14.065549836999708,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 13.551810995002597,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 8.144721558001038,
+          "counts": {
+            "OK": 0,
+            "NG": 207,
+            "UNKNOWN": 360
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 15335814,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 14.065549836999708,
+          "candidate": 8.410931497001002
+        },
+        "baseline_over_candidate": 1.6722939477054253,
+        "transitions_by_repeat": [
+          {
+            "NG->NG": 207,
+            "UNKNOWN->UNKNOWN": 360
+          },
+          {
+            "NG->NG": 207,
+            "UNKNOWN->UNKNOWN": 360
+          },
+          {
+            "NG->NG": 207,
+            "UNKNOWN->UNKNOWN": 360
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true,
+        true,
+        true
+      ],
+      "records_equal_by_repeat": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "final-historical-reverse-exact",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 567,
+      "corpus": "/tmp/othello-lp-survivors-positions.txt",
+      "corpus_sha256": "8518240521dd5b52410b2bc16326a9a9ac23e091fecc2a71721ca6ec6dfc29aa",
+      "binary_sha256": {
+        "baseline": "197df5925238682af6770e64b77ddaaada443609a43e0373bedc5c06c7901017",
+        "candidate": "4e8e07710c5d078a0d4226d6de22cb74e660d83b3a7da612f89984d07e68223c"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "reverse",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": ".*",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-historical-reverse-exact.json",
+      "raw_results_sha256": "02999bf1f8ceca36959608891d376351810bbd766c11f3d375c3187e83f40049",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-exact/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-exact/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/reverse_search",
+            "dfs-move-ordering",
+            "/tmp/othello-bench-final-historical-reverse-exact/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "10000",
+            "--out-dir",
+            "/tmp/othello-bench-final-historical-reverse-exact/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 3.6195211890008068,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 2.1012397919985233,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 2.0407704829995055,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 3.6087163539996254,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 3.62196525300169,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 2.2202887539970106,
+          "counts": {
+            "OK": 0,
+            "NG": 209,
+            "UNKNOWN": 358
+          },
+          "candidate_calls": 0,
+          "variables_sum": 0,
+          "clauses_sum": 0,
+          "build_seconds_sum": 0,
+          "solve_seconds_sum": 0,
+          "nodes": 3836882,
+          "verified_records": 0
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.6195211890008068,
+          "candidate": 2.1012397919985233
+        },
+        "baseline_over_candidate": 1.722564555832165,
+        "transitions_by_repeat": [
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          },
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          },
+          {
+            "NG->NG": 209,
+            "UNKNOWN->UNKNOWN": 358
+          }
+        ],
+        "ok_ng_contradictions": 0
+      },
+      "node_counts_equal_by_repeat": [
+        true,
+        true,
+        true
+      ],
+      "records_equal_by_repeat": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "final-small-placement-columns",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement-columns",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-small-placement-columns.json",
+      "raw_results_sha256": "ff42ecc364418e2f54f6d9096de50aaf0d86b5708b9ba9756aa27fd96fbf82c5",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-placement-columns/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-placement-columns/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-placement-columns/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement-columns",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-placement-columns/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 3.42587964699851,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.07005,
+          "solve_seconds_sum": 3.3288539999999998,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 3.48601290499937,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.067328,
+          "solve_seconds_sum": 3.389424,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 3.427320946000691,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.066661,
+          "solve_seconds_sum": 3.3332319999999998,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 3.4133758830030274,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.07088,
+          "solve_seconds_sum": 3.315262,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 3.6812733609986026,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.065556,
+          "solve_seconds_sum": 3.586475,
+          "nodes": 0,
+          "verified_records": 19
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 3.2188594229992304,
+          "counts": {
+            "OK": 19,
+            "NG": 26,
+            "UNKNOWN": 0
+          },
+          "candidate_calls": 45,
+          "variables_sum": 216799,
+          "clauses_sum": 1005841,
+          "build_seconds_sum": 0.06112,
+          "solve_seconds_sum": 3.132973,
+          "nodes": 0,
+          "verified_records": 19
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 3.42587964699851,
+          "candidate": 3.427320946000691
+        },
+        "baseline_over_candidate": 0.9995794677461232,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 19,
+            "NG->NG": 26
+          },
+          {
+            "OK->OK": 19,
+            "NG->NG": 26
+          },
+          {
+            "OK->OK": 19,
+            "NG->NG": 26
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "final-small-placement",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "placement",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-small-placement.json",
+      "raw_results_sha256": "d34637c780b2275cffdb1e5356964d0fcb2cdda9ca831ddcdfb09a1664d1980c",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-placement/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-placement/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-placement/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "placement",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-placement/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 2.970001139998203,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.059614,
+          "solve_seconds_sum": 2.883373,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 2.989373737000278,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.063677,
+          "solve_seconds_sum": 2.895558,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 3.02731305099951,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.065271,
+          "solve_seconds_sum": 2.9358679999999997,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 2.9780162299975927,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.065123,
+          "solve_seconds_sum": 2.888131,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 3.0160193409974454,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.061727000000000004,
+          "solve_seconds_sum": 2.927817,
+          "nodes": 0,
+          "verified_records": 18
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 2.9916072619998886,
+          "counts": {
+            "OK": 18,
+            "NG": 26,
+            "UNKNOWN": 1
+          },
+          "candidate_calls": 45,
+          "variables_sum": 209959,
+          "clauses_sum": 977401,
+          "build_seconds_sum": 0.071816,
+          "solve_seconds_sum": 2.89295,
+          "nodes": 0,
+          "verified_records": 18
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 2.9780162299975927,
+          "candidate": 2.9916072619998886
+        },
+        "baseline_over_candidate": 0.9954569464465031,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          },
+          {
+            "OK->OK": 18,
+            "NG->NG": 26,
+            "UNKNOWN->UNKNOWN": 1
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    },
+    {
+      "id": "final-small-ply",
+      "role": "final-official",
+      "baseline_commit": "9208dbd",
+      "candidate_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+      "candidate_remote_code_commit": "c6a0da3d15835e590aae877ae78705261e78b18d",
+      "cases": 45,
+      "corpus": "benchmarks/reachability-small.json",
+      "corpus_sha256": "495b8b9bf1ad3ceec10b00ddd7363542e15cc5f797a1207b9c08cc4f2bbbcb1a",
+      "binary_sha256": {
+        "baseline": "d1dbb7aa9840c0740640842254c32360ea0af67ab8b8d850af4d4b6095729dba",
+        "candidate": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "harness_sha256": "c7b25f3b9bb4ac83d267f8e53c6a1326d141d81a3bfbd5fde357a22bb075c07c",
+      "timing_method": "blocking-waitpid-with-separate-deadline",
+      "parameters": {
+        "engine": "sat",
+        "strategy": "dfs-move-ordering",
+        "mode": "exact",
+        "encoding": "ply",
+        "repeat": 3,
+        "workers": 1,
+        "timeout": 1,
+        "process_timeout": 600,
+        "group": "^(legal|mutated|random)-|^historical-",
+        "limit": null,
+        "forward_discs": 8,
+        "max_nodes": 10000,
+        "table_size": 100000
+      },
+      "raw_results": "benchmarks/results/final-small-ply.json",
+      "raw_results_sha256": "d0fed46c0a18d750820f2b092d80a8d868b28abc29f9faa8c1fb59268ed86a21",
+      "commands": {
+        "baseline": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/baseline/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-ply/1-baseline/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-ply/1-baseline/0"
+          ]
+        ],
+        "candidate": [
+          [
+            "/workspace/scratch/f5030692e002/bench_bins/candidate/sat_reachability",
+            "--start",
+            "---------------------------OX------XO--------------------------- b",
+            "--goal-file",
+            "/tmp/othello-bench-final-small-ply/1-candidate/0/input.txt",
+            "--mode",
+            "exact",
+            "--encoding",
+            "ply",
+            "--parallel-goals",
+            "1",
+            "--sat-timeout-secs",
+            "1",
+            "--verbose",
+            "--out-dir",
+            "/tmp/othello-bench-final-small-ply/1-candidate/0"
+          ]
+        ]
+      },
+      "runs": [
+        {
+          "revision": "baseline",
+          "repetition": 1,
+          "elapsed_seconds": 5.759902683999826,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.096169,
+          "solve_seconds_sum": 5.570847,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "candidate",
+          "repetition": 1,
+          "elapsed_seconds": 5.409133504999772,
+          "counts": {
+            "OK": 16,
+            "NG": 26,
+            "UNKNOWN": 3
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.109245,
+          "solve_seconds_sum": 5.203968000000001,
+          "nodes": 0,
+          "verified_records": 16
+        },
+        {
+          "revision": "candidate",
+          "repetition": 2,
+          "elapsed_seconds": 5.360313727000175,
+          "counts": {
+            "OK": 16,
+            "NG": 26,
+            "UNKNOWN": 3
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.105431,
+          "solve_seconds_sum": 5.169104,
+          "nodes": 0,
+          "verified_records": 16
+        },
+        {
+          "revision": "baseline",
+          "repetition": 2,
+          "elapsed_seconds": 5.738510993000091,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.101853,
+          "solve_seconds_sum": 5.54907,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "baseline",
+          "repetition": 3,
+          "elapsed_seconds": 5.784153199001594,
+          "counts": {
+            "OK": 17,
+            "NG": 26,
+            "UNKNOWN": 2
+          },
+          "candidate_calls": 45,
+          "variables_sum": 596165,
+          "clauses_sum": 2870478,
+          "build_seconds_sum": 0.102427,
+          "solve_seconds_sum": 5.5973690000000005,
+          "nodes": 0,
+          "verified_records": 17
+        },
+        {
+          "revision": "candidate",
+          "repetition": 3,
+          "elapsed_seconds": 5.2234633049993136,
+          "counts": {
+            "OK": 16,
+            "NG": 26,
+            "UNKNOWN": 3
+          },
+          "candidate_calls": 45,
+          "variables_sum": 535021,
+          "clauses_sum": 2355502,
+          "build_seconds_sum": 0.091633,
+          "solve_seconds_sum": 5.045181,
+          "nodes": 0,
+          "verified_records": 16
+        }
+      ],
+      "summary": {
+        "median_seconds": {
+          "baseline": 5.759902683999826,
+          "candidate": 5.360313727000175
+        },
+        "baseline_over_candidate": 1.0745458152919112,
+        "transitions_by_repeat": [
+          {
+            "OK->OK": 16,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1,
+            "UNKNOWN->UNKNOWN": 2
+          },
+          {
+            "OK->OK": 16,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1,
+            "UNKNOWN->UNKNOWN": 2
+          },
+          {
+            "OK->OK": 16,
+            "NG->NG": 26,
+            "OK->UNKNOWN": 1,
+            "UNKNOWN->UNKNOWN": 2
+          }
+        ],
+        "ok_ng_contradictions": 0
+      }
+    }
+  ],
+  "placement_ablation": {
+    "role": "diagnostic; A and B were rejected and are not delivered",
+    "variants": {
+      "A": "endpoint constants only",
+      "B": "new at-most-one counter only",
+      "C": "original placement production encoding; selected"
+    },
+    "selected_code_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+    "summary": {
+      "baseline_revision": "9208dbd",
+      "ablation_base_revision": "2bcbcf6",
+      "main_placement_production_equals_baseline": true,
+      "binaries": {
+        "A": "e8d2c82f37e6f91ddfd91a6087eadabcc18748032746c759f4f96fa45daa488f",
+        "B": "a2fe6ff5fcca0fbcee5ba525aeddf7f653aaf1d9681701172f602387ec4c326e",
+        "C": "73f52943110cc9ba47941cf6d8cdf028ab622a0e204ee9d955f888c0a3758eed"
+      },
+      "comparisons": [
+        {
+          "variant": "A",
+          "encoding": "placement",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 3.2084638590022223,
+              "candidate": 3.077919469000335
+            },
+            "baseline_over_candidate": 1.042413192195794,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 18,
+                "NG->NG": 26,
+                "UNKNOWN->UNKNOWN": 1
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            },
+            "candidate": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            }
+          },
+          "logs": "/tmp/othello-ablation-A-placement",
+          "cnf": {
+            "baseline": {
+              "total_vars": 209959,
+              "total_clauses": 977401,
+              "build_seconds": 0.07315,
+              "solve_seconds": 3.098528
+            },
+            "candidate": {
+              "total_vars": 197382,
+              "total_clauses": 920794,
+              "build_seconds": 0.061787,
+              "solve_seconds": 2.986561
+            }
+          },
+          "transitions": []
+        },
+        {
+          "variant": "A",
+          "encoding": "placement-columns",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 3.840866945000016,
+              "candidate": 3.9398242839997692
+            },
+            "baseline_over_candidate": 0.9748828039357912,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 18,
+                "NG->NG": 26,
+                "OK->UNKNOWN": 1
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 19,
+              "NG": 26
+            },
+            "candidate": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            }
+          },
+          "logs": "/tmp/othello-ablation-A-placement-columns",
+          "cnf": {
+            "baseline": {
+              "total_vars": 216799,
+              "total_clauses": 1005841,
+              "build_seconds": 0.072192,
+              "solve_seconds": 3.739189
+            },
+            "candidate": {
+              "total_vars": 204222,
+              "total_clauses": 949234,
+              "build_seconds": 0.06446299999999999,
+              "solve_seconds": 3.842456
+            }
+          },
+          "transitions": [
+            {
+              "index": 43,
+              "baseline": "OK",
+              "candidate": "UNKNOWN"
+            }
+          ]
+        },
+        {
+          "variant": "B",
+          "encoding": "placement",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 3.036588920000213,
+              "candidate": 4.640991713000403
+            },
+            "baseline_over_candidate": 0.6542974234351857,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 17,
+                "NG->NG": 26,
+                "OK->UNKNOWN": 1,
+                "UNKNOWN->UNKNOWN": 1
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            },
+            "candidate": {
+              "OK": 17,
+              "NG": 26,
+              "UNKNOWN": 2
+            }
+          },
+          "logs": "/tmp/othello-ablation-B-placement",
+          "cnf": {
+            "baseline": {
+              "total_vars": 209959,
+              "total_clauses": 977401,
+              "build_seconds": 0.068058,
+              "solve_seconds": 2.940785
+            },
+            "candidate": {
+              "total_vars": 210391,
+              "total_clauses": 971029,
+              "build_seconds": 0.069761,
+              "solve_seconds": 4.538949
+            }
+          },
+          "transitions": [
+            {
+              "index": 43,
+              "baseline": "OK",
+              "candidate": "UNKNOWN"
+            }
+          ]
+        },
+        {
+          "variant": "B",
+          "encoding": "placement-columns",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 3.6933604249970813,
+              "candidate": 3.785069513000053
+            },
+            "baseline_over_candidate": 0.9757708312389003,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 18,
+                "NG->NG": 26,
+                "OK->UNKNOWN": 1
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 19,
+              "NG": 26
+            },
+            "candidate": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            }
+          },
+          "logs": "/tmp/othello-ablation-B-placement-columns",
+          "cnf": {
+            "baseline": {
+              "total_vars": 216799,
+              "total_clauses": 1005841,
+              "build_seconds": 0.067944,
+              "solve_seconds": 3.594722
+            },
+            "candidate": {
+              "total_vars": 217663,
+              "total_clauses": 993097,
+              "build_seconds": 0.067334,
+              "solve_seconds": 3.6882040000000003
+            }
+          },
+          "transitions": [
+            {
+              "index": 44,
+              "baseline": "OK",
+              "candidate": "UNKNOWN"
+            }
+          ]
+        },
+        {
+          "variant": "C",
+          "encoding": "placement",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 2.9880070729996078,
+              "candidate": 3.0076466020000225
+            },
+            "baseline_over_candidate": 0.9934701340950912,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 18,
+                "NG->NG": 26,
+                "UNKNOWN->UNKNOWN": 1
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            },
+            "candidate": {
+              "OK": 18,
+              "NG": 26,
+              "UNKNOWN": 1
+            }
+          },
+          "logs": "/tmp/othello-ablation-C-placement",
+          "cnf": {
+            "baseline": {
+              "total_vars": 209959,
+              "total_clauses": 977401,
+              "build_seconds": 0.056923,
+              "solve_seconds": 2.904908
+            },
+            "candidate": {
+              "total_vars": 209959,
+              "total_clauses": 977401,
+              "build_seconds": 0.063927,
+              "solve_seconds": 2.917816
+            }
+          },
+          "transitions": []
+        },
+        {
+          "variant": "C",
+          "encoding": "placement-columns",
+          "timing_method": "blocking-waitpid-with-separate-deadline",
+          "summary": {
+            "median_seconds": {
+              "baseline": 3.1880010760032746,
+              "candidate": 3.806377405002422
+            },
+            "baseline_over_candidate": 0.8375420345374938,
+            "transitions_by_repeat": [
+              {
+                "OK->OK": 19,
+                "NG->NG": 26
+              }
+            ],
+            "ok_ng_contradictions": 0
+          },
+          "counts": {
+            "baseline": {
+              "OK": 19,
+              "NG": 26
+            },
+            "candidate": {
+              "OK": 19,
+              "NG": 26
+            }
+          },
+          "logs": "/tmp/othello-ablation-C-placement-columns",
+          "cnf": {
+            "baseline": {
+              "total_vars": 216799,
+              "total_clauses": 1005841,
+              "build_seconds": 0.057737,
+              "solve_seconds": 3.105066
+            },
+            "candidate": {
+              "total_vars": 216799,
+              "total_clauses": 1005841,
+              "build_seconds": 0.070155,
+              "solve_seconds": 3.7023669999999997
+            }
+          },
+          "transitions": []
+        }
+      ]
+    }
+  },
+  "lp_exact_certificate_cost": {
+    "role": "correctness cost; not a reachability-OK comparison",
+    "candidate_code_commit": "2bcbcf6",
+    "lp_source_unchanged_in_final_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+    "source": "result/thesis_layer_sat/lp_NG.txt",
+    "source_sha256": "449af5b6da050b0191e86cd71be00b0772ff1ca74cf1a908140b26f25860ef48",
+    "input_sha256": "ffb9363fbb6f331ff770b4f99ff4fe092b3daad78007b5696318ad7cdb818480",
+    "cases": 1024,
+    "recipe": "append one space and b to each source row; historical labels are not an oracle",
+    "binary_sha256": {
+      "baseline": "aff139d51404d76884f650f02b8f31e821ab2ab33238d4cd4788026f0e4095ad",
+      "candidate": "5c0e4a2cc140f09a1fe8978118294c0fddbc0d879f4733631a18b83552111b62"
+    },
+    "threads": 1,
+    "timing": "blocking subprocess wait, alternating revision order",
+    "runs": [
+      {
+        "revision": "baseline",
+        "repetition": 1,
+        "elapsed_seconds": 4.769043964002776,
+        "counts": {
+          "rejected": 1024
+        },
+        "reasons": {
+          "HiGHS proved the relaxation infeasible": 1024
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/baseline/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/1-baseline"
+        ]
+      },
+      {
+        "revision": "candidate",
+        "repetition": 1,
+        "elapsed_seconds": 18.811914664998767,
+        "counts": {
+          "rejected": 1021,
+          "undetermined": 3
+        },
+        "reasons": {
+          "an exact integer check of a HiGHS dual ray proves the relaxation infeasible": 1021,
+          "HiGHS reported infeasibility without a verified exact certificate: the dual ray did not pass exact verification": 3
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/candidate/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/1-candidate"
+        ]
+      },
+      {
+        "revision": "candidate",
+        "repetition": 2,
+        "elapsed_seconds": 18.899470072999975,
+        "counts": {
+          "rejected": 1021,
+          "undetermined": 3
+        },
+        "reasons": {
+          "an exact integer check of a HiGHS dual ray proves the relaxation infeasible": 1021,
+          "HiGHS reported infeasibility without a verified exact certificate: the dual ray did not pass exact verification": 3
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/candidate/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/2-candidate"
+        ]
+      },
+      {
+        "revision": "baseline",
+        "repetition": 2,
+        "elapsed_seconds": 4.558139512002526,
+        "counts": {
+          "rejected": 1024
+        },
+        "reasons": {
+          "HiGHS proved the relaxation infeasible": 1024
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/baseline/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/2-baseline"
+        ]
+      },
+      {
+        "revision": "baseline",
+        "repetition": 3,
+        "elapsed_seconds": 4.694710561998363,
+        "counts": {
+          "rejected": 1024
+        },
+        "reasons": {
+          "HiGHS proved the relaxation infeasible": 1024
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/baseline/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/3-baseline"
+        ]
+      },
+      {
+        "revision": "candidate",
+        "repetition": 3,
+        "elapsed_seconds": 17.907605983000394,
+        "counts": {
+          "rejected": 1021,
+          "undetermined": 3
+        },
+        "reasons": {
+          "an exact integer check of a HiGHS dual ray proves the relaxation infeasible": 1021,
+          "HiGHS reported infeasibility without a verified exact certificate: the dual ray did not pass exact verification": 3
+        },
+        "command": [
+          "/workspace/scratch/f5030692e002/bench_bins/candidate/run_filters",
+          "lp",
+          "/tmp/othello-lp-ng-positions.txt",
+          "--out-dir",
+          "/tmp/othello-bench-lp-certificates/3-candidate"
+        ]
+      }
+    ],
+    "summary": {
+      "median_seconds": {
+        "baseline": 4.694710561998363,
+        "candidate": 18.811914664998767
+      },
+      "baseline_over_candidate": 0.24956048576667678,
+      "transitions_by_repeat": [
+        {
+          "rejected->rejected": 1021,
+          "rejected->undetermined": 3
+        },
+        {
+          "rejected->rejected": 1021,
+          "rejected->undetermined": 3
+        },
+        {
+          "rejected->rejected": 1021,
+          "rejected->undetermined": 3
+        }
+      ]
+    },
+    "unverified_input_indices": [
+      421,
+      546,
+      913
+    ],
+    "interpretation": "An exact certificate could not be verified for three inputs, so they remain undetermined; this does not prove the old verdict was wrong. LP passage is only a necessary-condition result and is not a reachability certificate.",
+    "raw_results": "benchmarks/results/lp-certificates.json",
+    "raw_results_sha256": "e1f583e85c08a2420870b072a97cf86230644f2b36c19fcae762f410211c9666",
+    "candidate_classification_csv": "benchmarks/results/lp-candidate-results.csv",
+    "candidate_classification_csv_sha256": "cce4acc788097c56b06e699eee7479a5390003c3b0a65b33fbd63141cf6198d1"
+  },
+  "commit_mapping": {
+    "note": "Connector-created remote commits have the same Git tree as their local code commits; executable provenance uses the local commits.",
+    "baseline": "9208dbd",
+    "local_to_remote": {
+      "db4091c": "f4b0bb8d7836ac9b63a51bcb79672db8f0d3339b",
+      "2bcbcf6": "a8727e54630ec0291fbd20640c5215ef9133d351",
+      "a4d017e88276746f99c0e82f34dc6b8a47a84449": "c6a0da3d15835e590aae877ae78705261e78b18d"
+    }
+  },
+  "certificates": {
+    "path": "benchmarks/results/certificates.csv",
+    "sha256": "a24ddb0213a980a5b53f11fa19532399a56c2685119afbbe755ba66bb5bd79bf",
+    "unique_six_field_rows": 44,
+    "source_index": "benchmarks/results/certificate_sources.json",
+    "scope": "Both revisions of final official SAT runs; duplicates removed only when every CSV field agrees.",
+    "returned_certificate_occurrences_independently_replayed": 321,
+    "persisted_rows_reverified_with_verify_record": 44,
+    "reverse_corpus_reachable_count": 0
+  },
+  "validation_reference": "benchmarks/validation.json",
+  "final_code_local_commit": "a4d017e88276746f99c0e82f34dc6b8a47a84449",
+  "final_code_remote_commit": "c6a0da3d15835e590aae877ae78705261e78b18d"
+}
