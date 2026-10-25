@@ -6,6 +6,7 @@ use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::estimate;
 use othello_complexity_rs::filters::sat::SatEncoding;
+use othello_complexity_rs::search::beam::BeamHeuristic;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
 const DEFAULT_ALPHA: f64 = 0.005;
@@ -95,6 +96,8 @@ enum StrategyArgs {
     /// Parallel greedy best-first search.
     #[command(name = "gbfs-parallel")]
     GbfsParallel(GbfsOpts),
+    /// Bounded best-first beam search; failure after width pruning is UNKNOWN.
+    Beam(BeamOpts),
     /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     BfsExternal(ExternalBfsOpts),
@@ -116,7 +119,7 @@ struct BasicOpts {
     )]
     discs: u32,
 
-    /// Per-exact-candidate limit: visited nodes in DFS, registered positions in GBFS.
+    /// Per-exact-candidate limit: DFS visits, GBFS registrations, or beam-generated candidates.
     #[arg(long)]
     max_nodes: usize,
 }
@@ -146,6 +149,20 @@ struct GbfsOpts {
     /// Worker threads; zero selects available parallelism, capped at 64.
     #[arg(long)]
     threads: usize,
+}
+
+#[derive(Debug, Args)]
+struct BeamOpts {
+    #[command(flatten)]
+    basic: BasicOpts,
+
+    /// Maximum open positions across all stone counts.
+    #[arg(long, default_value = "32")]
+    beam_width: NonZeroUsize,
+
+    /// Ranking used to retain candidates; affects speed and success rate, not certificate validity.
+    #[arg(long, value_enum, default_value = "mobility")]
+    heuristic: BeamHeuristic,
 }
 
 #[derive(Debug, Args)]
@@ -224,6 +241,12 @@ impl StrategyArgs {
                 use_lp: opts.use_lp,
                 threads: opts.threads,
             },
+            Self::Beam(opts) => Strategy::Beam {
+                discs: opts.basic.discs,
+                max_nodes: opts.basic.max_nodes,
+                width: opts.beam_width.get(),
+                heuristic: opts.heuristic,
+            },
             Self::BfsExternal(opts) => Strategy::BfsExternal(opts.into_external_bfs()),
             Self::BfsExternalParallel(opts) => {
                 Strategy::BfsExternalParallel(opts.into_external_bfs())
@@ -277,5 +300,46 @@ fn main() {
     if let Err(error) = execute(Cli::parse()) {
         eprintln!("error: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn estimate_accepts_beam_options_and_rejects_zero_width() {
+        let args = [
+            "estimate",
+            "reverse-search",
+            "--from",
+            "out/sat",
+            "--out-dir",
+            "out/beam",
+            "beam",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "5000",
+            "--beam-width",
+            "16",
+            "--heuristic",
+            "branching",
+        ];
+        let Command::ReverseSearch(opts) = Cli::try_parse_from(args).unwrap().command else {
+            panic!("expected reverse-search command");
+        };
+        assert_eq!(
+            opts.strategy.into_strategy(),
+            Strategy::Beam {
+                discs: 8,
+                max_nodes: 5000,
+                width: 16,
+                heuristic: BeamHeuristic::Branching,
+            }
+        );
+        let mut invalid = args;
+        invalid[12] = "0";
+        assert!(Cli::try_parse_from(invalid).is_err());
     }
 }

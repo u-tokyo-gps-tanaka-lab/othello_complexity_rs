@@ -1,0 +1,204 @@
+{
+  "started_at_utc": "2026-10-25T13:17:18.259515+00:00",
+  "base_commit": "9208dbd0f1981389de8086bdeb52490e56561226",
+  "binary_sha256": "7c650f729c1aded01762b25d110659c0a990c7c94d67c12a5844c31406069397",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "os": "Linux",
+  "kernel": "6.18.55",
+  "architecture": "x86_64",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "logical_cpus": 9,
+  "cpu_quota": "800000 100000",
+  "tuning_seed": 20261025,
+  "validation_seed": 20261026,
+  "selected_before_validation": {
+    "algorithm": "best-first-mobility",
+    "width": 32,
+    "beam_generated_budget": 100000,
+    "gbfs_registered_budget": 100000,
+    "threads": 1,
+    "forward_discs": 8
+  },
+  "source_sha256": {
+    "Cargo.lock": "55223e786d15c9877f2a6e270597f743c10a7aa175779044cf8debff33fab327",
+    "src/search/beam.rs": "cc11c2fec9f058a19a9269a677b72d0bcf1904a60bfc3c82b1f7dba550f58604",
+    "src/search/parallel_gbfs.rs": "408d583ea2299b25c0dedc7897b3b0461b616cb31fd3cc66b8582f6a65b06bee",
+    "src/bin/bench_reverse_search.rs": "11ba922d14bf8d1a6616366423153d97ed9cc0c45dc2203ab1cad18d6c284dbb",
+    "scripts/summarize_reverse_bench.py": "ea379585f9835f8ddc2244dd798812808b0881fc156662f24f248a0fcc0d9e87"
+  },
+  "timing_scope": "Per-search solver calls; shared forward-table build, corpus generation, harness validation, and CSV writing are excluded.",
+  "corpus_note": "Holdout positions come from legal random playouts, not uniform sampling over reachable positions. Legacy positions are new exact queries with black to move; historical UNKNOWN labels are not ground truth.",
+  "runs": [
+    {
+      "name": "holdout",
+      "command": [
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/bench_reverse_search",
+        "--discs",
+        "8",
+        "--max-nodes",
+        "100000",
+        "--beam-max-nodes",
+        "100000",
+        "--widths",
+        "32",
+        "--threads",
+        "1",
+        "--repeats",
+        "3",
+        "--algorithms",
+        "gbfs,best-first-branching,best-first-mobility",
+        "--samples",
+        "16",
+        "--stones",
+        "16,24,32,40,48,56",
+        "--seed",
+        "20261026",
+        "--positions-out",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/holdout_positions.txt",
+        "--source-records-out",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/holdout_source_records.csv",
+        "--output",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/holdout.csv"
+      ],
+      "started_at_utc": "2026-10-25T13:17:18.268115+00:00",
+      "wall_seconds": 37.06600962500033,
+      "returncode": 0,
+      "completed_at_utc": "2026-10-25T13:17:55.334504+00:00"
+    },
+    {
+      "name": "legacy_sat",
+      "command": [
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/bench_reverse_search",
+        "--discs",
+        "8",
+        "--max-nodes",
+        "100000",
+        "--beam-max-nodes",
+        "100000",
+        "--widths",
+        "32",
+        "--threads",
+        "1",
+        "--repeats",
+        "3",
+        "--algorithms",
+        "gbfs,best-first-branching,best-first-mobility",
+        "--input",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/legacy_sat_positions.txt",
+        "--output",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/legacy_sat.csv"
+      ],
+      "started_at_utc": "2026-10-25T13:17:55.390060+00:00",
+      "wall_seconds": 41.26058484400028,
+      "returncode": 0,
+      "completed_at_utc": "2026-10-25T13:18:36.651160+00:00"
+    },
+    {
+      "name": "holdout_discs10",
+      "command": [
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/bench_reverse_search",
+        "--discs",
+        "10",
+        "--max-nodes",
+        "100000",
+        "--beam-max-nodes",
+        "100000",
+        "--widths",
+        "32",
+        "--threads",
+        "1",
+        "--repeats",
+        "1",
+        "--algorithms",
+        "gbfs,best-first-mobility",
+        "--samples",
+        "16",
+        "--stones",
+        "16,24,32,40,48,56",
+        "--seed",
+        "20261026",
+        "--output",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/holdout_discs10.csv"
+      ],
+      "sensitivity": true,
+      "started_at_utc": "2026-10-25T13:20:38.401898+00:00",
+      "wall_seconds": 13.726228848000119,
+      "returncode": 0,
+      "completed_at_utc": "2026-10-25T13:20:52.128439+00:00"
+    },
+    {
+      "name": "legacy_sat_discs10",
+      "command": [
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/target/release/bench_reverse_search",
+        "--discs",
+        "10",
+        "--max-nodes",
+        "100000",
+        "--beam-max-nodes",
+        "100000",
+        "--widths",
+        "32",
+        "--threads",
+        "1",
+        "--repeats",
+        "1",
+        "--algorithms",
+        "gbfs,best-first-mobility",
+        "--input",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/legacy_sat_positions.txt",
+        "--output",
+        "/workspace/scratch/0e62a86147a9/othello_complexity_rs/research/beam_search/legacy_sat_discs10.csv"
+      ],
+      "sensitivity": true,
+      "started_at_utc": "2026-10-25T13:20:52.175537+00:00",
+      "wall_seconds": 15.042329309999786,
+      "returncode": 0,
+      "completed_at_utc": "2026-10-25T13:21:07.218153+00:00"
+    }
+  ],
+  "artifact_sha256": {
+    "legacy_sat.csv": "386d29dd45a326702fdb1d2c72ba33ace3eaffdb323397972abbedba918f1ab6",
+    "legacy_sat_positions.txt": "d6ce601f637270ce7e180da63a7205bdacf2b4014178eba0d842564fd80a8737",
+    "holdout.csv": "854077516d21cc2b3b3f3291801a811807d66fc58bd41a4a419e56b90505bc3f",
+    "holdout_source_records.csv": "df8c5170d782f49ba663b3e926a4231a5d0bf7333dc185fdcf2bf4590a38aac0",
+    "holdout_positions.txt": "3211bec0f5f923c9c0a85f61c328236ade28ba5ee24cd19ef3e4bb7c360ad171",
+    "holdout_discs10.csv": "d2851a2e96a55ee78efe50970d2596ea2839575802ebbfac829c55825fb7d173",
+    "legacy_sat_discs10.csv": "9f18915b10c2095e7f2a061e457cad2baacabb6f45dfa968c0326debe1df8555"
+  },
+  "completed_at_utc": "2026-10-25T13:21:07.266116+00:00",
+  "tuning_artifacts": {
+    "tuning.csv": "f30c6f83e9c9a2e82b9a978042297645fc1a8ad22ae8a169bd56c1e49b9736a2",
+    "tuning_small_budget.csv": "76b489fd0deba5e702762460d5c344837410fe6a0f1d4aea6b99fedfc05e9260",
+    "tuning_positions.txt": "26d64dfd94450f3a10daeeb30f5cf3575970909132c00a6da166ffdc875470a7",
+    "tuning_source_records.csv": "db57533f84bc3fb8f46a097b0ab43abd80222455f0bc24d6a74e00f0f517d172"
+  },
+  "tuning_notes": [
+    "Tuning used seed 20261025 and 40 legal goals at 16, 24, 32, 40, and 48 stones. Parameters were fixed before seed 20261026 was evaluated.",
+    "Tuning source code was under development; its exact source fingerprint was not captured. The binary/source fingerprints above apply to the final validation runs.",
+    "tuning_small_budget.csv combines GBFS rows from tuning.csv with beam rows measured in a separate 10000-candidate run. Timing estimates are not measurements of a combined pipeline."
+  ],
+  "sensitivity_note": "After primary validation, the same fixed mobility/width32/budget100000 configuration was evaluated with forward_discs=10, the existing CLI default. No heuristic or width was reselected. These runs use one repeat and are sensitivity checks.",
+  "post_measurement_documentation_change": "Corrected the priority() doc comment to explain that stone count is the primary key in best-first search. Search code and the measured binary are unchanged.",
+  "final_beam_source_sha256": "bf45210449160149bb9b1ade649db51e3d1c0e95be09ce8c66edfa17ea751870",
+  "csv_normalization": {
+    "tuning_small_budget.csv": {
+      "original_sha256": "09a88227c504670bb1036dca7b94c72ed17fd8cfd7b3a9a3e78d0c1c72f26180",
+      "normalization": "CRLF to LF; fields unchanged"
+    },
+    "holdout_pipeline.csv": {
+      "original_sha256": "0a0fcec79c26fdf2f714598d4fc7e07406ea188e17b7ba8c9df85c2a32b905d9",
+      "normalization": "CRLF to LF; fields unchanged"
+    },
+    "legacy_sat_pipeline.csv": {
+      "original_sha256": "d07d041c43afa1c09dba7a2287c26f94b20688049a61bc18663c73cbca6490f4",
+      "normalization": "CRLF to LF; fields unchanged"
+    }
+  },
+  "regenerable_summary_sha256": {
+    "holdout_summary.json": "6a859436cdc6c1b466cf6b64af08c1a67cc736f512e46bbbfeef238bf6050d22",
+    "legacy_sat_summary.json": "d01ca6f9f8a86129365d19c55747859e1f7eb45a394c8355a8a49506421029bd",
+    "holdout_discs10_summary.json": "cea324d48052369cf283d4145d489a28350078e9e725e7b212829a5b349cab78",
+    "legacy_sat_discs10_summary.json": "2c36f7078ee6ee1c638ee98b2f4c26c02a7dd25071397f6266f334b910668041"
+  },
+  "regenerable_summary_note": "Summary JSON files are not committed because they duplicate the raw CSV. Recreate each with scripts/summarize_reverse_bench.py NAME.csv --format json --output NAME_summary.json."
+}

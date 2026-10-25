@@ -206,6 +206,72 @@ cargo run --release --bin reverse_search -- dfs-parallel \
   --out-dir out/reverse_search
 ```
 
+### 実験用のビームサーチを試す
+
+以下のビームサーチは、評価関数と幅制限の効果を比較するための実験用機能です。独立した96局面では、GBFS が54局面を解いたのに対し、幅32の `mobility` は29局面を解きました。未解決分を GBFS に渡して成功数を保つと、生成候補数は約1.2%増えました。検証した条件では汎用的な高速化は確認できていないため、既存の探索を置き換える前に、対象の入力で成功数と探索量を比較してください。条件と生データは [ビームサーチの評価](research/beam_search/README.md) に記載しています。
+
+`beam` は候補を有限個だけ保持する best-first ビームサーチです。初期局面へ近づいた候補、つまり石数が少ない候補を優先し、同じ石数では両者の合法手数の合計が大きい候補を優先します。各層の候補をすべて展開してから次の層へ進む方式とは異なり、有望な逆着手が見つかると、その先を先に探索します。
+
+```sh
+cargo run --release --bin reverse_search -- beam positions.txt \
+  --mode exact --discs 8 --beam-width 32 --heuristic mobility \
+  --max-nodes 100000 --out-dir out/beam
+
+# ビームで未解決の局面に、既存の GBFS を適用する
+cargo run --release --bin reverse_search -- gbfs-parallel \
+  out/beam/reverse_exact_UNKNOWN.txt \
+  --mode exact --discs 8 --max-nodes 100000 --threads 1 \
+  --out-dir out/beam_then_gbfs
+```
+
+`--beam-width` は石数をまたいだ待機候補の上限で、既定値は32です。このほか、展開中の1局面と、完全な局面キーを4096件まで記憶する既展開キャッシュを使います。前向き表と既存の必要条件のキャッシュは、この幅とは別です。逆着手は遅延列挙し、手順のコピーは候補の採択時に行います。
+
+幅制限で候補を捨てるため、ビーム単独では到達可能な局面も取りこぼします。幅制限を一度でも使った後に解を発見できなければ `UNKNOWN` とし、到達不能とは判定しません。発見した解は、初期局面から目標局面までの手順を再生して検証します。パスと絶対手番も、この検証と重複判定に含まれます。前段として使い、`UNKNOWN` だけを既存の探索に渡すことで、既存手法が解ける局面を維持できます。
+
+`--max-nodes` の単位は方式によって異なり、どちらも各 exact 候補に適用します。ビームでは、重複や必要条件で棄却したものと逆パスを含む**生成候補数**を数え、開始局面は含めません。GBFS は従来どおり、登録した相異なる局面数を数えます。標準出力の `nodes` を方式間で直接比較せず、下記のベンチマークで共通の生成数と展開数を比較してください。
+
+`--heuristic` では次の評価を選べます。どの評価も順位付けだけに使い、到達不能の証明には使いません。
+
+| 値 | 同じ石数で優先する候補 |
+|---|---|
+| `mobility` | 両者の前向き合法手数の合計が大きい局面。既定値。 |
+| `branching` | 逆着手の分岐数が少ない局面。従来の GBFS と同じ評価。 |
+| `coherence` | 各色の同色隣接辺数をそれぞれ1増やし、その積が大きい局面。 |
+| `continuation` | `coherence` の値に、必要条件を満たす逆着手マス数を1増やして掛けた値が大きい局面。 |
+| `frontier` | 占有マスクが含まれる前向き境界の局面について、絶対色の不一致数を $m$ としたときの $2^{-m}$ の合計が大きい局面。 |
+
+推計パイプラインでも、同じ順序で実行できます。各段階は前の段階で確定した判定を引き継ぎ、未判定の局面だけを探索します。
+
+```sh
+cargo run --release --bin estimate -- reverse-search \
+  --from out/sat --out-dir out/beam \
+  beam --discs 8 --max-nodes 100000 --beam-width 32 --heuristic mobility
+
+cargo run --release --bin estimate -- reverse-search \
+  --from out/beam --out-dir out/beam_then_gbfs \
+  gbfs-parallel --discs 8 --max-nodes 100000 --threads 1
+```
+
+`summary.json` の `reverse_strategy_settings` に、幅、評価関数、探索上限、その上限の単位などを保存します。設定欄のない過去の出力も引き続き読み込めます。
+
+### 探索性能を比較する
+
+`bench_reverse_search` は、固定シードの合法対局から同じ局面集合を生成し、共有の前向き表を使って探索を比較します。生成元と発見した手順を再生して検証し、各試行の生成候補数、展開局面数、候補保持数、時間、判定を CSV に保存します。既存入力は `--input` で指定できます。
+
+```sh
+cargo run --release --bin bench_reverse_search -- \
+  --seed 20261026 --samples 16 --stones 16,24,32,40,48,56 \
+  --discs 8 --max-nodes 100000 --threads 1 --widths 32 --repeats 3 \
+  --algorithms gbfs,best-first-branching,best-first-mobility \
+  --output benchmark.csv --positions-out positions.txt \
+  --source-records-out source_records.csv
+python3 scripts/summarize_reverse_bench.py benchmark.csv
+```
+
+ベンチマークの `best-first-*` は上記 `beam` コマンドと同じ方式です。比較用の `beam-*` は、石数の各層で幅を制限する方式で、ライブラリでは `retrospective_layered_beam_search` として提供します。`--beam-max-nodes` を使うと、GBFS の上限を保ったままビームの生成上限だけを変更できます。集計スクリプトは独立に計測した結果から二段階のコストも算出しますが、その時間はパイプラインそのものを計測した値ではありません。
+
+実験条件、生データ、速度と成功率の比較は [ビームサーチの評価](research/beam_search/README.md) にまとめています。
+
 
 ## データフォーマット
 

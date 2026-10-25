@@ -1,0 +1,9 @@
+{
+  "source": "result/thesis_layer_sat/layer_sat_UNKNOWN.txt",
+  "source_base_commit": "9208dbd0f1981389de8086bdeb52490e56561226",
+  "selection": "all 58 lines, in source order",
+  "conversion": "append a space and b; X/O retain their side-relative interpretation",
+  "goal_match": "exact",
+  "known_reachable": false,
+  "interpretation": "These are new exact queries with Black to move; historical UNKNOWN labels are not treated as ground truth."
+}

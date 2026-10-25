@@ -10,6 +10,7 @@ use othello_complexity_rs::interval;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position};
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
+use othello_complexity_rs::search::beam::BeamHeuristic;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashSet};
@@ -296,6 +297,7 @@ fn filter_summary_keys() -> Vec<&'static str> {
 fn reverse_summary_keys() -> Vec<&'static str> {
     let mut keys = base_summary_keys();
     keys.push("nodes");
+    keys.push("reverse_strategy_settings");
     keys
 }
 
@@ -359,6 +361,12 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
             max_nodes: 128,
             use_lp: false,
             threads: 2,
+        },
+        Strategy::Beam {
+            discs: 4,
+            max_nodes: 128,
+            width: 32,
+            heuristic: BeamHeuristic::Coherence,
         },
         Strategy::BfsExternal(ExternalBfs {
             discs: 4,
@@ -897,6 +905,85 @@ fn saved_sat_unknowns_flow_to_reverse_and_a_different_sat_encoding() {
 }
 
 #[test]
+fn beam_unknowns_feed_gbfs_and_settings_remain_optional_on_load() {
+    let fixture = Fixture::new();
+    let filters = fixture.filters(
+        "sample",
+        "filters",
+        &[disconnected(), initial(), after_d3(), after_d3()],
+        absolute_population(),
+    );
+    let beam = fixture.path("beam-limited");
+    estimate::reverse_search(
+        &filters,
+        &beam,
+        ALPHA,
+        &Strategy::Beam {
+            discs: 4,
+            max_nodes: 0,
+            width: 16,
+            heuristic: BeamHeuristic::Mobility,
+        },
+    )
+    .unwrap();
+    let mut summary = read_json(&beam.join("summary.json"));
+    assert_eq!(summary["stage"], "reverse-search:beam");
+    assert_eq!(summary["counts"], json!({"OK": 1, "NG": 1, "UNKNOWN": 2}));
+    assert_eq!(
+        summary["reverse_strategy_settings"],
+        json!({
+            "name": "beam",
+            "discs": 4,
+            "max_nodes": 0,
+            "beam_width": 16,
+            "order": "best-first",
+            "heuristic": "mobility",
+            "budget_counts": "generated",
+        })
+    );
+    assert_eq!(
+        fs::read_to_string(beam.join("reverse_exact_UNKNOWN.txt")).unwrap(),
+        position_text(&[after_d3()])
+    );
+
+    let gbfs = fixture.path("gbfs-after-beam");
+    estimate::reverse_search(
+        &beam,
+        &gbfs,
+        ALPHA,
+        &Strategy::GbfsParallel {
+            discs: 4,
+            max_nodes: 128,
+            use_lp: false,
+            threads: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        read_json(&gbfs.join("summary.json"))["counts"],
+        json!({"OK": 3, "NG": 1, "UNKNOWN": 0})
+    );
+    assert_eq!(
+        read_records(&gbfs.join("reverse_exact_records.csv")),
+        [d3_record(1)]
+    );
+
+    // Older summaries lack the settings field. It is descriptive metadata,
+    // not a new condition for loading a valid classification chain.
+    summary
+        .as_object_mut()
+        .unwrap()
+        .remove("reverse_strategy_settings");
+    write_json(&beam.join("summary.json"), &summary);
+    let legacy = fixture.path("after-summary-without-settings");
+    estimate::reverse_search(&beam, &legacy, ALPHA, &complete_dfs()).unwrap();
+    assert_eq!(
+        read_json(&legacy.join("summary.json"))["counts"],
+        json!({"OK": 3, "NG": 1, "UNKNOWN": 0})
+    );
+}
+
+#[test]
 fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
     for (stem, positions, population, mode) in [
         (
@@ -948,6 +1035,10 @@ fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
             assert_eq!(
                 summary["stage"],
                 format!("reverse-search:{}", strategy.name())
+            );
+            assert_eq!(
+                summary["reverse_strategy_settings"]["name"],
+                strategy.name()
             );
             assert!(summary.get("sample_dir").is_none());
             assert_eq!(summary["counts"], json!({"OK": 2, "NG": 0, "UNKNOWN": 0}));

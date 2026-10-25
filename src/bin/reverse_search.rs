@@ -1,8 +1,10 @@
 use clap::{Args, Parser, Subcommand};
 use othello_complexity_rs::io::reject_estimate_output_dir;
 use othello_complexity_rs::record::GoalMatch;
+use othello_complexity_rs::search::beam::BeamHeuristic;
 use othello_complexity_rs::search::run::{run_strategy, ExternalBfs, Strategy};
 use std::io;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -29,6 +31,8 @@ enum Command {
     /// Parallel greedy best-first search.
     #[command(name = "gbfs-parallel")]
     GbfsPar(GbfsOpts),
+    /// Bounded best-first beam search; failure after width pruning is UNKNOWN.
+    Beam(BeamOpts),
     /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     ExternalBfs(BfsArgs),
@@ -52,7 +56,7 @@ struct BasicOpts {
     /// Forward-search boundary, including passes and terminals at this count.
     #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
     discs: u32,
-    /// Per-exact-candidate limit: visited nodes in DFS, registered positions in GBFS.
+    /// Per-exact-candidate limit: DFS visits, GBFS registrations, or beam-generated candidates.
     #[arg(long, env = "MAX_NODES", default_value_t = 1_000_000)]
     max_nodes: usize,
 }
@@ -78,6 +82,18 @@ struct GbfsOpts {
     /// Worker threads; zero selects available parallelism, capped at 64.
     #[arg(long, env = "RAYON_THREADS", default_value_t = 60)]
     threads: usize,
+}
+
+#[derive(Args, Debug)]
+struct BeamOpts {
+    #[command(flatten)]
+    basic: BasicOpts,
+    /// Maximum open positions across all stone counts.
+    #[arg(long, default_value = "32")]
+    beam_width: NonZeroUsize,
+    /// Ranking used to retain candidates; affects speed and success rate, not certificate validity.
+    #[arg(long, value_enum, default_value = "mobility")]
+    heuristic: BeamHeuristic,
 }
 
 #[derive(Args, Debug)]
@@ -181,6 +197,12 @@ fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
                 threads: opts.threads,
             })
         }
+        Command::Beam(opts) => into_basic_strategy(opts.basic, |discs, max_nodes| Strategy::Beam {
+            discs,
+            max_nodes,
+            width: opts.beam_width.get(),
+            heuristic: opts.heuristic,
+        }),
         Command::ExternalBfs(opts) => into_external_strategy(opts, Strategy::BfsExternal),
         Command::ExternalBfsPar(opts) => {
             into_external_strategy(opts, Strategy::BfsExternalParallel)
@@ -209,5 +231,44 @@ fn main() {
     if let Err(error) = dispatch(Cli::parse()) {
         eprintln!("error: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beam_options_reach_the_strategy_and_reject_zero_width() {
+        let args = [
+            "reverse_search",
+            "beam",
+            "positions.txt",
+            "--mode",
+            "exact",
+            "--discs",
+            "8",
+            "--max-nodes",
+            "5000",
+            "--beam-width",
+            "16",
+            "--heuristic",
+            "mobility",
+        ];
+        let (strategy, input, _, mode) = into_strategy(Cli::try_parse_from(args).unwrap());
+        assert_eq!(
+            strategy,
+            Strategy::Beam {
+                discs: 8,
+                max_nodes: 5000,
+                width: 16,
+                heuristic: BeamHeuristic::Mobility,
+            }
+        );
+        assert_eq!(input, PathBuf::from("positions.txt"));
+        assert_eq!(mode, GoalMatch::Exact);
+        let mut invalid = args;
+        invalid[10] = "0";
+        assert!(Cli::try_parse_from(invalid).is_err());
     }
 }

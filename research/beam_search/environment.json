@@ -1,0 +1,18 @@
+{
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+  "architecture": "x86_64",
+  "logical_cpus_visible": 9,
+  "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+  "build": "cargo build --release --locked; profile.release.lto=true; no RUSTFLAGS",
+  "threads": 1,
+  "date": "2026-10-25",
+  "timezone": "Asia/Tokyo",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "base_commit": "9208dbd0f1981389de8086bdeb52490e56561226",
+  "binary_sha256": {
+    "bench_reverse_search": "7c650f729c1aded01762b25d110659c0a990c7c94d67c12a5844c31406069397",
+    "reverse_search": "38b740f8f5463c9afa5e25e82929e6bdafeba82e06d8093a0410988079cad883",
+    "estimate": "cb3236ab65bfc5cdce42ad16cda3edb698c6668d67523f11c51af46c2a83cf14",
+    "verify_record": "44257f14e536e276ff3661203f109bde6832ebaee89112af1621d27774a02bde"
+  }
+}

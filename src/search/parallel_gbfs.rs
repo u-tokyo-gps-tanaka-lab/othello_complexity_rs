@@ -15,6 +15,24 @@ use crate::search::{
     transposition::Visited,
 };
 
+/// Work performed by GBFS, independently of its registered-position budget.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GbfsStats {
+    /// Generated placement predecessors and their legal reverse-pass states.
+    /// Includes duplicates and rejected candidates, but excludes the roots.
+    pub generated: usize,
+    /// Calls that enumerate placement predecessors after the necessary checks.
+    pub expanded: usize,
+    /// Maximum queued positions plus positions being processed by workers.
+    pub peak_frontier: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct GbfsReport {
+    pub outcome: SearchOutcome,
+    pub stats: GbfsStats,
+}
+
 /// Count exactly the placement predecessors, without materializing them.
 ///
 /// In a direction with `length` consecutive stones of the last player, an
@@ -22,7 +40,7 @@ use crate::search::{
 /// stone. Empty rays allow only zero. The rays are disjoint, so their choices
 /// multiply, and the all-zero choice is not a legal placement. `get_last_moves`
 /// excludes squares with an additional capture in an unchanged direction.
-fn placement_predecessor_count(position: Position) -> usize {
+pub(crate) fn placement_predecessor_count(position: Position) -> usize {
     let board = position.board;
     let mut squares = get_last_moves(board.opponent, board.player);
     let mut total = 0;
@@ -99,6 +117,7 @@ struct Work {
     active: usize,
     /// Distinct registered positions, including both possible initial states.
     nodes: usize,
+    peak_frontier: usize,
     result: Option<io::Result<SearchOutcome>>,
 }
 
@@ -192,7 +211,8 @@ fn expand_node(
     context: &Context<'_>,
     shared: &Shared,
     node_limit: usize,
-) {
+) -> usize {
+    let mut generated = 0;
     let previous = PlacementPredecessors::new(node.position, candidates);
     for (position, action) in previous {
         let child = node.preceding(position, action);
@@ -201,11 +221,12 @@ fn expand_node(
         // certificate still stores the placement and pass as separate actions.
         let before_pass =
             pass_predecessor(position).map(|previous| child.preceding(previous, PlyAction::Pass));
+        generated += 1 + usize::from(before_pass.is_some());
         for child in std::iter::once(child).chain(before_pass) {
             {
                 let work = shared.work.lock().expect("search mutex poisoned");
                 if work.result.is_some() {
-                    return;
+                    return generated;
                 }
                 if work.visited.contains(&child.position) {
                     continue;
@@ -216,20 +237,22 @@ fn expand_node(
             };
             let mut work = shared.work.lock().expect("search mutex poisoned");
             if work.result.is_some() {
-                return;
+                return generated;
             }
             if work.visited.insert(entry.node.position) {
                 work.nodes += 1;
                 if work.nodes > node_limit {
                     work.result = Some(Ok(SearchOutcome::Unknown { nodes: work.nodes }));
                     shared.changed.notify_all();
-                    return;
+                    return generated;
                 }
                 work.open.push(entry);
+                work.peak_frontier = work.peak_frontier.max(work.open.len() + work.active);
                 shared.changed.notify_one();
             }
         }
     }
+    generated
 }
 
 /// Greedy best-first search ranks nonzero placement-branch counts ascending,
@@ -243,12 +266,34 @@ pub fn parallel_retrospective_greedy_best_first_search(
     use_lp: bool,
     threads: usize,
 ) -> io::Result<SearchOutcome> {
+    parallel_retrospective_greedy_best_first_search_with_stats(
+        goal, table, node_limit, use_lp, threads,
+    )
+    .map(|report| report.outcome)
+}
+
+/// Run the same GBFS with work counters. Each worker accumulates generation and
+/// expansion counts locally; the counters add no per-candidate synchronization.
+/// The node limit still counts distinct registered positions, not generations.
+pub fn parallel_retrospective_greedy_best_first_search_with_stats(
+    goal: Position,
+    table: &ForwardTable,
+    node_limit: usize,
+    use_lp: bool,
+    threads: usize,
+) -> io::Result<GbfsReport> {
     table.validate_goal(goal)?;
     if table.contains(goal) {
-        return found(table, goal, &SearchNode::root(goal), 0);
+        return Ok(GbfsReport {
+            outcome: found(table, goal, &SearchNode::root(goal), 0)?,
+            stats: GbfsStats::default(),
+        });
     }
     if goal.board.popcount() <= table.discs() {
-        return Ok(SearchOutcome::NotFound { nodes: 0 });
+        return Ok(GbfsReport {
+            outcome: SearchOutcome::NotFound { nodes: 0 },
+            stats: GbfsStats::default(),
+        });
     }
     let context = Context {
         table,
@@ -273,6 +318,7 @@ pub fn parallel_retrospective_greedy_best_first_search(
     let nodes = visited.len();
     let shared = Shared {
         work: Mutex::new(Work {
+            peak_frontier: open.len(),
             open,
             visited,
             active: 0,
@@ -281,9 +327,12 @@ pub fn parallel_retrospective_greedy_best_first_search(
         }),
         changed: Condvar::new(),
     };
-    std::thread::scope(|scope| {
+    let mut stats = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(workers);
         for _ in 0..workers {
-            scope.spawn(|| {
+            handles.push(scope.spawn(|| {
+                let mut generated = 0;
+                let mut expanded = 0;
                 while let Some(entry) = shared.claim(node_limit) {
                     let node = entry.node;
                     let expansion = (|| -> io::Result<()> {
@@ -314,7 +363,8 @@ pub fn parallel_retrospective_greedy_best_first_search(
                                 return Ok(());
                             }
                         }
-                        expand_node(&node, candidates, &context, &shared, node_limit);
+                        expanded += 1;
+                        generated += expand_node(&node, candidates, &context, &shared, node_limit);
                         Ok(())
                     })();
                     let mut work = shared.work.lock().expect("search mutex poisoned");
@@ -324,22 +374,31 @@ pub fn parallel_retrospective_greedy_best_first_search(
                     }
                     shared.changed.notify_all();
                 }
-            });
+                (generated, expanded)
+            }));
         }
+        let mut stats = GbfsStats::default();
+        for handle in handles {
+            let (generated, expanded) = handle.join().expect("search worker panicked");
+            stats.generated += generated;
+            stats.expanded += expanded;
+        }
+        stats
     });
-    shared
-        .work
-        .into_inner()
-        .expect("search mutex poisoned")
+    let work = shared.work.into_inner().expect("search mutex poisoned");
+    stats.peak_frontier = work.peak_frontier;
+    let outcome = work
         .result
-        .ok_or_else(|| io::Error::other("workers stopped without a result"))?
+        .ok_or_else(|| io::Error::other("workers stopped without a result"))??;
+    Ok(GbfsReport { outcome, stats })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         heuristic_function, parallel_retrospective_greedy_best_first_search,
-        placement_predecessor_count, Context,
+        parallel_retrospective_greedy_best_first_search_with_stats, placement_predecessor_count,
+        Context, GbfsStats,
     };
     use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
     use crate::othello::{Board, Color, Position, CENTER_MASK};
@@ -354,6 +413,48 @@ mod tests {
         frontier::ForwardOccupancyIndex,
     };
     use rand::{Rng, SeedableRng};
+
+    #[test]
+    fn work_counters_exclude_roots_and_count_actual_expansions() {
+        let table = ForwardTable::new(4, None).unwrap();
+        let initial = Position::initial();
+        let direct = parallel_retrospective_greedy_best_first_search_with_stats(
+            initial, &table, 0, false, 1,
+        )
+        .unwrap();
+        assert_eq!(direct.stats, GbfsStats::default());
+        assert_found(direct.outcome, Some(0), &[]);
+
+        let (goal, action) = successors(initial)[0];
+        let stopped =
+            parallel_retrospective_greedy_best_first_search_with_stats(goal, &table, 0, false, 1)
+                .unwrap();
+        assert_eq!(
+            stopped.stats,
+            GbfsStats {
+                generated: 0,
+                expanded: 0,
+                peak_frontier: 1
+            }
+        );
+        assert!(matches!(
+            stopped.outcome,
+            SearchOutcome::Unknown { nodes: 1 }
+        ));
+
+        let report =
+            parallel_retrospective_greedy_best_first_search_with_stats(goal, &table, 3, false, 1)
+                .unwrap();
+        assert_eq!(
+            report.stats,
+            GbfsStats {
+                generated: 1,
+                expanded: 1,
+                peak_frontier: 2
+            }
+        );
+        assert_found(report.outcome, Some(2), &[action]);
+    }
 
     fn assert_count_matches_enumeration(position: Position) {
         let mut previous = Vec::new();
@@ -641,10 +742,23 @@ mod tests {
         ));
         assert_eq!(pass_predecessor(child), None);
 
+        let report =
+            parallel_retrospective_greedy_best_first_search_with_stats(goal, &table, 2, false, 3)
+                .unwrap();
         assert!(matches!(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 2, false, 3).unwrap(),
+            report.outcome,
             SearchOutcome::NotFound { nodes: 1 }
         ));
+        // The rejected predecessor still incurred generation work, although it
+        // neither entered the frontier nor consumed the registered-node budget.
+        assert_eq!(
+            report.stats,
+            GbfsStats {
+                generated: 1,
+                expanded: 1,
+                peak_frontier: 1
+            }
+        );
     }
 
     #[test]

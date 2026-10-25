@@ -1,3 +1,4 @@
+pub mod beam;
 pub(crate) mod constraints;
 pub mod core;
 pub mod dfs;

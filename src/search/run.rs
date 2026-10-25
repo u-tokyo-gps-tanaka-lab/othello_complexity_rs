@@ -7,6 +7,7 @@ use crate::othello::Position;
 use crate::query::{solve_query, ExactOutcome};
 use crate::record::GoalMatch;
 use crate::search::{
+    beam::{retrospective_beam_search, BeamConfig, BeamHeuristic},
     core::SearchOutcome,
     dfs::retrospective_search,
     external_bfs::{parallel_retrospective_bfs, sequential_retrospective_bfs, Cfg},
@@ -56,6 +57,12 @@ pub enum Strategy {
         use_lp: bool,
         threads: usize,
     },
+    Beam {
+        discs: u32,
+        max_nodes: usize,
+        width: usize,
+        heuristic: BeamHeuristic,
+    },
     BfsExternal(ExternalBfs),
     BfsExternalParallel(ExternalBfs),
     BfsInmemoryParallel {
@@ -74,6 +81,7 @@ impl Strategy {
             Self::DfsMoveOrdering { .. } => "dfs-move-ordering",
             Self::DfsParallel { .. } => "dfs-parallel",
             Self::GbfsParallel { .. } => "gbfs-parallel",
+            Self::Beam { .. } => "beam",
             Self::BfsExternal(_) => "bfs-external",
             Self::BfsExternalParallel(_) => "bfs-external-parallel",
             Self::BfsInmemoryParallel { .. } => "bfs-inmemory-parallel",
@@ -86,7 +94,8 @@ fn forward_mode(strategy: &Strategy) -> ForwardMode {
         Strategy::Dfs { .. }
         | Strategy::DfsMoveOrdering { .. }
         | Strategy::DfsParallel { .. }
-        | Strategy::GbfsParallel { .. } => ForwardMode::Shared,
+        | Strategy::GbfsParallel { .. }
+        | Strategy::Beam { .. } => ForwardMode::Shared,
         Strategy::BfsExternal(_)
         | Strategy::BfsExternalParallel(_)
         | Strategy::BfsInmemoryParallel { .. } => ForwardMode::Targeted,
@@ -113,7 +122,7 @@ fn run_queries(
     let mut outputs = ensure_tri_outputs(out_dir, &prefix)?;
     let mut records = BufWriter::new(File::create(out_dir.join(format!("{prefix}_records.csv")))?);
     let mut node_counts = Vec::with_capacity(positions.len());
-    // DFS and GBFS share an unpruned table. No input needs states above the
+    // DFS, GBFS, and beam share an unpruned table. No input needs states above the
     // largest target, and an empty input needs no forward search at all.
     let shared_table = match forward_mode {
         ForwardMode::Shared => positions
@@ -425,6 +434,43 @@ pub fn run_strategy(
                 },
             )
         }
+        Strategy::Beam {
+            discs,
+            max_nodes,
+            width,
+            heuristic,
+        } => {
+            if *width == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "beam width must be greater than zero",
+                ));
+            }
+            let config = BeamConfig {
+                width: *width,
+                max_nodes: *max_nodes,
+                heuristic: *heuristic,
+            };
+            run_queries(
+                input,
+                out_dir,
+                *discs,
+                goal_match,
+                forward_mode(strategy),
+                |index, goal, table| {
+                    let report = retrospective_beam_search(goal, table, &config)?;
+                    eprintln!(
+                        "input {index}: beam generated={} expanded={} retained={} peak_frontier={} pruned={}",
+                        report.stats.generated,
+                        report.stats.expanded,
+                        report.stats.retained,
+                        report.stats.peak_frontier,
+                        report.stats.pruned,
+                    );
+                    Ok(report.outcome)
+                },
+            )
+        }
         Strategy::BfsExternal(config) => run_bfs(&external_cfg(config, input, out_dir), goal_match),
         Strategy::BfsExternalParallel(config) => {
             run_parallel_bfs(&external_cfg(config, input, out_dir), goal_match)
@@ -451,6 +497,77 @@ pub fn run_strategy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beam_preserves_unknown_outputs_and_writes_verified_certificates() {
+        use crate::record::ReachabilityRecord;
+        use crate::search::core::successors;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("othello-beam-run-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("positions.txt");
+        let initial = Position::initial();
+        let goal = successors(initial)[0].0;
+        fs::write(
+            &input,
+            format!("{}\n{}\n", format_position(initial), format_position(goal)),
+        )
+        .unwrap();
+
+        let stopped = directory.join("stopped");
+        run_strategy(
+            &Strategy::Beam {
+                discs: 4,
+                max_nodes: 0,
+                width: 1,
+                heuristic: BeamHeuristic::Coherence,
+            },
+            &input,
+            &stopped,
+            GoalMatch::Exact,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(stopped.join("reverse_exact_UNKNOWN.txt")).unwrap(),
+            format!("{}\n", format_position(goal))
+        );
+        assert!(fs::read_to_string(stopped.join("reverse_exact_NG.txt"))
+            .unwrap()
+            .is_empty());
+
+        let solved = directory.join("solved");
+        run_strategy(
+            &Strategy::Beam {
+                discs: 4,
+                max_nodes: 100,
+                width: 1,
+                heuristic: BeamHeuristic::Coherence,
+            },
+            &input,
+            &solved,
+            GoalMatch::Exact,
+        )
+        .unwrap();
+        let text = fs::read_to_string(solved.join("reverse_exact_records.csv")).unwrap();
+        let records = text
+            .lines()
+            .map(|line| ReachabilityRecord::from_csv(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 2);
+        for record in records {
+            record.verify().unwrap();
+        }
+        assert!(fs::read_to_string(solved.join("reverse_exact_UNKNOWN.txt"))
+            .unwrap()
+            .is_empty());
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn strategies_select_the_expected_forward_table_mode() {
@@ -492,6 +609,15 @@ mod tests {
                     max_nodes: 1,
                     use_lp: false,
                     threads: 1,
+                },
+                ForwardMode::Shared,
+            ),
+            (
+                Strategy::Beam {
+                    discs: 4,
+                    max_nodes: 1,
+                    width: 32,
+                    heuristic: BeamHeuristic::Coherence,
                 },
                 ForwardMode::Shared,
             ),

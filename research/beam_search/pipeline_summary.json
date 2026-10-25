@@ -1,0 +1,75 @@
+{
+  "holdout": {
+    "baseline": {
+      "ok": 54,
+      "ng": 0,
+      "unknown": 42,
+      "median_seconds": 11.233159288,
+      "mean_seconds": 11.307808983333333,
+      "min_seconds": 11.009980358,
+      "max_seconds": 11.680287304,
+      "beam_generated": 0,
+      "gbfs_registered": 5207885
+    },
+    "two-stage": {
+      "ok": 54,
+      "ng": 0,
+      "unknown": 42,
+      "median_seconds": 11.428712532,
+      "mean_seconds": 11.295725528333334,
+      "min_seconds": 10.831346786,
+      "max_seconds": 11.627117267,
+      "beam_generated": 663962,
+      "gbfs_registered": 5013902
+    },
+    "median_ratio": 1.0174085703751128,
+    "mean_ratio": 0.9989314061620771
+  },
+  "legacy_sat": {
+    "baseline": {
+      "ok": 0,
+      "ng": 0,
+      "unknown": 58,
+      "median_seconds": 12.701355604,
+      "mean_seconds": 12.686605814333333,
+      "min_seconds": 12.614936641,
+      "max_seconds": 12.743525198,
+      "beam_generated": 0,
+      "gbfs_registered": 5800034
+    },
+    "two-stage": {
+      "ok": 0,
+      "ng": 0,
+      "unknown": 58,
+      "median_seconds": 12.825407035,
+      "mean_seconds": 12.944253957,
+      "min_seconds": 12.767977969,
+      "max_seconds": 13.239376867,
+      "beam_generated": 400410,
+      "gbfs_registered": 5800034
+    },
+    "median_ratio": 1.0097667867011717,
+    "mean_ratio": 1.0203086740801528
+  },
+  "conditions": {
+    "mode": "exact",
+    "forward_discs": 8,
+    "threads": 1,
+    "heuristic": "mobility",
+    "beam_width": 32,
+    "max_nodes": 100000,
+    "repeats": 3,
+    "method_order": "baseline/two-stage alternates each repetition",
+    "timing_scope": "sum of actual CLI command durations, including process startup, forward-table construction, search and output I/O; external certificate verification is excluded",
+    "checks": "all output partitions, all Found certificates, preservation of baseline resolved results, and per-stage node counters agree with the independent library benchmark"
+  },
+  "commands": [
+    "python3 scripts/bench_reverse_pipeline.py --input research/beam_search/holdout_positions.txt --binary-dir target/release --work-dir /tmp/othello-pipeline-holdout --output research/beam_search/holdout_pipeline.csv --repeats 3 --discs 8 --max-nodes 100000 --beam-width 32 --heuristic mobility --threads 1",
+    "python3 scripts/bench_reverse_pipeline.py --input research/beam_search/legacy_sat_positions.txt --binary-dir target/release --work-dir /tmp/othello-pipeline-legacy_sat --output research/beam_search/legacy_sat_pipeline.csv --repeats 3 --discs 8 --max-nodes 100000 --beam-width 32 --heuristic mobility --threads 1"
+  ],
+  "sha256": {
+    "holdout_pipeline.csv": "7b62b7d651a7084019dfc24be68fa8605efd7662f38e15102ccbedbc9f91cdef",
+    "legacy_sat_pipeline.csv": "5bf60fa14d0357dd4821cd993b02018f70f33a64237751b24ff67f304bb32437"
+  },
+  "csv_line_endings": "Normalized to LF after measurement; fields and measurements unchanged."
+}

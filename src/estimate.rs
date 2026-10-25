@@ -18,11 +18,12 @@ use crate::record::{GoalMatch, ReachabilityRecord};
 use crate::sampling::{create_output_dir, read_sample_dir, Population, Sample};
 use crate::search::run::{run_strategy, Strategy};
 
-const REVERSE_STRATEGIES: [&str; 7] = [
+const REVERSE_STRATEGIES: [&str; 8] = [
     "dfs",
     "dfs-move-ordering",
     "dfs-parallel",
     "gbfs-parallel",
+    "beam",
     "bfs-external",
     "bfs-external-parallel",
     "bfs-inmemory-parallel",
@@ -149,6 +150,7 @@ pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Inte
         &classifications,
         alpha,
         None,
+        None,
     )
 }
 
@@ -211,6 +213,7 @@ pub fn sat(
         &chain.classifications,
         alpha,
         None,
+        None,
     )
 }
 
@@ -248,7 +251,84 @@ pub fn reverse_search(
         &chain.classifications,
         alpha,
         Some(&nodes),
+        Some(strategy),
     )
+}
+
+/// Persist search settings without changing how older stage summaries load.
+/// Budgets are per exact candidate, so equivalence queries may spend more.
+fn reverse_strategy_settings(strategy: &Strategy) -> Value {
+    let mut settings = match strategy {
+        Strategy::Dfs { discs, max_nodes } | Strategy::DfsMoveOrdering { discs, max_nodes } => {
+            json!({
+                "discs": discs,
+                "max_nodes": max_nodes,
+                "budget_counts": "visited",
+            })
+        }
+        Strategy::DfsParallel {
+            discs,
+            max_nodes,
+            table_size,
+            threads,
+        } => json!({
+            "discs": discs,
+            "max_nodes": max_nodes,
+            "table_size": table_size,
+            "threads": threads,
+            "budget_counts": "visited",
+        }),
+        Strategy::GbfsParallel {
+            discs,
+            max_nodes,
+            use_lp,
+            threads,
+        } => json!({
+            "discs": discs,
+            "max_nodes": max_nodes,
+            "use_lp": use_lp,
+            "threads": threads,
+            "budget_counts": "registered",
+        }),
+        Strategy::Beam {
+            discs,
+            max_nodes,
+            width,
+            heuristic,
+        } => json!({
+            "discs": discs,
+            "max_nodes": max_nodes,
+            "beam_width": width,
+            "order": "best-first",
+            "heuristic": heuristic.to_string(),
+            "budget_counts": "generated",
+        }),
+        Strategy::BfsExternal(config) | Strategy::BfsExternalParallel(config) => json!({
+            "discs": config.discs,
+            "jobs": config.jobs,
+            "verbose": config.verbose,
+            "block_size": config.block_size,
+            "tmp_dir": config.tmp_dir,
+            "resume": config.resume,
+            "budget_counts": "unlimited",
+        }),
+        Strategy::BfsInmemoryParallel {
+            discs,
+            max_nodes,
+            use_lp,
+            use_occupancy_cache,
+            threads,
+        } => json!({
+            "discs": discs,
+            "max_nodes": max_nodes,
+            "use_lp": use_lp,
+            "use_occupancy_cache": use_occupancy_cache,
+            "threads": threads,
+            "budget_counts": "current_and_next_layer_positions",
+        }),
+    };
+    settings["name"] = json!(strategy.name());
+    settings
 }
 
 fn read_chain(from: &Path) -> io::Result<ChainState> {
@@ -639,6 +719,7 @@ fn write_summary(
     classifications: &HashMap<Position, Status>,
     alpha: f64,
     nodes: Option<&[usize]>,
+    reverse_strategy: Option<&Strategy>,
 ) -> io::Result<Interval> {
     let counts = count_sample(sample, classifications)?;
     let interval = interval_for_counts(sample, counts, alpha)?;
@@ -670,6 +751,9 @@ fn write_summary(
     }
     if let Some(nodes) = nodes {
         summary["nodes"] = json!(nodes);
+    }
+    if let Some(strategy) = reverse_strategy {
+        summary["reverse_strategy_settings"] = reverse_strategy_settings(strategy);
     }
     let mut file = File::create(out_dir.join("summary.json"))?;
     serde_json::to_writer_pretty(&mut file, &summary).map_err(io::Error::other)?;

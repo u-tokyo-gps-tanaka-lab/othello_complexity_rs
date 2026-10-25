@@ -1,0 +1,16 @@
+{
+  "command": "cargo test --release --locked --offline",
+  "tests_passed": 193,
+  "tests_failed": 0,
+  "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+  "coverage": [
+    "exact forward enumeration through 7 stones and both absolute turns, all 5 heuristics and both beam orders",
+    "forced passes, terminal states and custom starts",
+    "width-pruned reachable query returns UNKNOWN, wider search returns replayed certificate",
+    "zero/one candidate generation budgets and zero-width rejection",
+    "full-key transposition cache collisions and absolute turns",
+    "absolute-color frontier support score",
+    "CLI parsing, stage round-trip, beam UNKNOWN to GBFS, legacy summary compatibility",
+    "existing GBFS, SAT, filters, sampling and estimate regression suites"
+  ]
+}
