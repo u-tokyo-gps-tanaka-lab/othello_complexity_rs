@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use serde_json::{json, Value};
 
-use crate::filters::sat::{run_with_options, RunOptions, SatPortfolio};
+use crate::filters::sat::{run_with_options, ReverseBfs, RunOptions, SatPortfolio};
 use crate::filters::{Filter, FilterResult};
 use crate::interval::{self, Interval};
 use crate::io::{format_position, parse_file_to_positions};
@@ -159,6 +159,7 @@ pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Inte
 }
 
 /// Classify the preceding stage's unresolved positions with a SAT solver.
+#[allow(clippy::too_many_arguments)]
 pub fn sat(
     from: &Path,
     out_dir: &Path,
@@ -167,6 +168,7 @@ pub fn sat(
     seeds: usize,
     parallel_goals: usize,
     sat_timeout_per_instance: Option<Duration>,
+    reverse_bfs: Option<ReverseBfs>,
 ) -> io::Result<Interval> {
     interval::validate_alpha(alpha)?;
     if seeds == 0 {
@@ -187,10 +189,33 @@ pub fn sat(
             "SAT timeout must be positive",
         ));
     }
+    if reverse_bfs.is_some() && !encodings.proves_unreachable() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "reverse BFS requires a complete encoding in the portfolio; \
+             nopass-witness alone cannot record its results",
+        ));
+    }
 
     let mut chain = read_chain(from)?;
     check_output_dir(out_dir, &chain.input_dirs)?;
     let goal_match = population_goal_match(chain.sample.population);
+    match reverse_bfs {
+        Some(bfs) => println!(
+            "sat: encoding={encodings} seeds={seeds} mode={goal_match} goals={} \
+             parallel_goals={parallel_goals} timeout={sat_timeout_per_instance:?} \
+             bfs(discs={} nodes={})",
+            chain.pending.len(),
+            bfs.discs,
+            bfs.state_budget,
+        ),
+        None => println!(
+            "sat: encoding={encodings} seeds={seeds} mode={goal_match} goals={} \
+             parallel_goals={parallel_goals} timeout={sat_timeout_per_instance:?} \
+             bfs=disabled",
+            chain.pending.len(),
+        ),
+    }
     let outcomes = run_with_options(
         RunOptions {
             start: Position::initial(),
@@ -205,6 +230,7 @@ pub fn sat(
             cnf_dump_dir: None,
             cnf_dump_only: false,
             sat_timeout_per_instance,
+            reverse_bfs,
         },
         |_| Ok(()),
     )

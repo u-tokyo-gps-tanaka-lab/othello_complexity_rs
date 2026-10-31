@@ -9,8 +9,11 @@ mod rays;
 
 use crate::io::format_position;
 use crate::othello::{get_moves, validate_board, Position};
-use crate::query::{solve_query, ExactOutcome, GoalClassification};
+use crate::query::{candidates, solve_query, ExactOutcome, GoalClassification};
 use crate::record::{format_actions, replay, GoalMatch, PlyAction, PositionTransform};
+use crate::search::bfs::{retrospective_bfs, BfsOutcome};
+use crate::search::core::SearchOutcome;
+use crate::search::forward::ForwardTable;
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
@@ -18,6 +21,7 @@ use rustsat::{
     types::Clause,
 };
 use rustsat_kissat::Interrupter;
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -142,6 +146,15 @@ impl From<SatEncoding> for SatPortfolio {
     }
 }
 
+/// A bounded exact reverse search that runs before every SAT call.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReverseBfs {
+    /// Stone count of the shared forward table, between the start count and 64.
+    pub discs: u32,
+    /// Maximum registered reverse positions per candidate in the breadth-first search.
+    pub state_budget: usize,
+}
+
 /// Each goal is a relative board together with its absolute side to move.
 /// Time limits apply separately to each candidate's solver call, not to a query.
 /// CNF-only runs return no classifications and never call the outcome callback.
@@ -158,6 +171,7 @@ pub struct RunOptions {
     pub cnf_dump_dir: Option<PathBuf>,
     pub cnf_dump_only: bool,
     pub sat_timeout_per_instance: Option<Duration>,
+    pub reverse_bfs: Option<ReverseBfs>,
 }
 
 pub(crate) trait ModelDecoder: Send + Sync {
@@ -238,6 +252,23 @@ where
     if opts.cnf_dump_only && opts.cnf_dump_dir.is_none() {
         return Err("CNF-only runs require an output directory".to_owned());
     }
+    if let Some(bfs) = opts.reverse_bfs {
+        if !opts.encodings.proves_unreachable() {
+            return Err(
+                "reverse BFS requires a complete encoding in the portfolio; \
+                 nopass-witness alone cannot record its results"
+                    .to_owned(),
+            );
+        }
+        if bfs.state_budget == 0 {
+            return Err("reverse BFS state budget must be positive".to_owned());
+        }
+        if !(opts.start.board.popcount()..=64).contains(&bfs.discs) {
+            return Err(
+                "reverse BFS discs must be between the start stone count and 64".to_owned(),
+            );
+        }
+    }
     if let Some(dir) = &opts.cnf_dump_dir {
         fs::create_dir_all(dir).map_err(|error| {
             format!("failed to create CNF directory {}: {error}", dir.display())
@@ -247,6 +278,27 @@ where
     if opts.goals.is_empty() {
         return Ok(Vec::new());
     }
+    // One immutable forward table serves every parallel goal. Its boundary is
+    // capped by the largest goal but never placed below the start position.
+    let forward_table = match opts.reverse_bfs {
+        Some(bfs) if !opts.cnf_dump_only => {
+            let largest = opts
+                .goals
+                .iter()
+                .map(|goal| goal.board.popcount())
+                .max()
+                .expect("goals are nonempty");
+            Some(
+                ForwardTable::from_start(
+                    opts.start,
+                    bfs.discs.min(largest).max(opts.start.board.popcount()),
+                    None,
+                )
+                .map_err(|error| format!("failed to build the forward table: {error}"))?,
+            )
+        }
+        _ => None,
+    };
     let cancelled = AtomicBool::new(false);
     let (tx, rx) = mpsc::channel();
     let pool = ThreadPoolBuilder::new()
@@ -257,6 +309,7 @@ where
     std::thread::scope(|scope| {
         let opts = &opts;
         let cancelled = &cancelled;
+        let forward_table = forward_table.as_ref();
         scope.spawn(move || {
             pool.install(|| {
                 opts.goals
@@ -267,7 +320,7 @@ where
                             return;
                         }
                         let input_started = Instant::now();
-                        let result = solve_goal(opts, index, goal);
+                        let result = solve_goal(opts, forward_table, index, goal);
                         if let Ok(Some(outcome)) = &result {
                             print_classification_verbose(
                                 opts.verbose,
@@ -325,19 +378,127 @@ where
     })
 }
 
-/// Classify one input goal.
+/// Classify one input goal. The reverse BFS runs for every nontrivial
+/// candidate before any SAT encoding is built, so a witness for one candidate
+/// can spare the other candidates their solver calls.
 fn solve_goal(
     opts: &RunOptions,
+    forward_table: Option<&ForwardTable>,
     index: usize,
     goal: Position,
 ) -> Result<Option<GoalClassification>, String> {
+    let mut bfs_results: HashMap<Position, Option<ExactOutcome>> = HashMap::new();
+    let mut bfs_seconds = HashMap::new();
+    let mut witnessed = false;
+    if let Some((bfs, table)) = opts.reverse_bfs.zip(forward_table) {
+        for (_, candidate) in candidates(opts.start, goal, opts.goal_match) {
+            if bfs_results.contains_key(&candidate)
+                || zero_placement_outcome(opts.start, candidate)?.is_some()
+            {
+                continue;
+            }
+            let (outcome, seconds) = run_bfs(candidate, table, bfs, index + 1, opts.verbose)?;
+            let found = matches!(outcome, Some(ExactOutcome::Reachable(_)));
+            bfs_results.insert(candidate, outcome);
+            bfs_seconds.insert(candidate, seconds);
+            if found {
+                witnessed = true;
+                break;
+            }
+        }
+    }
+
     solve_query(
         opts.start,
         goal,
         index + 1,
         opts.goal_match,
-        |candidate, transform| check_exact_reachability(opts, candidate, index + 1, transform),
+        |candidate, transform| {
+            let bfs_result = bfs_results.remove(&candidate);
+            let (settled, seconds) = match (bfs_result, bfs_seconds.remove(&candidate)) {
+                (Some(outcome), Some(seconds)) => (outcome, seconds),
+                (None, None) => (None, 0.0),
+                _ => return Err("reverse BFS result and timing disagree".to_owned()),
+            };
+            if witnessed && settled.is_none() {
+                let outcome = ExactOutcome::Unknown;
+                print_instance_verbose(
+                    opts.verbose,
+                    index + 1,
+                    candidate,
+                    "bfs",
+                    0,
+                    0,
+                    0,
+                    seconds,
+                    0.0,
+                    "skipped",
+                );
+                print_candidate_verbose(
+                    opts.verbose,
+                    index + 1,
+                    candidate,
+                    &outcome,
+                    None,
+                    seconds,
+                );
+                return Ok(Some(outcome));
+            }
+            check_exact_reachability(opts, candidate, index + 1, transform, settled, seconds)
+        },
     )
+}
+
+/// Check a reverse-search witness against the candidate it must prove and
+/// replay it with the ordinary rules before accepting it as a SAT outcome.
+fn verified_witness(
+    record: crate::record::ReachabilityRecord,
+    table: &ForwardTable,
+    goal: Position,
+) -> Result<ExactOutcome, String> {
+    if record.start != table.start() || record.goal != goal {
+        return Err("reverse BFS witness is for another query".to_owned());
+    }
+    if record.verify()?.last() != Some(&goal) {
+        return Err("reverse BFS witness does not reach the goal".to_owned());
+    }
+    Ok(ExactOutcome::Reachable(record.actions))
+}
+
+/// Run the bounded breadth-first reverse search.
+fn run_bfs(
+    goal: Position,
+    table: &ForwardTable,
+    bfs: ReverseBfs,
+    input_index: usize,
+    verbose: bool,
+) -> Result<(Option<ExactOutcome>, f64), String> {
+    let started = Instant::now();
+    let outcome = retrospective_bfs(goal, table, bfs.state_budget)
+        .map_err(|error| format!("reverse BFS failed: {error}"))?;
+    let (result, nodes, result_name) = match outcome {
+        BfsOutcome::Resolved(SearchOutcome::Found { record, nodes }) => {
+            (Some(verified_witness(record, table, goal)?), nodes, "found")
+        }
+        BfsOutcome::Resolved(SearchOutcome::NotFound { nodes }) => {
+            (Some(ExactOutcome::Unreachable), nodes, "exhausted")
+        }
+        BfsOutcome::Resolved(SearchOutcome::Unknown { nodes }) => (None, nodes, "unknown"),
+        BfsOutcome::Frontier { nodes } => (None, nodes, "unknown"),
+    };
+
+    let seconds = started.elapsed().as_secs_f64();
+    if verbose {
+        println!(
+            "[bfs] input={} goal={} result={} nodes={} secs={:.6}",
+            input_index,
+            format_position(goal),
+            result_name,
+            nodes,
+            seconds,
+        );
+    }
+    Ok((result, seconds))
 }
 
 fn check_exact_reachability(
@@ -345,8 +506,33 @@ fn check_exact_reachability(
     goal: Position,
     input_index: usize,
     transform: PositionTransform,
+    settled: Option<ExactOutcome>,
+    bfs_seconds: f64,
 ) -> Result<Option<ExactOutcome>, String> {
     let candidate_started = Instant::now();
+    if let Some(outcome) = settled {
+        print_instance_verbose(
+            opts.verbose,
+            input_index,
+            goal,
+            "bfs",
+            0,
+            0,
+            0,
+            bfs_seconds,
+            0.0,
+            "trivial",
+        );
+        print_candidate_verbose(
+            opts.verbose,
+            input_index,
+            goal,
+            &outcome,
+            Some(("bfs", 0)),
+            bfs_seconds + candidate_started.elapsed().as_secs_f64(),
+        );
+        return Ok(Some(outcome));
+    }
     let mut built = Vec::with_capacity(opts.encodings.encodings().len());
     for &encoding in opts.encodings.encodings() {
         let build_started = Instant::now();
@@ -428,7 +614,7 @@ fn check_exact_reachability(
             goal,
             &outcome,
             Some((encoding.as_str(), 0)),
-            candidate_started.elapsed().as_secs_f64(),
+            bfs_seconds + candidate_started.elapsed().as_secs_f64(),
         );
         return Ok(Some(outcome));
     }
@@ -459,7 +645,7 @@ fn check_exact_reachability(
             goal,
             &outcome,
             Some((encoding.as_str(), 0)),
-            candidate_started.elapsed().as_secs_f64(),
+            bfs_seconds + candidate_started.elapsed().as_secs_f64(),
         );
         return Ok(Some(outcome));
     }
@@ -534,7 +720,7 @@ fn check_exact_reachability(
         solved
             .decided_by
             .map(|key| (key.encoding.as_str(), key.seed)),
-        candidate_started.elapsed().as_secs_f64(),
+        bfs_seconds + candidate_started.elapsed().as_secs_f64(),
     );
     Ok(Some(solved.outcome))
 }

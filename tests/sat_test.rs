@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use othello_complexity_rs::filters::sat::{
-    run_with_options, RunOptions, SatEncoding, SatPortfolio,
+    run_with_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
 };
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::query::{candidates, GoalClassification};
@@ -18,7 +18,10 @@ use othello_complexity_rs::record::{
     format_actions, parse_actions, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
 };
 
-use support::{enumerate, middle_pass_start, query_targets, ArrayPosition, ALL_SYMMETRIES};
+use support::{
+    enumerate, middle_pass_start, query_targets, random_game, targets_with_turn_changes,
+    ArrayPosition, ALL_SYMMETRIES,
+};
 
 fn options(
     start: Position,
@@ -39,6 +42,7 @@ fn options(
         cnf_dump_dir: None,
         cnf_dump_only: false,
         sat_timeout_per_instance: None,
+        reverse_bfs: None,
     }
 }
 
@@ -370,6 +374,71 @@ fn independent_initial_rules_and_geometric_transforms_match_the_contract() {
                 symmetry.apply_position(source.position()),
                 source.transformed(symmetry).position()
             );
+        }
+    }
+}
+
+/// Running the reverse BFS inside the SAT driver must not change any answer for
+/// either complete placement encoding.
+#[test]
+fn bfs_driver_agrees_with_plain_sat_on_six_disc_queries() {
+    let start = ArrayPosition::initial();
+    let reachable = enumerate(start, 6);
+    let goals = targets_with_turn_changes(&reachable);
+    assert!(goals.iter().any(|goal| !reachable.contains(goal)));
+    classify(
+        start,
+        &goals,
+        GoalMatch::Exact,
+        |goal| reachable.contains(&goal),
+        None,
+    );
+
+    let goal_positions = goals.iter().map(|goal| goal.position()).collect::<Vec<_>>();
+    for encodings in [
+        SatPortfolio::from(SatEncoding::PlacementColumns),
+        SatPortfolio::from(SatEncoding::PlacementRays),
+    ] {
+        for bfs in [
+            Some(ReverseBfs {
+                discs: 4,
+                state_budget: 3,
+            }),
+            Some(ReverseBfs {
+                discs: 5,
+                state_budget: usize::MAX,
+            }),
+        ] {
+            let outcomes = run_with_options(
+                RunOptions {
+                    parallel_goals: 2,
+                    reverse_bfs: bfs,
+                    ..options(
+                        start.position(),
+                        goal_positions.clone(),
+                        GoalMatch::Exact,
+                        encodings.clone(),
+                    )
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(outcomes.len(), goals.len());
+            for (goal, outcome) in goals.iter().zip(&outcomes) {
+                let expected = reachable.contains(goal);
+                match outcome {
+                    GoalClassification::Reachable { record } => {
+                        assert!(expected, "{encodings} {bfs:?}: {goal:?}");
+                        assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
+                    }
+                    GoalClassification::Unreachable { .. } => {
+                        assert!(!expected, "{encodings} {bfs:?}: {goal:?}");
+                    }
+                    GoalClassification::Unknown { .. } => {
+                        panic!("{encodings} {bfs:?}: unknown for {goal:?}")
+                    }
+                }
+            }
         }
     }
 }
@@ -1044,6 +1113,263 @@ fn a_solver_deadline_never_produces_a_negative_reachability_proof() {
         GoalClassification::Unknown { .. } => {}
         GoalClassification::Unreachable { .. } => panic!("a timeout is not an unreachable proof"),
     }
+}
+
+#[test]
+fn witness_only_portfolio_rejects_bfs_before_creating_output() {
+    let directory = TestDirectory::new();
+    let output = directory.path().join("witness-only");
+    assert!(!output.exists());
+    let run_options = RunOptions {
+        parallel_goals: 1,
+        cnf_dump_dir: Some(output.clone()),
+        cnf_dump_only: true,
+        reverse_bfs: Some(ReverseBfs {
+            discs: 4,
+            state_budget: 1,
+        }),
+        ..options(
+            Position::initial(),
+            vec![Position::initial()],
+            GoalMatch::Exact,
+            SatEncoding::NoPassWitness,
+        )
+    };
+
+    let error = run_with_options(run_options, |_| Ok(())).unwrap_err();
+    assert_eq!(
+        error,
+        "reverse BFS requires a complete encoding in the portfolio; \
+         nopass-witness alone cannot record its results"
+    );
+    assert!(!output.exists());
+}
+
+#[test]
+fn bfs_rejects_invalid_boundary_and_budget() {
+    let error = run_with_options(
+        RunOptions {
+            parallel_goals: 1,
+            reverse_bfs: Some(ReverseBfs {
+                discs: 3,
+                state_budget: 1,
+            }),
+            ..options(
+                Position::initial(),
+                vec![Position::initial()],
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            )
+        },
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error,
+        "reverse BFS discs must be between the start stone count and 64"
+    );
+
+    let error = run_with_options(
+        RunOptions {
+            parallel_goals: 1,
+            reverse_bfs: Some(ReverseBfs {
+                discs: 4,
+                state_budget: 0,
+            }),
+            ..options(
+                Position::initial(),
+                vec![Position::initial()],
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            )
+        },
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error, "reverse BFS state budget must be positive");
+}
+
+#[test]
+fn goal_below_custom_start_boundary_is_unreachable() {
+    let start = othello_complexity_rs::record::replay(Position::initial(), &[PlyAction::Play(19)])
+        .unwrap()[1];
+    assert_eq!(start.board.popcount(), 5);
+    let goal = Position::initial();
+    let outcomes = run_with_options(
+        RunOptions {
+            parallel_goals: 1,
+            reverse_bfs: Some(ReverseBfs {
+                discs: 5,
+                state_budget: 1,
+            }),
+            ..options(
+                start,
+                vec![goal],
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            )
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcomes.as_slice(),
+        [GoalClassification::Unreachable {
+            goal: classified_goal,
+            ..
+        }] if *classified_goal == goal
+    ));
+}
+
+/// Mid-game goals: reachable ones from random legal games, and perturbed
+/// copies that are usually unreachable. Every encoding, with and without the
+/// reverse BFS, must agree, and every witness must replay to its goal.
+#[test]
+fn encodings_and_bfs_agree_on_mid_game_goals() {
+    use rand::{Rng, SeedableRng};
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0x6d69_6467);
+    let start = Position::initial();
+    let mut goals = Vec::new();
+    for seed in 0..10 {
+        let history = random_game(1000 + seed);
+        let prefix = (6 + rng.random_range(0..6)).min(history.len() - 1);
+        let (position, action) = history[prefix];
+        let goal = othello_complexity_rs::record::replay(position, &[action]).unwrap()[1];
+        goals.push(goal);
+        let occupied = goal.board.player | goal.board.opponent;
+        let mut perturbed = goal;
+        for _ in 0..2 {
+            let square = rng.random_range(0..64);
+            let bit = 1_u64 << square;
+            if occupied & bit != 0 {
+                perturbed.board.player ^= bit;
+                perturbed.board.opponent ^= bit;
+            }
+        }
+        goals.push(perturbed);
+        goals.push(Position {
+            side_to_move: goal.side_to_move.opposite(),
+            ..goal
+        });
+    }
+    let mut reference: Option<Vec<bool>> = None;
+    let mut reachable = 0;
+    for encodings in [
+        SatPortfolio::from(SatEncoding::PlacementColumns),
+        SatPortfolio::from(SatEncoding::PlacementRays),
+    ] {
+        for bfs in [
+            None,
+            Some(ReverseBfs {
+                discs: 8,
+                state_budget: 500,
+            }),
+        ] {
+            let outcomes = run_with_options(
+                RunOptions {
+                    parallel_goals: 2,
+                    reverse_bfs: bfs,
+                    ..options(start, goals.clone(), GoalMatch::Exact, encodings.clone())
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            let answers: Vec<bool> = outcomes
+                .iter()
+                .zip(&goals)
+                .map(|(outcome, goal)| match outcome {
+                    GoalClassification::Reachable { record } => {
+                        assert_eq!(record.verify().unwrap().last(), Some(goal));
+                        true
+                    }
+                    GoalClassification::Unreachable { .. } => false,
+                    GoalClassification::Unknown { .. } => panic!("unbounded solve was unknown"),
+                })
+                .collect();
+            match &reference {
+                Some(expected) => assert_eq!(&answers, expected, "{encodings} {bfs:?}"),
+                None => {
+                    reachable = answers.iter().filter(|&&answer| answer).count();
+                    reference = Some(answers);
+                }
+            }
+        }
+    }
+    assert!(reachable >= 10, "reachable={reachable}");
+    // Small goals keep this test quick; hardness grows quickly with size.
+    assert!(goals.iter().all(|goal| goal.board.popcount() <= 18));
+    assert!(reachable < goals.len());
+}
+
+/// Equivalence queries settle as soon as one candidate's reverse BFS finds a
+/// witness, and unreachable classes need every candidate refuted.
+#[test]
+fn bfs_driver_matches_plain_sat_on_equivalence_queries() {
+    let start = Position::initial();
+    let mut goals = Vec::new();
+    for seed in 0..6 {
+        let history = random_game(2000 + seed);
+        let (position, action) = history[(6 + seed as usize).min(history.len() - 1)];
+        let goal = othello_complexity_rs::record::replay(position, &[action]).unwrap()[1];
+        goals.push(goal);
+        let mut perturbed = goal;
+        let occupied = goal.board.player | goal.board.opponent;
+        let bit = 1_u64 << (occupied.trailing_zeros() + 1);
+        if occupied & bit != 0 {
+            perturbed.board.player ^= bit;
+            perturbed.board.opponent ^= bit;
+        }
+        goals.push(perturbed);
+    }
+    let witness_portfolio =
+        SatPortfolio::new(vec![SatEncoding::NoPassWitness, SatEncoding::PlacementRays]).unwrap();
+    let mut reference: Option<Vec<bool>> = None;
+    for encodings in [
+        SatPortfolio::from(SatEncoding::PlacementRays),
+        witness_portfolio,
+    ] {
+        for bfs in [
+            None,
+            Some(ReverseBfs {
+                discs: 8,
+                state_budget: 200_000,
+            }),
+        ] {
+            let outcomes = run_with_options(
+                RunOptions {
+                    parallel_goals: 2,
+                    reverse_bfs: bfs,
+                    ..options(
+                        start,
+                        goals.clone(),
+                        GoalMatch::EquivalenceClass,
+                        encodings.clone(),
+                    )
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            let answers: Vec<bool> = outcomes
+                .iter()
+                .map(|outcome| match outcome {
+                    GoalClassification::Reachable { record } => {
+                        record.verify().unwrap();
+                        true
+                    }
+                    GoalClassification::Unreachable { .. } => false,
+                    GoalClassification::Unknown { .. } => panic!("unbounded solve was unknown"),
+                })
+                .collect();
+            match &reference {
+                Some(expected) => assert_eq!(&answers, expected, "{encodings} {bfs:?}"),
+                None => reference = Some(answers),
+            }
+        }
+    }
+    let answers = reference.unwrap();
+    assert!(answers.iter().any(|&answer| answer));
+    assert!(answers.iter().any(|&answer| !answer));
 }
 
 #[test]

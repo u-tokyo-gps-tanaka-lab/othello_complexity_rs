@@ -1,5 +1,5 @@
 use clap::Parser;
-use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatPortfolio};
+use othello_complexity_rs::filters::sat::{run_with_options, ReverseBfs, RunOptions, SatPortfolio};
 use othello_complexity_rs::io::{
     ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
     reject_estimate_output_dir,
@@ -87,6 +87,20 @@ struct Cli {
     /// SAT solver timeout in seconds for each exact candidate
     #[arg(long, value_name = "SECS", value_parser = parse_positive_u64)]
     sat_timeout_secs: Option<u64>,
+
+    /// Registered reverse positions per candidate in the exact reverse search
+    /// run before each SAT call; 0 disables the reverse BFS
+    #[arg(long, value_name = "N", default_value_t = 1_000_000)]
+    bfs_nodes: usize,
+
+    /// Stone count of the forward table used by the reverse BFS
+    #[arg(
+        long,
+        value_name = "D",
+        default_value_t = 10,
+        value_parser = clap::value_parser!(u32).range(4..=64)
+    )]
+    bfs_discs: u32,
 }
 
 fn main() {
@@ -102,6 +116,20 @@ fn run_cli(cli: Cli) -> Result<(), String> {
     let start = resolve_start(&cli)?;
     let goals = resolve_goals(&cli)?;
     let goal_match = cli.mode;
+    let reverse_bfs = (cli.bfs_nodes > 0).then_some(ReverseBfs {
+        discs: cli.bfs_discs,
+        state_budget: cli.bfs_nodes,
+    });
+    if reverse_bfs.is_some() && !cli.encoding.proves_unreachable() {
+        return Err(
+            "reverse BFS requires a complete encoding in the portfolio; \
+             nopass-witness alone cannot record its results"
+                .to_owned(),
+        );
+    }
+    if reverse_bfs.is_some_and(|bfs| !(start.board.popcount()..=64).contains(&bfs.discs)) {
+        return Err("reverse BFS discs must be between the start stone count and 64".to_owned());
+    }
     reject_estimate_output_dir(&cli.out_dir)
         .map_err(|e| format!("cannot use output directory {}: {e}", cli.out_dir.display()))?;
     let cnf_dump_dir = (cli.dump_dimacs_cnf || cli.cnf_dump_only).then(|| cli.out_dir.clone());
@@ -138,6 +166,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             cnf_dump_dir,
             cnf_dump_only: cli.cnf_dump_only,
             sat_timeout_per_instance: cli.sat_timeout_secs.map(Duration::from_secs),
+            reverse_bfs,
         },
         |outcome| {
             let (classifications, records) = outputs
@@ -189,6 +218,14 @@ fn print_config(
     }
     if let Some(secs) = cli.sat_timeout_secs {
         println!("SAT timeout per exact candidate: {secs} s");
+    }
+    if cli.bfs_nodes > 0 {
+        println!(
+            "reverse BFS: discs={} nodes={}",
+            cli.bfs_discs, cli.bfs_nodes
+        );
+    } else {
+        println!("reverse BFS: disabled");
     }
 }
 

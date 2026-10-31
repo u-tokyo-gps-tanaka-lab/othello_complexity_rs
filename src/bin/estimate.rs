@@ -5,7 +5,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::estimate;
-use othello_complexity_rs::filters::sat::SatPortfolio;
+use othello_complexity_rs::filters::sat::{ReverseBfs, SatPortfolio};
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
 const DEFAULT_ALPHA: f64 = 0.005;
@@ -71,6 +71,35 @@ struct SatArgs {
     /// SAT timeout in seconds for each exact candidate.
     #[arg(long, value_name = "S")]
     sat_timeout_secs: Option<NonZeroU64>,
+
+    #[command(flatten)]
+    bfs: BfsArgs,
+}
+
+/// Bounded exact reverse search before each SAT call.
+#[derive(Debug, Args)]
+struct BfsArgs {
+    /// Registered reverse positions per candidate; 0 disables the reverse BFS.
+    #[arg(long, value_name = "N", default_value_t = 1_000_000)]
+    bfs_nodes: usize,
+
+    /// Stone count of the forward table used by the reverse BFS.
+    #[arg(
+        long,
+        value_name = "D",
+        default_value_t = 10,
+        value_parser = clap::value_parser!(u32).range(4..=64)
+    )]
+    bfs_discs: u32,
+}
+
+impl BfsArgs {
+    fn into_reverse_bfs(self) -> Option<ReverseBfs> {
+        (self.bfs_nodes > 0).then_some(ReverseBfs {
+            discs: self.bfs_discs,
+            state_budget: self.bfs_nodes,
+        })
+    }
 }
 
 #[derive(Debug, Args)]
@@ -271,6 +300,7 @@ fn execute(cli: Cli) -> std::io::Result<()> {
             args.parallel_goals.get(),
             args.sat_timeout_secs
                 .map(|seconds| Duration::from_secs(seconds.get())),
+            args.bfs.into_reverse_bfs(),
         )?,
         Command::ReverseSearch(args) => {
             let strategy = args.strategy.into_strategy();
