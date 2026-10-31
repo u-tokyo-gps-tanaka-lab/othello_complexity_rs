@@ -76,6 +76,11 @@ pub enum ExactOutcome {
 
 /// Enumerate endpoints modulo geometric symmetries that fix the start.
 /// Absolute turns remain distinct even when their relative boards coincide.
+///
+/// Candidates whose absolute turn admits a history without passes come
+/// first: every placement changes the turn, so the other candidates need an
+/// odd number of passes, which is rare. A query stops at its first reachable
+/// candidate, so this order tends to settle reachable queries sooner.
 pub fn candidates(
     start: Position,
     goal: Position,
@@ -101,6 +106,14 @@ pub fn candidates(
             candidates.push((transform, candidate));
         }
     }
+    let needs_pass = |candidate: &Position| {
+        let placements = candidate
+            .board
+            .popcount()
+            .saturating_sub(start.board.popcount());
+        placements.is_multiple_of(2) != (candidate.side_to_move == start.side_to_move)
+    };
+    candidates.sort_by_key(|(_, candidate)| needs_pass(candidate));
     candidates
 }
 
