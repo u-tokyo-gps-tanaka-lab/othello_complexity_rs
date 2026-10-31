@@ -162,9 +162,6 @@ fn verify_answer(
             if goal_match == GoalMatch::Exact {
                 assert_eq!(record.transform, PositionTransform::IDENTITY);
             }
-            if goal_match != GoalMatch::EquivalenceClass {
-                assert!(!record.transform.exchange_colors);
-            }
             let independent_trace = start.replay(&record.actions).unwrap();
             let endpoint = *independent_trace.last().unwrap();
             let image = goal.transformed(record.transform.symmetry);
@@ -282,7 +279,6 @@ fn has_witness(
 ) -> bool {
     match goal_match {
         GoalMatch::Exact => reachable.contains(&goal),
-        GoalMatch::SymmetryOrbit => goal.orbit().any(|image| reachable.contains(&image)),
         GoalMatch::EquivalenceClass => goal.orbit().any(|image| {
             reachable.contains(&image) || reachable.contains(&image.color_exchanged())
         }),
@@ -305,9 +301,6 @@ fn verify_witness(
         .all(|action| matches!(action, PlyAction::Play(_))));
     if goal_match == GoalMatch::Exact {
         assert_eq!(record.transform, PositionTransform::IDENTITY);
-    }
-    if goal_match != GoalMatch::EquivalenceClass {
-        assert!(!record.transform.exchange_colors);
     }
     let mut endpoint = goal.transformed(record.transform.symmetry);
     if record.transform.exchange_colors {
@@ -458,18 +451,13 @@ fn all_seven_disc_targets_and_both_turns_agree_with_independent_enumeration() {
     let reachable = enumerate(start, 7);
     let goals = query_targets(&reachable);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    for goal_match in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         classify(
             start,
             &goals,
             goal_match,
             |goal| match goal_match {
                 GoalMatch::Exact => reachable.contains(&goal),
-                GoalMatch::SymmetryOrbit => goal.orbit().any(|image| reachable.contains(&image)),
                 GoalMatch::EquivalenceClass => goal.orbit().any(|image| {
                     reachable.contains(&image) || reachable.contains(&image.color_exchanged())
                 }),
@@ -581,15 +569,8 @@ fn zero_placement_queries_allow_identity_or_one_legal_pass_only() {
         reflected.color_exchanged(),
     ];
     let exact = classify(start, &goals, GoalMatch::Exact, |goal| goal == start, None);
-    let symmetric = classify(
-        start,
-        &goals,
-        GoalMatch::SymmetryOrbit,
-        |goal| goal == start || goal == reflected,
-        None,
-    );
     let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
-    for outcome in exact.iter().chain(&symmetric).chain(&equivalent) {
+    for outcome in exact.iter().chain(&equivalent) {
         if let Some(record) = outcome.record() {
             assert!(record.actions.is_empty());
         }
@@ -791,11 +772,7 @@ fn stone_count_cannot_decrease_and_opening_move_changes_turn() {
         "-------------------X-------XX------XX---------------------------",
         true,
     );
-    for goal_match in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         classify(after_move, &[start], goal_match, |_| false, None);
         classify(start, &[monochromatic], goal_match, |_| false, None);
     }
@@ -838,34 +815,6 @@ fn simultaneous_geometry_and_absolute_color_exchange_preserve_reachability() {
             assert!(reachable.contains(&target));
             assert!(!reachable.contains(&target.color_exchanged()));
         }
-    }
-}
-
-#[test]
-fn independent_start_and_goal_images_equal_fixed_start_orbit_query() {
-    let initial = ArrayPosition::initial();
-    for start in [initial, initial.apply(PlyAction::Play(19)).unwrap()] {
-        let cap = start.discs() + 1;
-        let fixed_start_reachable = enumerate(start, cap);
-        let moved_start_reachable: Vec<_> =
-            start.orbit().map(|image| enumerate(image, cap)).collect();
-        let goals = query_targets(&fixed_start_reachable);
-        classify(
-            start,
-            &goals,
-            GoalMatch::SymmetryOrbit,
-            |goal| {
-                let independent_images = moved_start_reachable
-                    .iter()
-                    .any(|reachable| goal.orbit().any(|image| reachable.contains(&image)));
-                let fixed_start = goal
-                    .orbit()
-                    .any(|image| fixed_start_reachable.contains(&image));
-                assert_eq!(independent_images, fixed_start);
-                independent_images
-            },
-            None,
-        );
     }
 }
 
@@ -932,7 +881,7 @@ fn recorded_symmetry_must_be_allowed_and_select_the_actual_endpoint() {
     // Even an image equal to the endpoint is disallowed in an exact record.
     assert_eq!(start.transformed(record.transform.symmetry), start);
     assert!(record.verify().is_err());
-    record.goal_match = GoalMatch::SymmetryOrbit;
+    record.goal_match = GoalMatch::EquivalenceClass;
     assert!(record.verify().is_ok());
     record.transform.symmetry = BoardSymmetry::Rotate90;
     assert_ne!(start.transformed(record.transform.symmetry), start);
@@ -945,9 +894,14 @@ fn parallel_duplicate_queries_each_keep_their_own_input_index() {
     let after_move = start.apply(PlyAction::Play(19)).unwrap();
     let wrong_turn = after_move.color_exchanged();
     let goals = [start, after_move, wrong_turn, after_move, start, wrong_turn];
-    for goal_match in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
-        classify(start, &goals, goal_match, |goal| goal != wrong_turn, None);
-    }
+    classify(
+        start,
+        &goals,
+        GoalMatch::Exact,
+        |goal| goal != wrong_turn,
+        None,
+    );
+    classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
 }
 
 #[test]
@@ -995,11 +949,7 @@ fn six_disc_queries_and_repeated_inputs_match_independent_placement_enumeration(
     let mut goals = query_targets(&reachable);
     goals.extend([start, goals[0], start]);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    for mode in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for mode in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         check_queries(start, &goals, mode);
     }
 }
@@ -1032,11 +982,7 @@ fn seven_and_eight_disc_witnesses_preserve_colors_turns_and_arbitrary_starts() {
                 ]);
             }
         }
-        for mode in [
-            GoalMatch::Exact,
-            GoalMatch::SymmetryOrbit,
-            GoalMatch::EquivalenceClass,
-        ] {
+        for mode in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
             check_queries(start, &goals, mode);
         }
     }

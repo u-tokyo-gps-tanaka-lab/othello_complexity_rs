@@ -53,16 +53,15 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 
 ### 判定モード
 
-局面の対称性や手番を同一視するかどうかを表す3つのモードがあります。推計では母集団の総数を厳密に計算できる `exact` または `equivalence` を使用します。
+局面の対称性や手番を同一視するかどうかを表す2つのモードがあります。どちらのモードも、推計に必要な母集団の総数を厳密に計算できます。
 
 | モード | 到達可能性の判定対象 | 推計の対象 |
 |---|---|---|
 | `exact` | 指定された局面そのもの（1通り） | 到達可能な局面数 |
 | `equivalence` | 盤面の回転・反転（8通り）と、手番・石色の同時反転（2通り）を組み合わせた最大16通りのいずれか（ゲーム理論的同値類） | 到達可能な同値類数 |
-| `symmetry` | 盤面を回転・反転した最大8通りのいずれか | 利用不可（母集団の総数が未計算のため） |
 
 - 推計パイプラインでは、標本の母集団（`Population::Absolute` または `Population::Classes`）からモードが自動的に決まります。
-- 単体コマンド（`gen_random_boards`、`sat_reachability`、`reverse_search`、`verify_record`）では `--mode` オプションで指定します。`symmetry` は `sat_reachability`、`reverse_search`、`verify_record` でのみ指定できます（`run_filters` には `--mode` オプションがありません）。
+- 単体コマンド（`gen_random_boards`、`sat_reachability`、`reverse_search`、`verify_record`）では `--mode` オプションで指定します。`run_filters` には `--mode` オプションがありません。
 
 
 ## ビルド環境の準備

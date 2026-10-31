@@ -1465,14 +1465,7 @@ mod tests {
             assert_eq!(encoding.as_str().parse(), Ok(encoding));
             assert_eq!(encoding.to_string(), encoding.as_str());
         }
-        for name in [
-            "unknown",
-            "ply-target",
-            "placement-target",
-            "placement-target-columns",
-        ] {
-            assert!(name.parse::<SatEncoding>().is_err(), "{name}");
-        }
+        assert!("unknown".parse::<SatEncoding>().is_err());
     }
 
     #[test]

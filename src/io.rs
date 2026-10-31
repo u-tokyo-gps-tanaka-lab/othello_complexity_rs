@@ -86,7 +86,6 @@ impl FromStr for GoalMatch {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "exact" => Ok(Self::Exact),
-            "symmetry" => Ok(Self::SymmetryOrbit),
             "equivalence" => Ok(Self::EquivalenceClass),
             _ => Err(format!("unknown reachability mode: {value}")),
         }
@@ -440,11 +439,7 @@ mod tests {
                 symmetry
             );
         }
-        for condition in [
-            GoalMatch::Exact,
-            GoalMatch::SymmetryOrbit,
-            GoalMatch::EquivalenceClass,
-        ] {
+        for condition in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
             assert_eq!(condition.as_str().parse::<GoalMatch>().unwrap(), condition);
         }
         assert!("unknown".parse::<BoardSymmetry>().is_err());

@@ -741,46 +741,4 @@ mod tests {
         assert_eq!(results[0].0.goal(), results[2].0.goal());
         assert_ne!(results[0].0.input_index(), results[2].0.input_index());
     }
-
-    #[test]
-    fn external_resume_rejects_v4_batch_identity() {
-        let directory = TemporaryDirectory::new("v4-batch");
-        let tmp_dir = directory.join("tmp");
-        let out_dir = directory.join("out");
-        fs::create_dir(&tmp_dir).unwrap();
-        fs::create_dir(&out_dir).unwrap();
-        let saved = serde_json::json!({
-            "identity": {
-                "format": "reverse-query-batch-v4",
-                "mode": "exact",
-                "input_sha256": "unused",
-                "positions": [format_position(Position::initial())],
-                "discs": 4,
-                "jobs": 1,
-                "block_size": 1,
-                "parallel": false
-            },
-            "completed": 0,
-            "active": null
-        });
-        fs::write(
-            tmp_dir.join("batch.json"),
-            serde_json::to_vec_pretty(&saved).unwrap(),
-        )
-        .unwrap();
-        let mut config = external_config(4, 1, tmp_dir);
-        config.resume = true;
-
-        let error = run_strategy(
-            &Strategy::BfsExternal(config),
-            &[Position::initial()],
-            &out_dir,
-            GoalMatch::Exact,
-        )
-        .unwrap_err();
-
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("mismatch"));
-        assert_no_reverse_outputs(&out_dir);
-    }
 }

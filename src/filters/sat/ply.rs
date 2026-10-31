@@ -730,8 +730,9 @@ mod tests {
         );
     }
 
-    // The orbit of the reflected initial position has two representatives
-    // under the stabilizer of the fixed standard initial position.
+    // The equivalence class of the reflected initial position has four
+    // representatives under the stabilizer of the fixed standard initial
+    // position. The two without color exchange precede the two with it.
     fn aggregate(
         mut results: Vec<Result<ExactOutcome, String>>,
     ) -> Result<Option<GoalClassification>, String> {
@@ -740,7 +741,7 @@ mod tests {
             Position::initial(),
             BoardSymmetry::MirrorHorizontal.apply_position(Position::initial()),
             1,
-            GoalMatch::SymmetryOrbit,
+            GoalMatch::EquivalenceClass,
             |_, _| results.pop().expect("candidate count").map(Some),
         )
     }
@@ -750,13 +751,25 @@ mod tests {
         let all_ng = aggregate(vec![
             Ok(ExactOutcome::Unreachable),
             Ok(ExactOutcome::Unreachable),
+            Ok(ExactOutcome::Unreachable),
+            Ok(ExactOutcome::Unreachable),
         ])
         .unwrap()
         .unwrap();
         assert_eq!(all_ng.category(), TriCategory::Ng);
         for results in [
-            vec![Ok(ExactOutcome::Unknown), Ok(ExactOutcome::Unreachable)],
-            vec![Ok(ExactOutcome::Unreachable), Ok(ExactOutcome::Unknown)],
+            vec![
+                Ok(ExactOutcome::Unknown),
+                Ok(ExactOutcome::Unreachable),
+                Ok(ExactOutcome::Unreachable),
+                Ok(ExactOutcome::Unreachable),
+            ],
+            vec![
+                Ok(ExactOutcome::Unreachable),
+                Ok(ExactOutcome::Unknown),
+                Ok(ExactOutcome::Unreachable),
+                Ok(ExactOutcome::Unreachable),
+            ],
         ] {
             assert_eq!(
                 aggregate(results).unwrap().unwrap().category(),

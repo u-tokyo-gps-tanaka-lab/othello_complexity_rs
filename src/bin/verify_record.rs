@@ -33,7 +33,7 @@ struct Cli {
     #[arg(long, value_name = "FILE", conflicts_with_all = ["from_initial", "start", "goal", "record", "goal_match"])]
     input_file: Option<PathBuf>,
 
-    /// Reachability mode: exact, symmetry, or equivalence
+    /// Reachability mode: exact or equivalence
     #[arg(
         long = "mode",
         value_name = "MODE",
@@ -150,11 +150,10 @@ mod tests {
             ..start
         };
         assert!(verify_single(start, different_turn, "", GoalMatch::Exact).is_err());
-        assert!(verify_single(start, different_turn, "", GoalMatch::SymmetryOrbit).is_err());
     }
 
     #[test]
-    fn symmetry_query_reports_a_transform_mapping_the_requested_goal_to_the_endpoint() {
+    fn equivalence_query_reports_a_transform_mapping_the_requested_goal_to_the_endpoint() {
         let start = Position::initial();
         let goal = BoardSymmetry::ALL
             .into_iter()
@@ -162,8 +161,8 @@ mod tests {
             .find(|p| *p != start)
             .unwrap();
         assert!(verify_single(start, goal, "", GoalMatch::Exact).is_err());
-        let symmetry = verify_single(start, goal, "", GoalMatch::SymmetryOrbit).unwrap();
-        assert_eq!(symmetry.apply_position(goal), start);
+        let transform = verify_single(start, goal, "", GoalMatch::EquivalenceClass).unwrap();
+        assert_eq!(transform.apply_position(goal), start);
     }
 
     #[test]
@@ -197,6 +196,6 @@ mod tests {
             side_to_move: Color::Black,
         };
         assert!(verify_single(start, start, "", GoalMatch::Exact).is_ok());
-        assert!(verify_single(start, start, "ps", GoalMatch::SymmetryOrbit).is_err());
+        assert!(verify_single(start, start, "ps", GoalMatch::EquivalenceClass).is_err());
     }
 }

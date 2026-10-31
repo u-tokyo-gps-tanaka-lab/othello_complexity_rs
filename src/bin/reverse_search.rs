@@ -46,7 +46,7 @@ struct BasicOpts {
     input: PathBuf,
     #[arg(short, long, default_value = "result")]
     out_dir: PathBuf,
-    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    /// Mode: exact or equivalence (geometry and color/turn exchange).
     #[arg(long)]
     mode: GoalMatch,
     /// Forward-search boundary, including passes and terminals at this count.
@@ -86,7 +86,7 @@ struct InmemoryBfsOpts {
     input: PathBuf,
     #[arg(short, long, default_value = "result")]
     out_dir: PathBuf,
-    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    /// Mode: exact or equivalence (geometry and color/turn exchange).
     #[arg(long)]
     mode: GoalMatch,
     /// Forward-search boundary, including passes and terminals at this count.
@@ -110,7 +110,7 @@ struct BfsArgs {
     input: PathBuf,
     #[arg(short, long, default_value = "result")]
     out_dir: PathBuf,
-    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange).
+    /// Mode: exact or equivalence (geometry and color/turn exchange).
     #[arg(long)]
     mode: GoalMatch,
     /// Forward-search boundary, including passes and terminals at this count.
