@@ -1,6 +1,6 @@
 //! Necessary conditions shared by the reverse solvers.
 
-use crate::filters::reverse::PlacementFilter;
+use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
 use crate::othello::{get_last_moves, Position};
 use crate::search::{forward::ForwardTable, frontier::ForwardOccupancyIndex};
 
@@ -29,7 +29,14 @@ impl ReverseConstraints {
         let occupied = position.board.player | position.board.opponent;
         let required = self.frontier.required_squares(occupied)?;
         let candidates = match &self.placement {
-            Some(filter) => filter.candidates(position)?,
+            Some(filter) => {
+                // Impossible edge patterns are proved from the standard
+                // opening, like the other placement conditions.
+                if !check_virtual_edge_patterns(position.board.player, position.board.opponent) {
+                    return None;
+                }
+                filter.candidates(position)?
+            }
             None => get_last_moves(position.board.opponent, position.board.player),
         };
         Some(candidates & !required)

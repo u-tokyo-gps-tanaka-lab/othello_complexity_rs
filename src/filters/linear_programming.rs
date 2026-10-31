@@ -20,19 +20,56 @@ struct SparseConstraint {
     rhs: f64,         // 右辺
 }
 
+#[derive(Clone, Copy)]
+enum VariableKind {
+    Unit,
+    Free,
+}
+
 struct VarMaker {
-    count: usize,
+    kinds: Vec<VariableKind>,
 }
 
 impl VarMaker {
     fn new() -> Self {
-        Self { count: 0 }
+        Self { kinds: vec![] }
     }
 
     fn mk_var(&mut self) -> i32 {
-        let index = self.count;
-        self.count += 1;
+        self.add(VariableKind::Unit)
+    }
+
+    fn mk_free_var(&mut self) -> i32 {
+        self.add(VariableKind::Free)
+    }
+
+    fn add(&mut self, kind: VariableKind) -> i32 {
+        let index = self.kinds.len();
+        self.kinds.push(kind);
         index as i32
+    }
+}
+
+fn merged_constraint(
+    terms: impl IntoIterator<Item = (i32, f64)>,
+    sense: CstrSense,
+    rhs: f64,
+) -> SparseConstraint {
+    let mut merged: Vec<(i32, f64)> = vec![];
+    for (column, value) in terms {
+        if let Some((_, coefficient)) = merged.iter_mut().find(|(seen, _)| *seen == column) {
+            *coefficient += value;
+        } else {
+            merged.push((column, value));
+        }
+    }
+    merged.retain(|(_, value)| *value != 0.0);
+    let (cols, vals) = merged.into_iter().unzip();
+    SparseConstraint {
+        cols,
+        vals,
+        sense,
+        rhs,
     }
 }
 
@@ -40,10 +77,10 @@ impl VarMaker {
 fn xy2sq(x: i32, y: i32) -> usize {
     (y * 8 + x) as usize
 }
-/// 連続緩和(0<=x<=1)で可否のみ判定 (HiGHS 1.12.0 API)
+/// 連続緩和で可否のみ判定 (HiGHS 1.12.0 API)
 /// by_ip_solver: falseが望ましい
 fn check_feasibility(
-    n_vars: usize,
+    variable_kinds: &[VariableKind],
     constraints: &[SparseConstraint],
     by_ip_solver: bool,
 ) -> io::Result<FilterResult> {
@@ -51,14 +88,14 @@ fn check_feasibility(
     let mut pb = RowProblem::default();
 
     // 目的係数は 0（可否だけ確認）
-    // 各 x_i の下限・上限は [0, 1]
-    let cols: Vec<_> = (0..n_vars)
-        .map(|_| {
-            if by_ip_solver {
-                pb.add_integer_column(0.0, 0.0..=1.0)
-            } else {
-                pb.add_column(0.0, 0.0..=1.0)
-            }
+    let cols: Vec<_> = variable_kinds
+        .iter()
+        .map(|kind| {
+            let (lower, upper, is_integer) = match kind {
+                VariableKind::Unit => (0.0, 1.0, by_ip_solver),
+                VariableKind::Free => (f64::NEG_INFINITY, f64::INFINITY, false),
+            };
+            pb.add_column_with_integrality(0.0, lower..=upper, is_integer)
         })
         .collect();
 
@@ -166,8 +203,6 @@ pub fn check_lp(
     first[4 * 8 + 3][1] = first[3 * 8 + 3][0];
     first[4 * 8 + 4][0] = first[3 * 8 + 3][0];
     first[4 * 8 + 4][1] = first[3 * 8 + 3][1];
-    // Fdir[sq][col][dir] : sqにcolの石を置いて，dir方向にflipしたか表す論理変数
-    let mut fdir: Vec<Vec<Vec<i32>>> = vec![vec![vec![-1; 8]; 2]; 64];
 
     // Flip[sq][col] : [F_(sq, col, d, len)], sqをcolにflipするflip全体
     let mut flip: Vec<Vec<Vec<i32>>> = vec![vec![vec![]; 2]; 64];
@@ -194,22 +229,19 @@ pub fn check_lp(
         let x = (sq % 8) as i32;
         let y = (sq / 8) as i32;
         for col in 0..2 {
+            let mut line_vars: Vec<Vec<i32>> = vec![vec![]; 8];
             for (dir, direction) in Direction::all().iter().enumerate() {
                 let (dx, dy) = direction.to_offset();
                 let mut sqs: Vec<usize> = vec![];
                 let mut rl = 1;
                 let mut x1 = x + dx;
                 let mut y1 = y + dy;
-                let mut samedir: Vec<i32> = vec![];
                 while 0 <= x1 && x1 < 8 && 0 <= y1 && y1 < 8 && (o & (1 << xy2sq(x1, y1))) != 0 {
                     rl += 1;
                     let sq1 = xy2sq(x1, y1);
-                    //if y == 0 && x == 4 {
-                    //    println!("x={}, y={}, sq={}, o={}, x1={}, y1={}, dir={}, rl={}", x, y, sq, o, x1, y1, dir, rl)    ;
-                    //}
                     if rl >= 3 {
                         let v = vm.mk_var();
-                        samedir.push(v);
+                        line_vars[dir].push(v);
                         for &sq2 in &sqs {
                             flip[sq2][col].push(v);
                         }
@@ -219,43 +251,12 @@ pub fn check_lp(
                     x1 += dx;
                     y1 += dy;
                 }
-                if samedir.len() > 0 {
-                    fdir[sq][col][dir] = vm.mk_var();
-                    let mut vals = vec![];
-                    let mut cols = vec![];
-                    for &v in &samedir {
-                        cols.push(v);
-                        vals.push(1.0);
-                    }
-                    cols.push(fdir[sq][col][dir]);
-                    vals.push(-1.0);
-                    constraints.push(SparseConstraint {
-                        cols,
-                        vals,
-                        sense: CstrSense::Eq,
-                        rhs: 0.0,
-                    });
-                    for &v in &samedir {
-                        let cols = vec![v, fdir[sq][col][dir]];
-                        let vals = vec![1.0, -1.0];
-                        constraints.push(SparseConstraint {
-                            cols,
-                            vals,
-                            sense: CstrSense::Le,
-                            rhs: 0.0,
-                        });
-                    }
-                }
             }
-            let mut vals = vec![];
             let mut cols = vec![];
-            for dir in 0..8 {
-                let v = fdir[sq][col][dir];
-                if v >= 0 {
-                    cols.push(v);
-                    vals.push(1.0);
-                }
+            for direction_vars in &line_vars {
+                cols.extend_from_slice(direction_vars);
             }
+            let mut vals = vec![1.0; cols.len()];
             cols.push(first[sq][col]);
             vals.push(-1.0);
             constraints.push(SparseConstraint {
@@ -264,11 +265,12 @@ pub fn check_lp(
                 sense: CstrSense::Ge,
                 rhs: 0.0,
             });
-            for dir in 0..8 {
-                let v = fdir[sq][col][dir];
-                if v >= 0 {
-                    let cols = vec![v, first[sq][col]];
-                    let vals = vec![1.0, -1.0];
+            for direction_vars in &line_vars {
+                if !direction_vars.is_empty() {
+                    let mut cols = direction_vars.clone();
+                    let mut vals = vec![1.0; cols.len()];
+                    cols.push(first[sq][col]);
+                    vals.push(-1.0);
                     constraints.push(SparseConstraint {
                         cols,
                         vals,
@@ -279,6 +281,32 @@ pub fn check_lp(
             }
         }
     }
+
+    let mut ever = vec![vec![None; 2]; 64];
+    let mut b = occupied;
+    while b != 0 {
+        let sq = b.trailing_zeros() as usize;
+        b &= b - 1;
+        for col in 0..2 {
+            if !flip[sq][col].is_empty() {
+                let v = vm.mk_free_var();
+                ever[sq][col] = Some(v);
+                let mut cols = vec![v, first[sq][col]];
+                let mut vals = vec![1.0, -1.0];
+                for &flip_var in &flip[sq][col] {
+                    cols.push(flip_var);
+                    vals.push(-1.0);
+                }
+                constraints.push(SparseConstraint {
+                    cols,
+                    vals,
+                    sense: CstrSense::Eq,
+                    rhs: 0.0,
+                });
+            }
+        }
+    }
+
     // for all square
     let mut b = occupied;
     while b != 0 {
@@ -286,47 +314,73 @@ pub fn check_lp(
         b &= b - 1;
         // flip count constraints
         let col = if player & (1 << sq) != 0 { 0 } else { 1 };
-        let mut cols = vec![first[sq][col], first[sq][1 - col]];
-        let mut vals = vec![1.0, -1.0];
-        for &v in &flip[sq][col] {
-            cols.push(v);
-            vals.push(2.0);
-        }
-        for &v in &flip[sq][1 - col] {
-            cols.push(v);
-            vals.push(-2.0);
-        }
-        constraints.push(SparseConstraint {
-            cols,
-            vals,
-            sense: CstrSense::Eq,
-            rhs: 1.0,
-        });
+        let final_ever = ever[sq][col].unwrap_or(first[sq][col]);
+        let other_ever = ever[sq][1 - col].unwrap_or(first[sq][1 - col]);
+        constraints.push(merged_constraint(
+            [
+                (final_ever, 2.0),
+                (first[sq][col], -1.0),
+                (other_ever, -2.0),
+                (first[sq][1 - col], 1.0),
+            ],
+            CstrSense::Eq,
+            1.0,
+        ));
         // base constriants
         for col in 0..2 {
             for &v in &base[sq][col] {
-                //eprintln!("base[{}][{}]={}", sq, col, v);
-                let mut cols = vec![v, first[sq][col]];
-                let mut vals = vec![-1.0, 1.0];
-                for &v1 in &flip[sq][col] {
-                    cols.push(v1);
-                    vals.push(1.0);
-                }
+                let ehat = ever[sq][col].unwrap_or(first[sq][col]);
                 constraints.push(SparseConstraint {
-                    cols,
-                    vals,
+                    cols: vec![ehat, v],
+                    vals: vec![1.0, -1.0],
                     sense: CstrSense::Ge,
                     rhs: 0.0,
                 });
             }
         }
     }
-    check_feasibility(vm.count, &constraints, by_ip_solver)
+    check_feasibility(&vm.kinds, &constraints, by_ip_solver)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_rejected_in_both_solver_modes(board: Board) {
+        for by_ip_solver in [false, true] {
+            let result = check_lp(board.player, board.opponent, by_ip_solver, false).unwrap();
+            assert!(
+                matches!(&result, FilterResult::Rejected { .. }),
+                "expected rejection for {board:?} with by_ip_solver={by_ip_solver}, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn merged_constraint_merges_repeated_columns_and_exact_cancellation() {
+        let row = merged_constraint(
+            [(7, 1.0), (3, 2.0), (7, 3.0), (3, -2.0)],
+            CstrSense::Eq,
+            5.0,
+        );
+        assert_eq!(row.cols, vec![7]);
+        assert_eq!(row.vals, vec![4.0]);
+        assert!(matches!(row.sense, CstrSense::Eq));
+        assert_eq!(row.rhs, 5.0);
+    }
+
+    #[test]
+    fn rejects_four_monochrome_centres_in_both_solver_modes() {
+        // Adjacent centre aliases require both a - b = 1 and b - a = 1.
+        assert_rejected_in_both_solver_modes(Board::new(CENTER_MASK, 0));
+    }
+
+    #[test]
+    fn rejects_an_isolated_corner_in_both_solver_modes() {
+        // Empty C4 rows force both corner first variables to zero, contradicting C1.
+        let initial = Board::initial();
+        assert_rejected_in_both_solver_modes(Board::new(initial.player | 1, initial.opponent));
+    }
 
     #[test]
     fn only_proven_infeasibility_rejects_a_relaxation() {

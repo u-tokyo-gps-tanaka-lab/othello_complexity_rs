@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
 use serde_json::{json, Value};
 
 use crate::filters::sat::{run_with_options, RunOptions, SatEncoding};
@@ -101,17 +102,22 @@ pub fn filters(sample_dir: &Path, out_dir: &Path, alpha: f64) -> io::Result<Inte
         let mut ok = Vec::with_capacity(input.len());
         let mut ng = Vec::new();
         let mut undetermined = 0_usize;
-        for &position in input {
-            let result = filter.check(&position.board).map_err(|error| {
-                io::Error::new(
-                    error.kind(),
-                    format!(
-                        "{} failed for {}: {error}",
-                        filter.name(),
-                        format_position(position)
-                    ),
-                )
-            })?;
+        let results = input
+            .par_iter()
+            .map(|&position| {
+                filter.check(&position.board).map_err(|error| {
+                    io::Error::new(
+                        error.kind(),
+                        format!(
+                            "{} failed for {}: {error}",
+                            filter.name(),
+                            format_position(position)
+                        ),
+                    )
+                })
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        for (&position, result) in input.iter().zip(results) {
             match result {
                 FilterResult::Pass => ok.push(position),
                 FilterResult::Undetermined { .. } => {
