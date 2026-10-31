@@ -17,7 +17,6 @@ use std::fs;
 use std::io;
 use std::num::NonZeroU128;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -387,7 +386,7 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
 }
 
 #[test]
-fn filters_match_the_deduplicated_reference_pipeline_and_write_only_stage_files() {
+fn filters_deduplicate_inputs_chain_each_filter_and_write_only_stage_files() {
     let fixture = Fixture::new();
     let positions = [
         initial(),
@@ -398,35 +397,36 @@ fn filters_match_the_deduplicated_reference_pipeline_and_write_only_stage_files(
     ];
     let sample = fixture.sample("sample", &positions, absolute_population());
     let output = fixture.path("filters");
-    estimate::filters(&sample, &output, ALPHA).unwrap();
-
-    let mut seen = HashSet::new();
-    let unique: Vec<_> = positions
-        .iter()
-        .copied()
-        .filter(|position| seen.insert(*position))
-        .collect();
-    let input = fixture.path("reference-input.txt");
-    write_positions(&input, &unique);
-    let mut current = input;
-    for filter in ["con", "edge", "occupancy", "seg3more", "lp"] {
-        let reference = fixture.path(&format!("reference-{filter}"));
-        let status = Command::new(env!("CARGO_BIN_EXE_run_filters"))
-            .arg(filter)
-            .arg("--out-dir")
-            .arg(&reference)
-            .arg(&current)
-            .status()
+    for (threads, directory) in [(1, fixture.path("filters-serial")), (20, output.clone())] {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| estimate::filters(&sample, &directory, ALPHA))
             .unwrap();
-        assert!(status.success(), "run_filters {filter} failed");
-        for suffix in ["OK.txt", "NG.txt"] {
-            assert_eq!(
-                fs::read(output.join(format!("{filter}_{suffix}"))).unwrap(),
-                fs::read(reference.join(format!("{filter}_{suffix}"))).unwrap(),
-                "{filter}_{suffix} differs from run_filters",
-            );
-        }
-        current = reference.join(format!("{filter}_OK.txt"));
+    }
+    assert_eq!(
+        directory_files(&fixture.path("filters-serial")),
+        directory_files(&output),
+        "filter outputs must not depend on worker count",
+    );
+
+    assert_eq!(
+        fs::read_to_string(output.join("con_OK.txt")).unwrap(),
+        position_text(&[initial(), after_d3()]),
+    );
+    assert_eq!(
+        fs::read_to_string(output.join("con_NG.txt")).unwrap(),
+        position_text(&[disconnected()]),
+    );
+    for filter in ["edge", "occupancy", "seg3more", "lp"] {
+        assert_eq!(
+            fs::read_to_string(output.join(format!("{filter}_OK.txt"))).unwrap(),
+            position_text(&[initial(), after_d3()]),
+        );
+        assert!(fs::read(output.join(format!("{filter}_NG.txt")))
+            .unwrap()
+            .is_empty());
     }
 
     assert_eq!(
