@@ -1,5 +1,5 @@
 use clap::Parser;
-use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatEncoding};
+use othello_complexity_rs::filters::sat::{run_with_options, RunOptions, SatPortfolio};
 use othello_complexity_rs::io::{
     ensure_tri_outputs, format_position, parse_file_to_positions, parse_position,
     reject_estimate_output_dir,
@@ -14,7 +14,7 @@ use std::time::Duration;
 #[derive(Parser, Debug)]
 #[command(
     name = "sat_reachability",
-    about = "SAT reachability checker for 8x8 Othello positions with absolute turns"
+    about = "SAT reachability and verified witness search for Othello positions with absolute turns"
 )]
 struct Cli {
     /// Use the standard initial position with Black to move
@@ -43,9 +43,13 @@ struct Cli {
     #[arg(long, value_name = "MODE")]
     mode: GoalMatch,
 
-    /// SAT encoding: ply, placement, or placement-columns
+    /// SAT encoding portfolio; join names with '+'. nopass-witness alone is OK/UNKNOWN only
     #[arg(long, value_name = "NAME")]
-    encoding: SatEncoding,
+    encoding: SatPortfolio,
+
+    /// Kissat instances per encoding, using seeds 0 through N - 1
+    #[arg(long, default_value_t = 1, value_parser = parse_positive_usize)]
+    seeds: usize,
 
     /// Print coordinates for every layer
     #[arg(long)]
@@ -125,7 +129,8 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             start,
             goals,
             goal_match,
-            encoding: cli.encoding,
+            encodings: cli.encoding,
+            seeds: cli.seeds,
             parallel_goals: cli.parallel_goals,
             show_coords: cli.show_coords,
             show_boards: cli.show_boards,
@@ -172,6 +177,7 @@ fn print_config(
     println!("start: {}", format_position(start));
     println!("mode: {goal_match}");
     println!("encoding: {}", cli.encoding);
+    println!("seeds per encoding: {}", cli.seeds);
     println!("goals: {}", goals.len());
     println!("parallel goals: {}", cli.parallel_goals);
     println!("output directory: {}", cli.out_dir.display());

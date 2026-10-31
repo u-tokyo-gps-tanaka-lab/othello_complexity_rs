@@ -5,7 +5,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 
 use othello_complexity_rs::estimate;
-use othello_complexity_rs::filters::sat::SatEncoding;
+use othello_complexity_rs::filters::sat::SatPortfolio;
 use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
 
 const DEFAULT_ALPHA: f64 = 0.005;
@@ -24,7 +24,7 @@ struct Cli {
 enum Command {
     /// Apply the fixed filter pipeline to a sample.
     Filters(FiltersArgs),
-    /// Classify the preceding stage's unknown positions with SAT.
+    /// Apply complete SAT classification or an OK-only witness search to unresolved positions.
     Sat(SatArgs),
     /// Classify the preceding stage's unknown positions with reverse search.
     #[command(name = "reverse-search")]
@@ -56,12 +56,19 @@ struct SatArgs {
     #[arg(long, value_name = "A", default_value_t = DEFAULT_ALPHA)]
     alpha: f64,
 
+    /// SAT encoding portfolio; join names with '+'. nopass-witness alone is OK/UNKNOWN only.
     #[arg(long, value_name = "NAME")]
-    encoding: SatEncoding,
+    encoding: SatPortfolio,
 
+    /// Kissat instances per encoding, using seeds 0 through N - 1.
+    #[arg(long, value_name = "N", default_value = "1")]
+    seeds: NonZeroUsize,
+
+    /// Maximum number of goal positions solved concurrently.
     #[arg(long, value_name = "N")]
     parallel_goals: NonZeroUsize,
 
+    /// SAT timeout in seconds for each exact candidate.
     #[arg(long, value_name = "S")]
     sat_timeout_secs: Option<NonZeroU64>,
 }
@@ -260,6 +267,7 @@ fn execute(cli: Cli) -> std::io::Result<()> {
             &args.out_dir,
             args.alpha,
             args.encoding,
+            args.seeds.get(),
             args.parallel_goals.get(),
             args.sat_timeout_secs
                 .map(|seconds| Duration::from_secs(seconds.get())),

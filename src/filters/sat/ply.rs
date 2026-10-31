@@ -1,6 +1,6 @@
 //! Ply-layer SAT encoding for exact reachability.
 
-use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder};
+use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder, ProofScope};
 use crate::othello::{get_moves, Board, Position};
 use crate::query::ExactOutcome;
 use crate::record::{replay, PlyAction};
@@ -189,6 +189,7 @@ pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, 
         vars.var_count as usize,
         clauses,
         LayerDecoder { vars, start, goal },
+        ProofScope::Complete,
     )))
 }
 
@@ -845,6 +846,7 @@ mod tests {
                 start: Position::initial(),
                 goal: Position::initial(),
             },
+            ProofScope::Complete,
         );
         assert!(matches!(
             solve_problem(&problem, Some(Duration::from_millis(1))).unwrap(),

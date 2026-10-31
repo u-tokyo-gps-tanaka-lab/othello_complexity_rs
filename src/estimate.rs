@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use serde_json::{json, Value};
 
-use crate::filters::sat::{run_with_options, RunOptions, SatEncoding};
+use crate::filters::sat::{run_with_options, RunOptions, SatPortfolio};
 use crate::filters::{Filter, FilterResult};
 use crate::interval::{self, Interval};
 use crate::io::{format_position, parse_file_to_positions};
@@ -52,10 +52,10 @@ struct FilterOutput {
     ng: Vec<Position>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum StageKind {
     Filters,
-    Sat,
+    Sat(SatPortfolio),
     ReverseSearch,
 }
 
@@ -163,11 +163,18 @@ pub fn sat(
     from: &Path,
     out_dir: &Path,
     alpha: f64,
-    encoding: SatEncoding,
+    encodings: SatPortfolio,
+    seeds: usize,
     parallel_goals: usize,
     sat_timeout_per_instance: Option<Duration>,
 ) -> io::Result<Interval> {
     interval::validate_alpha(alpha)?;
+    if seeds == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "seeds must be positive",
+        ));
+    }
     if parallel_goals == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -189,7 +196,8 @@ pub fn sat(
             start: Position::initial(),
             goals: chain.pending.clone(),
             goal_match,
-            encoding,
+            encodings: encodings.clone(),
+            seeds,
             parallel_goals,
             show_coords: false,
             show_boards: false,
@@ -201,16 +209,18 @@ pub fn sat(
         |_| Ok(()),
     )
     .map_err(io::Error::other)?;
-    validate_sat_outcomes(&outcomes, &chain.pending, goal_match)?;
+    validate_sat_outcomes(&outcomes, &chain.pending, goal_match, &encodings)?;
 
     create_output_dir(out_dir, "summary.json")?;
     let prefix = format!("sat_{goal_match}");
     write_sat_outputs(out_dir, &prefix, &chain.pending, &outcomes)?;
     let output_dir = canonical_directory(out_dir, "SAT output directory")?;
-    apply_solver_stage(&mut chain, &output_dir, &StageKind::Sat)?;
+    let stage_name = format!("sat:{encodings}");
+    let stage = StageKind::Sat(encodings);
+    apply_solver_stage(&mut chain, &output_dir, &stage)?;
     write_summary(
         out_dir,
-        &format!("sat:{encoding}"),
+        &stage_name,
         Some(&chain.from_dir),
         None,
         &chain.sample,
@@ -272,7 +282,7 @@ fn read_chain(from: &Path) -> io::Result<ChainState> {
             )));
         }
         let link = read_summary_link(&current)?;
-        let is_filters = matches!(link.kind, StageKind::Filters);
+        let is_filters = matches!(&link.kind, StageKind::Filters);
         stages.push(SavedStage {
             directory: current.clone(),
             kind: link.kind,
@@ -349,13 +359,13 @@ fn read_summary_link(directory: &Path) -> io::Result<SummaryLink> {
                 sample_dir: Some(sample_dir),
             })
         }
-        StageKind::Sat => {
+        StageKind::Sat(encodings) => {
             if object.contains_key("sample_dir") {
                 return Err(invalid("solver summary must not contain sample_dir"));
             }
             let from = absolute_summary_path(object.get("from"), "from")?;
             Ok(SummaryLink {
-                kind: StageKind::Sat,
+                kind: StageKind::Sat(encodings),
                 from: Some(from),
                 sample_dir: None,
             })
@@ -379,8 +389,8 @@ fn parse_stage(stage: &str) -> io::Result<StageKind> {
         "filters" => Ok(StageKind::Filters),
         _ => {
             if let Some(name) = stage.strip_prefix("sat:") {
-                SatEncoding::from_str(name)
-                    .map(|_| StageKind::Sat)
+                SatPortfolio::from_str(name)
+                    .map(StageKind::Sat)
                     .map_err(|_| invalid(format!("unknown estimate stage: {stage}")))
             } else if stage
                 .strip_prefix("reverse-search:")
@@ -469,12 +479,17 @@ fn apply_solver_stage(
 ) -> io::Result<()> {
     let mode = population_goal_match(state.sample.population);
     let prefix = match stage {
-        StageKind::Sat => format!("sat_{mode}"),
+        StageKind::Sat(_) => format!("sat_{mode}"),
         StageKind::ReverseSearch => format!("reverse_{mode}"),
         StageKind::Filters => return Err(invalid("filters cannot follow another stage")),
     };
     let ok = read_positions(&directory.join(format!("{prefix}_OK.txt")))?;
     let ng = read_positions(&directory.join(format!("{prefix}_NG.txt")))?;
+    if matches!(stage, StageKind::Sat(encodings) if !encodings.proves_unreachable())
+        && !ng.is_empty()
+    {
+        return Err(invalid("witness SAT stage contains unreachable positions"));
+    }
     let unknown_path = directory.join(format!("{prefix}_UNKNOWN.txt"));
     let unknown = read_positions(&unknown_path)?;
     let ok_set = unique_positions(&ok, &format!("{prefix} OK output"))?;
@@ -583,6 +598,7 @@ fn validate_sat_outcomes(
     outcomes: &[GoalClassification],
     input: &[Position],
     goal_match: GoalMatch,
+    encodings: &SatPortfolio,
 ) -> io::Result<()> {
     if outcomes.len() != input.len() {
         return Err(io::Error::other(format!(
@@ -592,6 +608,13 @@ fn validate_sat_outcomes(
         )));
     }
     for (index, (outcome, expected_goal)) in outcomes.iter().zip(input).enumerate() {
+        if !encodings.proves_unreachable()
+            && matches!(outcome, GoalClassification::Unreachable { .. })
+        {
+            return Err(invalid(
+                "witness SAT stage returned an unreachable position",
+            ));
+        }
         if outcome.goal() != *expected_goal
             || outcome.input_index() != index + 1
             || outcome.goal_match() != goal_match

@@ -7,7 +7,7 @@
 //! ordinary game rules, including its intermediate layer positions.
 
 use crate::filters::sat::cnf::{absolute_colors, value, FALSE, SQUARES, TRUE};
-use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder};
+use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder, ProofScope};
 use crate::othello::{get_moves, Board, Color, Direction, Position};
 use crate::query::ExactOutcome;
 use crate::record::{replay, PlyAction};
@@ -500,6 +500,7 @@ pub(crate) fn encode(
         builder.variables as usize,
         builder.clauses,
         PlacementDecoder { vars, start, goal },
+        ProofScope::Complete,
     )))
 }
 
