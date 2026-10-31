@@ -463,7 +463,7 @@ fn decode_and_verify(
     Ok(actions)
 }
 
-fn verify_replayed_layers(
+pub(crate) fn verify_replayed_layers(
     layers: &[Position],
     trace: &[Position],
     boundaries: &[usize],

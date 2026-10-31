@@ -77,6 +77,13 @@ impl Builder {
         self.clause(&[output, -first, -third]);
     }
 
+    pub(super) fn mux(&mut self, output: i32, condition: i32, yes: i32, no: i32) {
+        self.clause(&[-condition, -yes, output]);
+        self.clause(&[-condition, yes, -output]);
+        self.clause(&[condition, -no, output]);
+        self.clause(&[condition, no, -output]);
+    }
+
     pub(super) fn exactly_one(&mut self, inputs: &[i32]) {
         let inputs: Vec<_> = inputs
             .iter()

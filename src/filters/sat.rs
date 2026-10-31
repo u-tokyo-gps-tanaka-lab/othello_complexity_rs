@@ -5,6 +5,7 @@ pub mod flip;
 mod nopass;
 mod placement;
 mod ply;
+mod rays;
 
 use crate::io::format_position;
 use crate::othello::{get_moves, validate_board, Position};
@@ -31,14 +32,16 @@ pub enum SatEncoding {
     Ply,
     Placement,
     PlacementColumns,
+    PlacementRays,
     NoPassWitness,
 }
 
 impl SatEncoding {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Ply,
         Self::Placement,
         Self::PlacementColumns,
+        Self::PlacementRays,
         Self::NoPassWitness,
     ];
 
@@ -47,6 +50,7 @@ impl SatEncoding {
             Self::Ply => "ply",
             Self::Placement => "placement",
             Self::PlacementColumns => "placement-columns",
+            Self::PlacementRays => "placement-rays",
             Self::NoPassWitness => "nopass-witness",
         }
     }
@@ -556,6 +560,7 @@ fn encode_goal(
         SatEncoding::Ply => ply::encode(start, goal),
         SatEncoding::Placement => placement::encode(start, goal, false),
         SatEncoding::PlacementColumns => placement::encode(start, goal, true),
+        SatEncoding::PlacementRays => rays::encode(start, goal),
         SatEncoding::NoPassWitness => unreachable!("witness encoding handled separately"),
     }
 }
