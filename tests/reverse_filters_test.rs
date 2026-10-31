@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use othello_complexity_rs::othello::{BoardSymmetry, Color, Position};
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform};
 use othello_complexity_rs::search::{
+    bfs::{retrospective_bfs, BfsOutcome},
     core::{predecessors, SearchOutcome},
     dfs::retrospective_search,
     forward::ForwardTable,
@@ -17,18 +18,9 @@ use othello_complexity_rs::search::{
     transposition::Btable,
 };
 
-use support::{enumerate, middle_pass_start, query_targets, ArrayPosition};
-
-fn targets_with_turn_changes(reachable: &HashSet<ArrayPosition>) -> Vec<ArrayPosition> {
-    let mut targets = query_targets(reachable);
-    // query_targets exchanges colors and turn together. Also change only the
-    // turn while keeping the absolute colors fixed, which is a different query.
-    let opposite_turns: Vec<_> = targets.iter().map(|goal| goal.opposite_turn()).collect();
-    targets.extend(opposite_turns);
-    targets.sort_by_key(|goal| goal.position());
-    targets.dedup();
-    targets
-}
+use support::{
+    enumerate, middle_pass_start, random_game, targets_with_turn_changes, ArrayPosition,
+};
 
 fn verify_outcome(goal: ArrayPosition, expected: bool, outcome: SearchOutcome) {
     match outcome {
@@ -95,6 +87,24 @@ fn dfs_and_gbfs_match_all_eight_disc_oracle_queries() {
             )
             .unwrap(),
         );
+    }
+}
+
+#[test]
+fn unbounded_bfs_matches_all_eight_disc_oracle_queries() {
+    let reachable = enumerate(ArrayPosition::initial(), 8);
+    let targets = targets_with_turn_changes(&reachable);
+    for discs in [4, 6] {
+        let table = ForwardTable::new(discs, None).unwrap();
+        for &goal in &targets {
+            let expected = reachable.contains(&goal);
+            match retrospective_bfs(goal.position(), &table, usize::MAX).unwrap() {
+                BfsOutcome::Resolved(outcome) => verify_outcome(goal, expected, outcome),
+                BfsOutcome::Frontier { .. } => {
+                    panic!("an unbounded reverse BFS must not stop early: {goal:?}")
+                }
+            }
+        }
     }
 }
 
@@ -199,6 +209,31 @@ fn targeted_tables_and_parallel_searches_match_representative_oracle_queries() {
             }
         }
     }
+}
+
+#[test]
+fn bounded_bfs_never_refutes_a_legal_history() {
+    let table = ForwardTable::new(8, None).unwrap();
+    let mut saw_frontier = false;
+    for seed in 0..24 {
+        let history = random_game(seed);
+        // Mid-game goals keep the reverse search from exhausting quickly.
+        let prefix = 20 + (seed as usize * 5) % 25;
+        let prefix = prefix.min(history.len() - 1);
+        let (before_last, last) = history[prefix];
+        let goal = othello_complexity_rs::record::replay(before_last, &[last]).unwrap()[1];
+        let array_goal = ArrayPosition::from_relative(
+            &goal.board.to_string(),
+            goal.side_to_move == Color::Black,
+        );
+        for budget in [200, 5_000] {
+            match retrospective_bfs(goal, &table, budget).unwrap() {
+                BfsOutcome::Resolved(outcome) => verify_outcome(array_goal, true, outcome),
+                BfsOutcome::Frontier { .. } => saw_frontier = true,
+            }
+        }
+    }
+    assert!(saw_frontier, "some mid-game goals must exhaust the budget");
 }
 
 fn as_oracle(position: Position) -> ArrayPosition {

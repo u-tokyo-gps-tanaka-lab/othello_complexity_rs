@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position};
 use othello_complexity_rs::record::PlyAction;
+use othello_complexity_rs::search::core::successors;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Disc {
@@ -256,6 +257,36 @@ pub fn query_targets(reachable: &HashSet<ArrayPosition>) -> Vec<ArrayPosition> {
         )
     });
     targets
+}
+
+pub fn targets_with_turn_changes(reachable: &HashSet<ArrayPosition>) -> Vec<ArrayPosition> {
+    let mut targets = query_targets(reachable);
+    // query_targets exchanges colors and turn together. Also change only the
+    // turn while keeping the absolute colors fixed, which is a different query.
+    let opposite_turns: Vec<_> = targets.iter().map(|goal| goal.opposite_turn()).collect();
+    targets.extend(opposite_turns);
+    targets.sort_by_key(|goal| goal.position());
+    targets.dedup();
+    targets
+}
+
+/// Generate a random legal game as (position before action, action) pairs.
+/// This is an input generator using production successors, not an independent oracle.
+pub fn random_game(seed: u64) -> Vec<(Position, PlyAction)> {
+    use rand::{Rng, SeedableRng};
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let mut position = Position::initial();
+    let mut history = Vec::new();
+    loop {
+        let next = successors(position);
+        if next.is_empty() {
+            return history;
+        }
+        let (target, action) = next[rng.random_range(0..next.len())];
+        history.push((position, action));
+        position = target;
+    }
 }
 
 /// A legal 62-stone position with the forced three-ply line H2, pass, H7.

@@ -5,38 +5,19 @@
 #[allow(dead_code)]
 mod support;
 
-use othello_complexity_rs::filters::{
-    connectivity::is_connected, flip_sat::check_flip_sat,
-    impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp,
-    occupancy::check_occupancy, seg3::check_seg3_more,
-};
+use othello_complexity_rs::filters::{seg3::check_seg3_more, Filter};
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use othello_complexity_rs::record::PlyAction;
 use support::{enumerate, ArrayPosition, ALL_SYMMETRIES};
 
-fn results(board: Board) -> [bool; 7] {
-    let occupied = board.player | board.opponent;
-    [
-        is_connected(occupied),
-        check_virtual_edge_patterns(board.player, board.opponent),
-        check_occupancy(occupied),
-        check_seg3_more(board.player, board.opponent, false),
-        check_lp(board.player, board.opponent, false, false)
-            .unwrap()
-            .passes(),
-        check_lp(board.player, board.opponent, true, false)
-            .unwrap()
-            .passes(),
-        check_flip_sat(board.player, board.opponent)
-            .unwrap()
-            .passes(),
-    ]
+fn results(board: Board) -> [bool; 5] {
+    Filter::PIPELINE.map(|filter| filter.check(&board).unwrap().passes())
 }
 
 #[test]
 fn every_independently_reachable_position_through_seven_discs_passes_every_filter() {
     for position in enumerate(ArrayPosition::initial(), 7) {
-        let expected = [true; 7];
+        let expected = [true; 5];
         for symmetry in ALL_SYMMETRIES {
             let image = position.transformed(symmetry);
             assert_eq!(
@@ -57,7 +38,7 @@ fn a_complete_independent_game_including_passes_and_terminal_passes_every_filter
     let mut passes = 0;
     let mut placements = 0;
     loop {
-        assert_eq!(results(position.position().board), [true; 7]);
+        assert_eq!(results(position.position().board), [true; 5]);
         let moves = position.moves();
         if let Some(&square) = moves.first() {
             position = position.apply(PlyAction::Play(square)).unwrap();
@@ -65,7 +46,7 @@ fn a_complete_independent_game_including_passes_and_terminal_passes_every_filter
         } else if let Ok(next) = position.apply(PlyAction::Pass) {
             // Passing preserves the occupied squares and exchanges the relative
             // colours. It must not change any necessary condition.
-            assert_eq!(results(next.position().board), [true; 7]);
+            assert_eq!(results(next.position().board), [true; 5]);
             position = next;
             passes += 1;
         } else {
