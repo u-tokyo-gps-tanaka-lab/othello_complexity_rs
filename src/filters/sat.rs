@@ -1,6 +1,10 @@
 //! Exact reachability through selectable SAT encodings.
 
-use crate::filters::{layer_sat, placement_sat};
+mod cnf;
+pub mod flip;
+mod placement;
+mod ply;
+
 use crate::io::format_position;
 use crate::othello::{get_moves, validate_board, Position};
 use crate::query::{solve_query, ExactOutcome, GoalClassification};
@@ -9,7 +13,7 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 use rustsat::{
     instances::Cnf,
     solvers::{Interrupt, InterruptSolver, Solve, SolverResult},
-    types::{Clause, Lit},
+    types::Clause,
 };
 use std::fmt;
 use std::fs::{self, File};
@@ -251,9 +255,9 @@ fn check_exact_reachability(
         EncodingResult::Trivial(outcome)
     } else {
         match encoding {
-            SatEncoding::Ply => layer_sat::encode(start, goal),
-            SatEncoding::Placement => placement_sat::encode(start, goal, false),
-            SatEncoding::PlacementColumns => placement_sat::encode(start, goal, true),
+            SatEncoding::Ply => ply::encode(start, goal),
+            SatEncoding::Placement => placement::encode(start, goal, false),
+            SatEncoding::PlacementColumns => placement::encode(start, goal, true),
         }?
     };
     let build_seconds = build_started.elapsed().as_secs_f64();
@@ -389,7 +393,7 @@ pub(crate) fn solve_problem(
     for raw_clause in &problem.clauses {
         let mut clause = Clause::new();
         for &literal in raw_clause {
-            clause.add(to_rustsat_lit(literal)?);
+            clause.add(cnf::lit(literal)?);
         }
         cnf.add_clause(clause);
     }
@@ -422,16 +426,6 @@ pub(crate) fn solve_problem(
         SolverResult::Unsat => Ok(ExactOutcome::Unreachable),
         SolverResult::Interrupted if timeout.is_some() => Ok(ExactOutcome::Unknown),
         SolverResult::Interrupted => Err("kissat solve was interrupted".to_owned()),
-    }
-}
-
-fn to_rustsat_lit(raw_literal: i32) -> Result<Lit, String> {
-    if raw_literal > 0 {
-        Ok(Lit::positive(raw_literal as u32))
-    } else if raw_literal < 0 {
-        Ok(Lit::negative((-raw_literal) as u32))
-    } else {
-        Err("CNF contains literal 0".to_owned())
     }
 }
 

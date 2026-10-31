@@ -6,9 +6,9 @@ use clap::{Args, Parser, Subcommand};
 use rayon::prelude::*;
 
 use othello_complexity_rs::filters::{
-    flip_sat::check_flip_sat,
     linear_programming::check_lp,
     occupancy::{occupied_to_string, reachable_occupancy},
+    sat::flip::check_flip_sat,
     Filter, FilterResult,
 };
 use othello_complexity_rs::io::{

@@ -6,20 +6,11 @@
 //! side to move are retained throughout. Every SAT witness is replayed using the
 //! ordinary game rules, including its intermediate layer positions.
 
+use crate::filters::sat::cnf::{absolute_colors, value, FALSE, SQUARES, TRUE};
 use crate::filters::sat::{CnfProblem, EncodingResult, ModelDecoder};
 use crate::othello::{get_moves, Board, Color, Direction, Position};
 use crate::query::ExactOutcome;
 use crate::record::{replay, PlyAction};
-use rustsat::{
-    solvers::Solve,
-    types::{Lit, TernaryVal},
-};
-
-const SQUARES: usize = 64;
-// Variable 1 is fixed to true. Its two literals let target specialization omit
-// variables entirely, rather than allocating and later fixing them to false.
-const TRUE: i32 = 1;
-const FALSE: i32 = -TRUE;
 
 struct Builder {
     variables: i32,
@@ -254,13 +245,6 @@ impl Variables {
     }
 }
 
-fn absolute_colors(position: Position) -> (u64, u64) {
-    match position.side_to_move {
-        Color::Black => (position.board.player, position.board.opponent),
-        Color::White => (position.board.opponent, position.board.player),
-    }
-}
-
 fn fixed_board(builder: &mut Builder, vars: &Variables, layer: usize, position: Position) {
     let (black, white) = absolute_colors(position);
     for square in 0..SQUARES {
@@ -415,31 +399,6 @@ fn encode_problem(
         builder.unit(-vars.pass_after);
     }
     (vars, builder)
-}
-
-fn lit(raw: i32) -> Lit {
-    if raw > 0 {
-        Lit::positive(raw as u32)
-    } else {
-        Lit::negative((-raw) as u32)
-    }
-}
-
-fn value(solver: &rustsat_kissat::Kissat<'_>, literal: i32) -> Result<bool, String> {
-    if literal == TRUE {
-        return Ok(true);
-    }
-    if literal == FALSE {
-        return Ok(false);
-    }
-    match solver
-        .lit_val(lit(literal))
-        .map_err(|error| format!("failed to read SAT model literal {literal}: {error}"))?
-    {
-        TernaryVal::True => Ok(true),
-        TernaryVal::False => Ok(false),
-        TernaryVal::DontCare => Err(format!("SAT model literal {literal} has no value")),
-    }
 }
 
 fn decode_and_verify(

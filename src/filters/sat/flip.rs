@@ -1,3 +1,4 @@
+use crate::filters::sat::cnf::lit;
 use crate::filters::FilterResult;
 use crate::othello::Direction;
 
@@ -7,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use rustsat::{
     instances::Cnf,
     solvers::{Solve, SolverResult},
-    types::{Clause, Lit},
+    types::Clause,
 };
 
 /// flip操作を識別する構造体
@@ -620,11 +621,7 @@ fn solve_by_kissat(vs: &[Vec<i32>]) -> Result<FilterResult, Error> {
     for line in vs {
         let mut clause = Clause::new();
         for i in 0..line.len() {
-            if line[i] > 0 {
-                clause.add(Lit::positive(line[i] as u32));
-            } else {
-                clause.add(Lit::negative((-line[i]) as u32));
-            }
+            clause.add(lit(line[i]).map_err(Error::other)?);
         }
         cnf.add_clause(clause);
     }
