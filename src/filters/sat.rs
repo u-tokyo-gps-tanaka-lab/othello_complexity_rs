@@ -21,6 +21,7 @@ use rustsat::{
     types::Clause,
 };
 use rustsat_kissat::Interrupter;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
@@ -123,6 +124,26 @@ impl fmt::Display for SatPortfolio {
     }
 }
 
+impl Serialize for SatPortfolio {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for SatPortfolio {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 impl FromStr for SatPortfolio {
     type Err = String;
 
@@ -147,7 +168,7 @@ impl From<SatEncoding> for SatPortfolio {
 }
 
 /// A bounded exact reverse search that runs before every SAT call.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReverseBfs {
     /// Stone count of the shared forward table, between the start count and 64.
     pub discs: u32,
@@ -223,20 +244,9 @@ pub(crate) enum EncodingResult {
     Cnf(CnfProblem),
 }
 
-/// Validate all positions before any output is created. Callbacks run serially
-/// in completion order; the returned vector is in input order, including duplicates.
-pub fn run_with_options<F>(
-    opts: RunOptions,
-    mut on_outcome: F,
-) -> Result<Vec<GoalClassification>, String>
-where
-    F: FnMut(&GoalClassification) -> Result<(), String>,
-{
+/// Validate settings that do not depend on the goal list.
+pub fn validate_options(opts: &RunOptions) -> Result<(), String> {
     validate_board(&opts.start.board).map_err(|err| format!("invalid start: {err:?}"))?;
-    for (index, goal) in opts.goals.iter().enumerate() {
-        validate_board(&goal.board)
-            .map_err(|err| format!("invalid goal[{}]: {err:?}", index + 1))?;
-    }
     if opts.parallel_goals == 0 {
         return Err("parallel_goals must be positive".to_owned());
     }
@@ -268,6 +278,23 @@ where
                 "reverse BFS discs must be between the start stone count and 64".to_owned(),
             );
         }
+    }
+    Ok(())
+}
+
+/// Validate all positions before any output is created. Callbacks run serially
+/// in completion order; the returned vector is in input order, including duplicates.
+pub fn run_with_options<F>(
+    opts: RunOptions,
+    mut on_outcome: F,
+) -> Result<Vec<GoalClassification>, String>
+where
+    F: FnMut(&GoalClassification) -> Result<(), String>,
+{
+    validate_options(&opts)?;
+    for (index, goal) in opts.goals.iter().enumerate() {
+        validate_board(&goal.board)
+            .map_err(|err| format!("invalid goal[{}]: {err:?}", index + 1))?;
     }
     if let Some(dir) = &opts.cnf_dump_dir {
         fs::create_dir_all(dir).map_err(|error| {

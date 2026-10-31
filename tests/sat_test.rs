@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use othello_complexity_rs::filters::sat::{
-    run_with_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
+    run_with_options, validate_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
 };
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::query::{candidates, GoalClassification};
@@ -44,6 +44,15 @@ fn options(
         sat_timeout_per_instance: None,
         reverse_bfs: None,
     }
+}
+
+fn validation_options() -> RunOptions {
+    options(
+        Position::initial(),
+        Vec::new(),
+        GoalMatch::Exact,
+        SatEncoding::PlacementRays,
+    )
 }
 
 struct TestDirectory(PathBuf);
@@ -1113,6 +1122,138 @@ fn a_solver_deadline_never_produces_a_negative_reachability_proof() {
         GoalClassification::Unknown { .. } => {}
         GoalClassification::Unreachable { .. } => panic!("a timeout is not an unreachable proof"),
     }
+}
+
+#[test]
+fn validate_options_rejects_invalid_settings_without_goals() {
+    fn assert_error(opts: &RunOptions, expected: &str) {
+        assert!(opts.goals.is_empty());
+        assert_eq!(validate_options(opts).unwrap_err(), expected);
+    }
+
+    let mut opts = validation_options();
+    opts.start.board = Board {
+        player: 0,
+        opponent: 0,
+    };
+    assert!(validate_options(&opts)
+        .unwrap_err()
+        .starts_with("invalid start:"));
+
+    let mut opts = validation_options();
+    opts.parallel_goals = 0;
+    assert_error(&opts, "parallel_goals must be positive");
+
+    let mut opts = validation_options();
+    opts.seeds = 0;
+    assert_error(&opts, "seeds must be positive");
+
+    let mut opts = validation_options();
+    opts.sat_timeout_per_instance = Some(Duration::ZERO);
+    assert_error(&opts, "SAT timeout must be positive");
+
+    let mut opts = validation_options();
+    opts.cnf_dump_only = true;
+    assert_error(&opts, "CNF-only runs require an output directory");
+
+    let mut opts = validation_options();
+    opts.encodings = SatEncoding::NoPassWitness.into();
+    opts.reverse_bfs = Some(ReverseBfs {
+        discs: 4,
+        state_budget: 1,
+    });
+    assert_error(
+        &opts,
+        "reverse BFS requires a complete encoding in the portfolio; \
+         nopass-witness alone cannot record its results",
+    );
+
+    let mut opts = validation_options();
+    opts.reverse_bfs = Some(ReverseBfs {
+        discs: 4,
+        state_budget: 0,
+    });
+    assert_error(&opts, "reverse BFS state budget must be positive");
+
+    for discs in [3, 65] {
+        let mut opts = validation_options();
+        opts.reverse_bfs = Some(ReverseBfs {
+            discs,
+            state_budget: 1,
+        });
+        assert_error(
+            &opts,
+            "reverse BFS discs must be between the start stone count and 64",
+        );
+    }
+}
+
+#[test]
+fn validate_options_leaves_goal_validation_to_run_with_options() {
+    let invalid_goal = Position {
+        board: Board {
+            player: 0,
+            opponent: 0,
+        },
+        ..Position::initial()
+    };
+    let opts = options(
+        Position::initial(),
+        vec![invalid_goal],
+        GoalMatch::Exact,
+        SatEncoding::PlacementRays,
+    );
+
+    validate_options(&opts).unwrap();
+    assert!(run_with_options(opts, |_| Ok(()))
+        .unwrap_err()
+        .starts_with("invalid goal[1]:"));
+}
+
+#[test]
+fn run_with_options_validates_settings_before_goals() {
+    let invalid_goal = Position {
+        board: Board {
+            player: 0,
+            opponent: 0,
+        },
+        ..Position::initial()
+    };
+    let error = run_with_options(
+        RunOptions {
+            parallel_goals: 0,
+            ..options(
+                Position::initial(),
+                vec![invalid_goal],
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            )
+        },
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error, "parallel_goals must be positive");
+}
+
+#[test]
+fn sat_pipeline_settings_serialize_as_declared() {
+    let portfolio =
+        SatPortfolio::new(vec![SatEncoding::NoPassWitness, SatEncoding::PlacementRays]).unwrap();
+    assert_eq!(
+        serde_json::to_string(&portfolio).unwrap(),
+        r#""nopass-witness+placement-rays""#
+    );
+    assert_eq!(
+        serde_json::to_value(ReverseBfs {
+            discs: 10,
+            state_budget: 1_000_000,
+        })
+        .unwrap(),
+        serde_json::json!({
+            "discs": 10,
+            "state_budget": 1_000_000,
+        })
+    );
 }
 
 #[test]

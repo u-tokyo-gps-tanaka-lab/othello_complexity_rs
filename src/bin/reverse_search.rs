@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use othello_complexity_rs::io::reject_estimate_output_dir;
+use othello_complexity_rs::io::{parse_file_to_positions, reject_estimate_output_dir};
 use othello_complexity_rs::record::GoalMatch;
 use othello_complexity_rs::search::run::{run_strategy, ExternalBfs, Strategy};
 use std::io;
@@ -201,7 +201,8 @@ fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
 fn dispatch(cli: Cli) -> io::Result<()> {
     let (strategy, input, out_dir, mode) = into_strategy(cli);
     reject_estimate_output_dir(&out_dir)?;
-    run_strategy(&strategy, &input, &out_dir, mode)?;
+    let positions = parse_file_to_positions(&input.to_string_lossy())?;
+    run_strategy(&strategy, &positions, &out_dir, mode)?;
     Ok(())
 }
 

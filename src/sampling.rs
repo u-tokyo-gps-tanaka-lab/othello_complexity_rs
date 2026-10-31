@@ -8,13 +8,15 @@
 //! among the eight geometric images. Sampling rejects nonrepresentatives instead
 //! of mapping proposals to their representatives, which would favor larger orbits.
 
-use crate::io::parse_file_to_positions;
+use crate::io::{format_position, parse_file_to_positions};
 use crate::othello::{validate_board, Board, BoardSymmetry, Color, Position, CENTER_MASK};
-use rand::{seq::SliceRandom, Rng};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 pub const POPULATION_SIZE: u128 = 32 * 3_u128.pow(60);
@@ -23,11 +25,13 @@ pub const DEFAULT_SEED: u64 = 42; // Default random seed for reproducible sampli
 pub const CLASS_POPULATION_SIZE: u128 =
     (16 * 3_u128.pow(60) + 4 * 3_u128.pow(15) + 12 * 3_u128.pow(30) + 16 * 3_u128.pow(33)) / 8;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
 pub enum Population {
     #[value(name = "exact")]
+    #[serde(rename = "exact")]
     Absolute,
     #[value(name = "equivalence")]
+    #[serde(rename = "equivalence")]
     Classes,
 }
 
@@ -76,6 +80,73 @@ impl Population {
             }
         }
     }
+}
+
+/// Validate sampling settings without touching the output directory.
+pub fn validate_generation(
+    population: Population,
+    discs: Option<u32>,
+    count: usize,
+) -> io::Result<()> {
+    if count == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "count must be positive",
+        ));
+    }
+    population
+        .metadata(discs)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    Ok(())
+}
+
+/// Generate a uniform sample and its metadata in a new or reusable directory.
+pub fn generate(
+    out_dir: &Path,
+    population: Population,
+    discs: Option<u32>,
+    count: usize,
+    seed: u64,
+) -> io::Result<()> {
+    validate_generation(population, discs, count)?;
+    let population_metadata = population
+        .metadata(discs)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    create_output_dir(out_dir, "sampling.json")?;
+    let positions_path = out_dir.join("positions.txt");
+    let mapping_path = out_dir.join("mapping.jsonl");
+    let mut output = BufWriter::new(File::create(&positions_path)?);
+    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    for index in 1..=count {
+        let position = population
+            .sample(&mut rng, discs)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        writeln!(output, "{}", format_position(position))?;
+        serde_json::to_writer(
+            &mut mapping,
+            &json!({
+                "input_line": index, "output_line": index, "accepted": true,
+                "position": format_position(position), "absolute_rank": rank_of_position(position)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                    .to_string(),
+            }),
+        )?;
+        writeln!(mapping)?;
+    }
+    output.flush()?;
+    mapping.flush()?;
+    write_sampling_record(
+        out_dir,
+        json!({
+            "method": if discs.is_some() { "fixed-discs" } else { "uniform" },
+            "population": population_metadata, "uniform": true, "with_replacement": true,
+            "seed": seed, "input": null, "input_count": count,
+            "accepted_count": count, "output": artifact(&positions_path)?,
+            "mapping": artifact(&mapping_path)?,
+        }),
+    )?;
+    Ok(())
 }
 
 /// Validated sampling metadata and observations, preserving their multiplicity.

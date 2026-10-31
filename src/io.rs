@@ -211,10 +211,26 @@ pub trait TriOutcome {
     fn category(&self) -> TriCategory;
 }
 
-/// Reject a standalone command output directory used by an estimate stage.
+/// Reject an estimate run directory or a direct child used as a stage output.
+///
+/// A path is rejected when it contains `summary.json` or when its lexical parent
+/// contains `summary.json`. An empty lexical parent denotes the current directory;
+/// a path without a parent has no parent marker to check.
 pub fn reject_estimate_output_dir(out_dir: &Path) -> io::Result<()> {
-    let summary = out_dir.join("summary.json");
-    match fs::symlink_metadata(&summary) {
+    reject_estimate_summary(&out_dir.join("summary.json"))?;
+    if let Some(parent) = out_dir.parent() {
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        reject_estimate_summary(&parent.join("summary.json"))?;
+    }
+    Ok(())
+}
+
+fn reject_estimate_summary(summary: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(summary) {
         Ok(_) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
@@ -302,11 +318,14 @@ mod tests {
 
     #[test]
     fn estimate_stage_output_directories_are_rejected_without_touching_files() {
-        let directory = std::env::temp_dir().join(format!(
+        let base = std::env::temp_dir().join(format!(
             "othello-estimate-output-{}-{}",
             std::process::id(),
             FILE_INDEX.fetch_add(1, Ordering::Relaxed)
         ));
+        fs::create_dir(&base).unwrap();
+
+        let directory = base.join("run");
         fs::create_dir(&directory).unwrap();
         let keep = directory.join("keep.txt");
         fs::write(&keep, b"keep").unwrap();
@@ -321,7 +340,21 @@ mod tests {
         assert_eq!(fs::read(&keep).unwrap(), b"keep");
         assert_eq!(fs::read(&summary).unwrap(), b"summary");
 
-        fs::remove_dir_all(directory).unwrap();
+        let existing_subdirectory = directory.join("existing");
+        fs::create_dir(&existing_subdirectory).unwrap();
+        let error = reject_estimate_output_dir(&existing_subdirectory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+
+        let new_directory = directory.join("new");
+        let error = reject_estimate_output_dir(&new_directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(!new_directory.exists());
+
+        let unrelated_directory = base.join("unrelated");
+        fs::create_dir(&unrelated_directory).unwrap();
+        reject_estimate_output_dir(&unrelated_directory).unwrap();
+
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

@@ -26,17 +26,17 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 [抽出した標本]
    │
    ▼
-1. フィルタ (estimate filters / run_filters)
+1. フィルタ (filters 段 / run_filters)
    └─ 到達可能局面の必要条件を検査し、違反した局面を「到達不能 (NG)」として除外する。
    │
    │ すべてのフィルタを通過した局面
    ▼
-2. SAT による判定 (estimate sat / sat_reachability)
+2. SAT による判定 (sat 段 / sat_reachability)
    └─ 初期局面からの着手列が存在するかを SAT ソルバ（および前処理の幅優先逆探索）で調べる。
    │
    │ 時間制限などで決着がつかなかった局面 (UNKNOWN)
    ▼
-3. 逆探索による判定 (estimate reverse-search / reverse_search)
+3. 逆探索による判定 (reverse_search 段 / reverse_search)
    └─ 目標局面から後向きに深さ優先探索を行い、初期局面側から生成した局面と合流するか調べる。
    │
    ▼
@@ -53,9 +53,9 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 
 ### 判定モード (`--mode`)
 
-局面の対称性や手番を同一視するかどうかを `--mode` で指定します。推計（`estimate`）では、母集団の総数を厳密に計算できる `exact` または `equivalence` を使用します。
+局面の対称性や手番を同一視するかどうかを、単体コマンドでは `--mode` で指定します。推計では標本の母集団からモードが決まり、母集団の総数を厳密に計算できる `exact` または `equivalence` を使用します。
 
-| モード | 到達可能性の判定対象 | `estimate` での推計対象 |
+| モード | 到達可能性の判定対象 | 推計の対象 |
 |---|---|---|
 | `exact` | 指定された局面そのもの（1通り） | 到達可能な局面数 |
 | `equivalence` | 盤面の回転・反転（8通り）と、手番・石色の同時反転（2通り）を組み合わせた最大16通りのいずれか（ゲーム理論的同値類） | 到達可能な同値類数 |
@@ -76,33 +76,83 @@ cargo test
 
 ## 到達可能局面数の推計（基本手順）
 
-標本抽出から信頼区間の算出までを順に実行する手順です。ここでは例として、`equivalence` モードで 1,000 局面を抽出し、到達可能な同値類数の 99.5% 信頼区間を算出します。
+推計は、標本の抽出から信頼区間の算出までを1つの Rust プログラムとして書いて実行します。`examples/estimate.rs` は、`equivalence` モードで 1,000 局面を抽出し、到達可能な同値類数の 99.5% 信頼区間を求める例です。
 
-### ステップ 1: 標本の抽出 (`gen_random_boards`)
+```rust
+use std::path::Path;
+use std::time::Duration;
 
-母集団から指定した数の局面を、復元抽出で一様ランダムに抽出します。
+use othello_complexity_rs::estimate::{Pipeline, SampleSpec, SatStage};
+use othello_complexity_rs::filters::sat::{ReverseBfs, SatEncoding};
+use othello_complexity_rs::sampling::Population;
+use othello_complexity_rs::search::run::Strategy;
 
-```sh
-cargo run --release --bin gen_random_boards -- \
-  --mode equivalence --count 1000 --seed 20261022 \
-  --out-dir out/sample
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let report = Pipeline::sample(SampleSpec {
+        population: Population::Classes,
+        discs: None,
+        count: 1_000,
+        seed: 20261022,
+    })
+    .filters()
+    .sat(SatStage {
+        encodings: SatEncoding::Ply.into(),
+        seeds: 1,
+        parallel_goals: 2,
+        timeout: Some(Duration::from_secs(10)),
+        reverse_bfs: Some(ReverseBfs {
+            discs: 10,
+            state_budget: 1_000_000,
+        }),
+    })
+    .reverse_search(Strategy::DfsParallel {
+        discs: 8,
+        max_nodes: 10_000,
+        table_size: 100_000,
+        threads: 2,
+    })
+    .run(Path::new("out/estimate"), 0.005)?;
+    println!("{}", report.interval);
+    Ok(())
+}
 ```
 
-- `--count`: 抽出する局面数。
-- `--seed`: 乱数シード（任意）。使用した値は出力先の `sampling.json` に記録され、同じシードを指定すれば同じ標本を再現できます。
-- `--discs`: 特定の石数の局面だけを母集団とする場合に、その石数を指定します（任意）。
-
-### ステップ 2: フィルタによる絞り込み (`estimate filters`)
-
-抽出した局面に5種類のフィルタを順番に適用し、到達可能局面の必要条件を満たさない局面（`NG`）を除外します。
+この例は次のコマンドで実行できます。
 
 ```sh
-cargo run --release --bin estimate -- filters \
-  --sample out/sample \
-  --out-dir out/filters
+cargo run --release --example estimate
 ```
 
-適用されるフィルタは以下の5つです。
+`Pipeline::sample` から `run` までの1つの式が推計全体を表します。`filters`、`sat`、`reverse_search` の各メソッドは判定の段を宣言した順に積み上げるだけで、計算は `run` を呼んだ時点で始まります。`run` は計算を始める前に全段の設定値を検査し、不正な値があれば出力先に何も書かずにエラーで止まります。そのため、後ろの段の設定の誤りが、時間のかかる前の段を終えた後で見つかることはありません。
+
+各段は、それより前の段で `UNKNOWN` として残った局面だけを判定します。段はどの順に何度並べてもかまいません。たとえば `sat` を2回並べると、後述の「`nopass-witness` を使った2段階の SAT 判定」になります。
+
+`examples/estimate.rs` は書き方を示す例です。実際の推計のプログラムは、後述の「実験プログラムの置き場所」のとおり `experiments/` に置きます。
+
+### 標本の指定
+
+推計の起点は、新しく抽出する標本か、既存の標本ディレクトリのどちらかです。
+
+`Pipeline::sample(SampleSpec { .. })` は、母集団から指定した数の局面を復元抽出で一様ランダムに抽出し、出力先の `sample/` に `positions.txt`、`mapping.jsonl`、`sampling.json` を書き出します。
+
+| フィールド | 意味 |
+|---|---|
+| `population` | 母集団。`Population::Absolute` は `exact` モード、`Population::Classes` は `equivalence` モードに当たる。 |
+| `discs` | 特定の石数の局面だけを母集団とする場合はその石数を `Some(n)` で指定し、全石数を対象とする場合は `None` とする。 |
+| `count` | 抽出する局面数。 |
+| `seed` | 乱数シード。`sampling.json` に記録され、同じシードを指定すれば同じ標本を再現できる。 |
+
+`Pipeline::from_sample_dir(&Path)` は、`gen_random_boards` または `convert_boards` で作った標本ディレクトリを読み込みます。
+
+### 判定の段
+
+| メソッド | 判定の内容 |
+|---|---|
+| `filters()` | 5種類のフィルタを順に適用し、到達可能局面の必要条件を満たさない局面を `NG` とする。通過した局面は `UNKNOWN` のまま次の段へ渡る。 |
+| `sat(SatStage { .. })` | SAT ソルバで初期局面からの着手列を探す。 |
+| `reverse_search(Strategy::..)` | 目標局面から後向きに探索し、初期局面側から生成した局面と合流するか調べる。 |
+
+`filters()` が適用するフィルタは以下の5つです。
 
 | フィルタ名 | 検査する到達可能局面の必要条件 |
 |---|---|
@@ -112,44 +162,47 @@ cargo run --release --bin estimate -- filters \
 | `seg3more` | `occupancy` の条件に加え、各石を置いた時点で相手の石を挟める方向が存在し、最終的な石の色がそれらの反転結果と矛盾しないか。 |
 | `lp` | 石の配置と反転関係を変数とする線形計画問題（LP）に実行可能解が存在するか。 |
 
-### ステップ 3: SAT による判定 (`estimate sat`)
+`SatStage` の各フィールドの意味は次のとおりです。設定値に既定値はないので、すべてのフィールドを明示します。
 
-フィルタを通過した局面に対し、SAT ソルバを用いて到達可能性を判定します。
+| フィールド | 意味 |
+|---|---|
+| `encodings` | SAT への符号化方式。`SatEncoding::Ply.into()` のように1つの方式を指定するか、`SatPortfolio::new(vec![..])` で複数の方式を組み合わせる。方式は後述の「SAT 判定の詳細仕様」を参照。 |
+| `seeds` | 1つの符号化方式につき、乱数シードを変えてソルバを実行する数。 |
+| `parallel_goals` | 同時に判定する局面数。 |
+| `timeout` | 候補局面1つあたりの SAT ソルバの制限時間。`None` なら時間制限を設けない。`equivalence` モードでは1つの入力局面につき最大16通りの対称局面を個別に解くため、1局面あたりの合計時間は指定値を超えることがある。 |
+| `reverse_bfs` | SAT 前の幅優先逆探索の設定。`None` なら行わない。後述の「SAT 実行前の幅優先逆探索」を参照。 |
 
-```sh
-cargo run --release --bin estimate -- sat \
-  --from out/filters \
-  --out-dir out/sat \
-  --encoding ply \
-  --parallel-goals 2 --sat-timeout-secs 10
+逆探索の方式は `Strategy` の7つの列挙子から選びます。列挙子と設定項目は、単体コマンド `reverse_search` のサブコマンドとオプションに対応します。たとえば `Strategy::DfsParallel` は `dfs-parallel` に当たります。
+
+### 出力ディレクトリ
+
+1回の推計の出力は、`run` に渡したディレクトリに次のようにまとまります。
+
+```text
+out/estimate/
+├── sample/                 Pipeline::sample で抽出した標本
+├── 01-filters/             con_OK.txt、con_NG.txt、…、lp_OK.txt、lp_NG.txt
+├── 02-sat/                 sat_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
+├── 03-reverse-search/      reverse_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
+└── summary.json
 ```
 
-- `--encoding`: SAT への符号化方式（必須）。指定できる方式は後述の「SAT 判定の詳細仕様」を参照してください。
-- `--parallel-goals`: 同時に判定する局面数（必須）。
-- `--sat-timeout-secs`: 候補局面1つあたりの SAT ソルバの制限時間（秒）。省略すると時間制限を設けません。`equivalence` モードでは1つの入力局面につき最大16通りの対称局面を個別に解くため、1局面あたりの合計時間は指定値を超えることがあります。
-- `--seeds`: 1つの符号化方式につき、乱数シードを変えてソルバを実行する回数（既定値: `1`）。
+段のディレクトリ名は、宣言した順番を表す2桁の番号と段の種類をつないだものです。`_records.csv` には `OK` と判定した局面への到達手順（棋譜）が入っており、`verify_record` で独立に検証できます。SAT の段は判定の終わった局面から順にファイルへ書き足すので、行の並びは入力の順とは限りません。
 
-### ステップ 4: 逆探索による最終判定 (`estimate reverse-search`)
+`summary.json` は実行ディレクトリの直下に1つだけ作られ、推計全体を記録します。標本の出どころと有意水準に加え、段ごとに設定値、完了したか否か、その段で決着した件数、その段を終えた時点の標本全体の件数と信頼区間を持ちます。`summary.json` は段が1つ終わるたびに書き直されるので、途中で止まった推計でも完了した段までの結果が残ります。
 
-ステップ3で時間内に決着がつかなかった局面（`UNKNOWN`）に対し、目標局面からの後向き探索を実行して最終判定を行います。
-
-```sh
-cargo run --release --bin estimate -- reverse-search \
-  --from out/sat \
-  --out-dir out/reverse \
-  dfs-parallel --discs 8 --max-nodes 10000 --table-size 100000 --threads 2
-```
+既存のディレクトリも出力先に指定できます。その場合、推計が書き出すファイルと同名のファイルだけが上書きされ、他のファイルは残ります。入力データを誤って破壊しないよう、出力先には標本ディレクトリや枝分かれ元の実行ディレクトリを指定できません。また、後述の単体コマンドの出力先には、実行ディレクトリ、その中の段のディレクトリ、実行ディレクトリの直下に新しく作るディレクトリのいずれも指定できません。
 
 ### 推計結果の見方
 
-ステップ2〜4の各コマンドが完了すると、出力ディレクトリの `summary.json` と標準出力にその時点での推計結果が出力されます。前段までに `NG` や `OK` と確定した件数は、後続のステップの `summary.json` に自動で引き継がれます。
+`run` は最後の段を終えた時点の件数と信頼区間を返します。例のプログラムは、その信頼区間を次のように表示します。
 
 ```text
 Population size = 84782316550443833986427293875
 Sample size = 1000
-Observed reachable fraction range: [0.000000000000, 0.001000000000]
-99.5% approximate Wilson CI: [0.000000000000, 0.009699915005]
-Expected |R| interval: [0.000000e+0, 8.223813e+26]
+Observed reachable fraction range: [0.000000000000, 0.000000000000]
+99.5% approximate Wilson CI: [0.000000000000, 0.007817838399]
+Expected |R| interval: [0.000000e+0, 6.628144e+26]
 ```
 
 - `Population size`: 母集団の総数。
@@ -158,19 +211,57 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
   - 下端: `UNKNOWN` をすべて到達不能とみなしたときの Wilson 信頼区間の下端 × 母集団の総数
   - 上端: `UNKNOWN` をすべて到達可能とみなしたときの Wilson 信頼区間の上端 × 母集団の総数
 
-信頼水準を変更したい場合は、`estimate` の各サブコマンドに `--alpha <有意水準>` を指定します。既定値は `0.005`（99.5% 信頼区間）です。
+信頼水準は `run` の第2引数の有意水準で決まります。例の `0.005` は 99.5% 信頼区間に当たります。
 
-### 出力ディレクトリ（`--out-dir`）の仕様
+### 中断した推計の再開と段の追加
 
-- 既存のディレクトリを `--out-dir` に指定できます。その場合、コマンドが出力するファイルと同名のファイルだけが上書きされ、他のファイルは残ります。実行が途中で止まった場合に古い完了記録が残らないよう、前回の `sampling.json` や `summary.json` は出力開始前に削除され、正常終了時に新しく書き出されます。
-- 入力データを誤って破壊しないよう、`estimate` の出力先には標本ディレクトリや前段までの出力ディレクトリ（`--from` から遡れるディレクトリ）を指定できません。また、後述する単体コマンドの出力先には `summary.json` を含むディレクトリを指定できません。
+`summary.json` のある実行ディレクトリに対して `run` を呼ぶと、保存済みの推計の続きから実行します。このとき `run` は、宣言した標本が保存済みのものと同じであること、および保存済みの完了した段が宣言した段の列の先頭に同じ設定値で並んでいることを確かめます。条件を満たせば、完了した段の出力を読み込んで検証し、残りの段だけを実行します。
+
+この仕組みで、次の3つの使い方ができます。
+
+1. 途中で止まった推計は、同じプログラムを実行し直せば再開できます。未完了だった段は最初からやり直します。ただし外部メモリ BFS の段は、`resume: true` と前回と同じ `tmp_dir` を指定すれば、その段の途中から続けられます。
+2. 完了した推計に段を足したいときは、メソッドチェーンの末尾に段を加えて実行し直します。たとえば SAT の段で残った `UNKNOWN` に対して、上限を上げた逆探索を追加できます。
+3. 有意水準だけを変えて実行し直すと、どの段も実行せずにすべての区間を計算し直します。
+
+標本や完了した段の設定値が保存済みのものと異なる場合は、出力先を変更せずにエラーで止まります。最初からやり直すときは、別の出力先を指定してください。
+
+### 途中の段からの枝分かれ
+
+`Pipeline::from_run(&Path, k)` は、保存済みの実行ディレクトリの標本と、完了した先頭 `k` 段を引き継いだ別の推計を作ります。次の例は、`out/estimate` の SAT の段までを引き継ぎ、方式と上限を変えた逆探索を `out/estimate-gbfs` で実行します。
+
+```rust
+Pipeline::from_run(Path::new("out/estimate"), 2)
+    .reverse_search(Strategy::GbfsParallel {
+        discs: 10,
+        max_nodes: 10_000_000,
+        use_lp: false,
+        threads: 20,
+    })
+    .run(Path::new("out/estimate-gbfs"), 0.005)?;
+```
+
+`run` は、元の実行ディレクトリにある標本と先頭 `k` 段のディレクトリを新しい出力先へ写してから、残りの段を実行します。元の実行ディレクトリは変更されず、写した後の出力先は元のディレクトリがなくても再開できます。
+
+### 実験プログラムの置き場所
+
+実際の推計は、実験用のクレート `experiments/` に、1つの実験につき1つのプログラムとして書きます。`experiments/src/bin/<名前>.rs` に置いたプログラムは、リポジトリのルートで次のように実行します。
+
+```sh
+cargo run --release -p experiments --bin <名前>
+```
+
+たとえば `experiments/src/bin/20261029-1m.rs` は、同値類を100万件抽出して 99.5% 信頼区間を求める推計で、`result/20261029-1m` に出力します。
+
+`experiments` はワークスペースの別のクレートなので、ルートで実行する `cargo build` と `cargo test` の対象には入りません。実験プログラムまでまとめてコンパイルするときは `cargo build --release --workspace` を使います。
+
+推計を終えたら、その実験プログラムを出力ディレクトリと一緒に保存します。過去の推計は、保存したプログラムとその時点のライブラリから再現するので、ライブラリの変更でコンパイルできなくなった実験プログラムは、直さずに `experiments/` から消してかまいません。ただし、`experiments/src/bin/` にプログラムが1つもないと cargo がワークスペースを読み込めず、ルートの `cargo test` も動かなくなります。そのため、プログラムは常に1つ以上置いておきます。
 
 
 ## SAT 判定の詳細仕様
 
-### 符号化方式（`--encoding`）
+### 符号化方式
 
-初期局面から目標局面へ至る盤面の推移を、どのような論理式で表すかを `--encoding` で指定します。`nopass-witness+placement-columns` のように `+` でつなぐと、複数の方式を組み合わせて順に実行できます。
+初期局面から目標局面へ至る盤面の推移を、どのような論理式で表すかを指定します。推計では `SatStage` の `encodings` に、単体コマンド `sat_reachability` では `--encoding` に指定します。複数の方式を組み合わせると順に実行できます。推計では `SatPortfolio::new(vec![SatEncoding::NoPassWitness, SatEncoding::PlacementColumns])?` のように並べ、`--encoding` では `nopass-witness+placement-columns` のように `+` でつなぎます。
 
 以下では用語を次のように使い分けます。
 - 着手: 石を置くこと、またはパスをすること。
@@ -190,51 +281,70 @@ Expected |R| interval: [0.000000e+0, 8.223813e+26]
 
 ### SAT 実行前の幅優先逆探索
 
-`estimate sat` および `sat_reachability` では、SAT ソルバを呼び出す前の前処理として、目標局面から幅優先の逆探索を行います。初期局面から前向きに生成した局面表（前向き局面表）と合流するかを調べることで、浅い手数で決着がつく局面を高速に処理します。
+推計の `sat` 段と単体コマンド `sat_reachability` では、SAT ソルバを呼び出す前の前処理として、目標局面から幅優先の逆探索を行います。初期局面から前向きに生成した局面表（前向き局面表）と合流するかを調べることで、浅い手数で決着がつく局面を高速に処理します。
 
 - 前向き局面表に合流した場合: 即座に `OK`（到達可能）と確定します。得られた棋譜は、SAT の解と同様に合法手規則で再生検証されます。
 - 先行局面をすべて列挙しても合流できなかった場合: 即座に `NG`（到達不能）と確定します。
 - 登録局面数が上限に達した場合: 未決着として後続の SAT ソルバへ渡します。
 
-関連するオプションは以下の2つです。
-- `--bfs-nodes`: 候補局面1つあたりの逆探索で登録する局面数の上限（既定値: `1000000`）。`0` を指定すると幅優先逆探索を行いません。
-- `--bfs-discs`: 合流先として使う前向き局面表の石数（既定値: `10`、指定可能範囲: 4〜64）。
+設定項目は以下の2つです。推計では `SatStage` の `reverse_bfs` に `Some(ReverseBfs { discs, state_budget })` を指定し、`sat_reachability` ではオプションで指定します。
 
-> 注意: 幅優先逆探索は到達不能（`NG`）を確定させることがあるため、到達不能を証明できる方式（`ply` や `placement` など）が `--encoding` に1つ以上含まれている場合しか使えません。`nopass-witness` を単独で指定する場合は、必ず `--bfs-nodes 0` を付けて幅優先逆探索を無効化してください（付けないとエラーで終了します）。
+| 推計での指定 | `sat_reachability` のオプション | 意味 |
+|---|---|---|
+| `state_budget` | `--bfs-nodes`（既定値: `1000000`） | 候補局面1つあたりの逆探索で登録する局面数の上限。 |
+| `discs` | `--bfs-discs`（既定値: `10`） | 合流先として使う前向き局面表の石数（4〜64）。 |
+
+幅優先逆探索を行わない場合は、推計では `reverse_bfs: None` とし、`sat_reachability` では `--bfs-nodes 0` を指定します。
+
+> 注意: 幅優先逆探索は到達不能（`NG`）を確定させることがあるため、到達不能を証明できる方式（`ply` や `placement` など）が符号化方式に1つ以上含まれている場合しか使えません。`nopass-witness` を単独で指定する場合は、必ず幅優先逆探索を無効にしてください。有効のままだとエラーで終了します。
 
 ### 応用例: `nopass-witness` を使った2段階の SAT 判定
 
-`nopass-witness` はパスのある手順を見落とすため到達不能の証明（`NG` 判定）には使えませんが、パスなしで到達できる局面（`OK`）を短時間で見つけられます。これを完全な方式の前段に挟むことで、全体の実行時間を短縮できます。
+`nopass-witness` はパスのある手順を見落とすため到達不能の証明（`NG` 判定）には使えませんが、パスなしで到達できる局面（`OK`）を短時間で見つけられます。これを完全な方式の前段に挟むことで、全体の実行時間を短縮できます。推計では、1つのパイプラインに `sat` の段を2つ並べます。
 
-```sh
-# 第1段階: パスなしの到達手順を1秒だけ探す（--bfs-nodes 0 が必須）
-# ここで見つかった局面だけが OK として確定し、残りはすべて UNKNOWN になる
-cargo run --release --bin estimate -- sat \
-  --from out/filters \
-  --out-dir out/witness \
-  --encoding nopass-witness \
-  --parallel-goals 2 --sat-timeout-secs 1 \
-  --bfs-nodes 0
-
-# 第2段階: UNKNOWN として残った局面（out/witness）に対し、完全な方式で判定する
-cargo run --release --bin estimate -- sat \
-  --from out/witness \
-  --out-dir out/sat \
-  --encoding ply \
-  --parallel-goals 2 --sat-timeout-secs 10
+```rust
+Pipeline::sample(spec)
+    .filters()
+    // 第1段階: パスなしの到達手順を1秒だけ探す。見つかった局面だけが OK になり、残りは UNKNOWN のまま次の段へ渡る
+    .sat(SatStage {
+        encodings: SatEncoding::NoPassWitness.into(),
+        seeds: 1,
+        parallel_goals: 2,
+        timeout: Some(Duration::from_secs(1)),
+        reverse_bfs: None, // nopass-witness 単独では幅優先逆探索を使えない
+    })
+    // 第2段階: 残った局面を完全な方式で判定する
+    .sat(SatStage {
+        encodings: SatEncoding::Ply.into(),
+        seeds: 1,
+        parallel_goals: 2,
+        timeout: Some(Duration::from_secs(10)),
+        reverse_bfs: Some(ReverseBfs { discs: 10, state_budget: 1_000_000 }),
+    })
+    .run(Path::new("out/estimate"), 0.005)?;
 ```
 
 
 ## 単体コマンドによる個別判定
 
-推計パイプライン（`estimate`）を通さずに、特定の局面や局面ファイルを個別に判定・検証するコマンド群です。
+推計パイプラインを通さずに、特定の局面や局面ファイルを個別に判定・検証するコマンド群です。
+
+### 標本の単体抽出 (`gen_random_boards`)
+
+`Pipeline::sample` と同じ手順で標本を抽出し、標本ディレクトリに書き出します。書き出した標本は `Pipeline::from_sample_dir` で推計に使えます。`--discs` は、特定の石数の局面だけを母集団とする場合に指定します。
+
+```sh
+cargo run --release --bin gen_random_boards -- \
+  --mode equivalence --count 1000 --seed 20261022 \
+  --out-dir out/sample
+```
 
 ### フィルタの単体実行 (`run_filters`)
 
 指定した1種類のフィルタだけを実行します。複数のフィルタを順に適用したい場合は、出力された `_OK` ファイルを次のフィルタの入力に指定してください。
 
 ```sh
-cargo run --release --bin run_filters -- con out/sample/positions.txt -o out/con
+cargo run --release --bin run_filters -- con out/estimate/sample/positions.txt -o out/con
 ```
 
 ### SAT の単体実行 (`sat_reachability`) と棋譜の検証 (`verify_record`)
@@ -260,7 +370,7 @@ cargo run --release --bin verify_record -- \
 
 ```sh
 cargo run --release --bin reverse_search -- dfs-parallel \
-  out/sat/sat_equivalence_UNKNOWN.txt \
+  out/estimate/02-sat/sat_equivalence_UNKNOWN.txt \
   --mode equivalence \
   --discs 8 --max-nodes 10000 --table-size 100000 --threads 2 \
   --out-dir out/reverse_search
@@ -297,9 +407,9 @@ cargo run --release --bin reverse_search -- dfs-parallel \
 sed 's/$/ b/' boards.txt > positions.txt
 ```
 
-#### 推計（`estimate`）の標本として使う場合
+#### 推計の標本として使う場合
 
-母集団から一様に抽出された64文字の相対盤面データを `estimate` の入力標本として使う場合は、統計的な一様性を保つために `convert_boards` で変換します。入力データの種類に応じて、2つのサブコマンドを使い分けます。
+母集団から一様に抽出された64文字の相対盤面データを推計の標本として使う場合は、統計的な一様性を保つために `convert_boards` で変換します。入力データの種類に応じて、2つのサブコマンドを使い分けます。
 
 | サブコマンド | 入力データの種類 | 変換処理の内容 |
 |---|---|---|
@@ -322,10 +432,10 @@ cargo run --release --bin convert_boards -- representatives \
 
 共通の引数:
 - `--source-sampling`: 元の標本が復元抽出なら `with-replacement`、非復元抽出なら `without-replacement` を指定します。
-- `--provenance`: 元の標本の抽出条件やシードを記録したファイル（書式不問）のパス。後の `estimate` 実行時にも存在を確認するため、変換後もこのファイルを削除・移動しないでください。
+- `--provenance`: 元の標本の抽出条件やシードを記録したファイル（書式不問）のパス。推計の実行時にも存在を確認するため、変換後もこのファイルを削除・移動しないでください。
 - `--seed`: 変換時のサンプリングに使う乱数シード（任意、既定値: `42`）。
 
-出力ディレクトリには以下の3つのファイルが生成され、そのまま `estimate filters --sample <DIR>` に渡して推計を開始できます。
+出力ディレクトリには以下の3つのファイルが生成され、そのまま `Pipeline::from_sample_dir` に渡して推計を開始できます。
 - `positions.txt`: 変換後の局面リスト（66文字形式）。
 - `mapping.jsonl`: 入力行と出力局面の対応記録（`representatives` で棄却された行も記録されます）。
 - `sampling.json`: 母集団の定義（中央4マスが埋まった全局面 $2^5 \times 3^{60}$ 通り）や乱数シードなどのメタデータ。
