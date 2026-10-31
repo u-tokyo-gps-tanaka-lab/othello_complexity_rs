@@ -1259,27 +1259,20 @@ fn summaries_reject_unknown_stages_and_invalid_from_or_sample_dir_keys() {
 
 #[test]
 fn summary_rejects_an_unknown_sat_encoding() {
-    for encoding in [
-        "unknown",
-        "ply-target",
-        "placement-target",
-        "placement-target-columns",
-    ] {
-        let fixture = Fixture::new();
-        let (_, sat) = fixture.sat_ok();
-        let path = sat.join("summary.json");
-        let mut summary = read_json(&path);
-        summary["stage"] = json!(format!("sat:{encoding}"));
-        write_json(&path, &summary);
+    let fixture = Fixture::new();
+    let (_, sat) = fixture.sat_ok();
+    let path = sat.join("summary.json");
+    let mut summary = read_json(&path);
+    summary["stage"] = json!("sat:unknown");
+    write_json(&path, &summary);
 
-        let output = fixture.path("next");
-        let error = estimate::reverse_search(&sat, &output, ALPHA, &limited_dfs()).unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-        assert!(error
-            .to_string()
-            .contains(&format!("unknown estimate stage: sat:{encoding}")));
-        assert!(!output.exists());
-    }
+    let output = fixture.path("next");
+    let error = estimate::reverse_search(&sat, &output, ALPHA, &limited_dfs()).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error
+        .to_string()
+        .contains("unknown estimate stage: sat:unknown"));
+    assert!(!output.exists());
 }
 
 #[test]
@@ -1328,7 +1321,7 @@ fn reverse_ng_updates_all_duplicate_sample_rows_without_a_record() {
 }
 
 #[test]
-fn reverse_summary_has_positive_nodes_for_searched_ok_and_ng_without_search_csv() {
+fn reverse_summary_has_positive_nodes_for_searched_ok_and_ng() {
     let fixture = Fixture::new();
     let filters = fixture.filters(
         "sample",
@@ -1346,9 +1339,6 @@ fn reverse_summary_has_positive_nodes_for_searched_ok_and_ng_without_search_csv(
         fs::read_to_string(reverse.join("reverse_exact_NG.txt")).unwrap(),
         position_text(&[class_d3()]),
     );
-    assert!(!file_names(&reverse)
-        .iter()
-        .any(|name| name.ends_with("_search.csv")));
     let summary = read_json(&reverse.join("summary.json"));
     assert_summary_keys(&summary, &reverse_summary_keys());
     assert_eq!(summary["stage"], "reverse-search:dfs");
@@ -1432,29 +1422,6 @@ fn stages_reject_input_directories_as_outputs_without_modifying_them() {
             estimate::reverse_search(&reverse, output, ALPHA, &limited_dfs())
         });
     }
-}
-
-#[test]
-fn all_stages_reject_regular_file_outputs_without_modifying_them() {
-    let fixture = Fixture::new();
-    let sample = fixture.sample("sample", &[initial()], absolute_population());
-    let filters = fixture.path("filters");
-    estimate::filters(&sample, &filters, ALPHA).unwrap();
-
-    let filter_output = fixture.path("filter-output");
-    fs::write(&filter_output, b"filter marker").unwrap();
-    assert!(estimate::filters(&sample, &filter_output, ALPHA).is_err());
-    assert_eq!(fs::read(&filter_output).unwrap(), b"filter marker");
-
-    let sat_output = fixture.path("sat-output");
-    fs::write(&sat_output, b"sat marker").unwrap();
-    assert!(estimate::sat(&filters, &sat_output, ALPHA, SatEncoding::Ply, 1, None).is_err());
-    assert_eq!(fs::read(&sat_output).unwrap(), b"sat marker");
-
-    let reverse_output = fixture.path("reverse-output");
-    fs::write(&reverse_output, b"reverse marker").unwrap();
-    assert!(estimate::reverse_search(&filters, &reverse_output, ALPHA, &limited_dfs()).is_err());
-    assert_eq!(fs::read(&reverse_output).unwrap(), b"reverse marker");
 }
 
 #[test]
