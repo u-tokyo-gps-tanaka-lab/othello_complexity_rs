@@ -1,18 +1,6 @@
-//! Integration tests for the staged estimation contract.
-//!
-//! Expected classifications come from sample multiplicity, the initial
-//! position, Black's legal opening D3, and the connectivity filter. Corruption
-//! tests start from directories written by the public stage functions.
+//! Integration tests for the in-process estimation pipeline.
 
-use othello_complexity_rs::estimate;
-use othello_complexity_rs::filters::sat::{ReverseBfs, SatEncoding, SatPortfolio};
-use othello_complexity_rs::interval;
-use othello_complexity_rs::io::format_position;
-use othello_complexity_rs::othello::{Board, Color, Position};
-use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
-use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
-use serde_json::{json, Value};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::num::NonZeroU128;
@@ -20,10 +8,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-// P(|Z| > 1) from the standard normal integral. With z^2 = 1, an all-OK
-// sample of size n has Wilson bounds [n / (n + 1), 1].
+use othello_complexity_rs::estimate::{Pipeline, SampleSpec, SatStage};
+use othello_complexity_rs::filters::sat::{ReverseBfs, SatEncoding};
+use othello_complexity_rs::interval;
+use othello_complexity_rs::io::format_position;
+use othello_complexity_rs::othello::{Board, Color, Position};
+use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
+use othello_complexity_rs::sampling::Population;
+use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
+use serde_json::{json, Value};
+
+// P(|Z| > 1). With z² = 1, an all-OK sample of size n has bounds
+// [n / (n + 1), 1].
 const ALPHA: f64 = 0.31731050786291415;
-// Four occupied central cells, 60 ternary cells, and two absolute turns.
 const ABSOLUTE_SIZE: u128 = 32 * 3_u128.pow(60);
 const CLASS_SIZE: &str = "84782316550443833986427293875";
 static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
@@ -33,7 +30,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!(
-            "othello-estimate-stages-test-{}-{}",
+            "othello-estimate-pipeline-test-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -46,11 +43,11 @@ impl Fixture {
     }
 
     fn sample(&self, name: &str, positions: &[Position], population: Value) -> PathBuf {
-        let dir = self.path(name);
-        fs::create_dir(&dir).unwrap();
-        write_positions(&dir.join("positions.txt"), positions);
+        let directory = self.path(name);
+        fs::create_dir(&directory).unwrap();
+        write_positions(&directory.join("positions.txt"), positions);
         write_json(
-            &dir.join("sampling.json"),
+            &directory.join("sampling.json"),
             &json!({
                 "schema_version": 1,
                 "method": if population.get("discs").is_some() {
@@ -66,49 +63,7 @@ impl Fixture {
                 "accepted_count": positions.len(),
             }),
         );
-        dir
-    }
-
-    fn filters(
-        &self,
-        sample_name: &str,
-        output_name: &str,
-        positions: &[Position],
-        population: Value,
-    ) -> PathBuf {
-        let sample = self.sample(sample_name, positions, population);
-        let output = self.path(output_name);
-        estimate::filters(&sample, &output, ALPHA).unwrap();
-        output
-    }
-
-    fn unknown_reverse(&self) -> (PathBuf, PathBuf) {
-        let filters = self.filters(
-            "sample",
-            "filters",
-            &[initial(), after_d3()],
-            absolute_population(),
-        );
-        let output = self.path("reverse-limited");
-        estimate::reverse_search(&filters, &output, ALPHA, &limited_dfs()).unwrap();
-        (filters, output)
-    }
-
-    fn sat_ok(&self) -> (PathBuf, PathBuf) {
-        let filters = self.filters("sample", "filters", &[after_d3()], absolute_population());
-        let output = self.path("sat");
-        estimate::sat(
-            &filters,
-            &output,
-            ALPHA,
-            SatEncoding::Ply.into(),
-            1,
-            1,
-            None,
-            None,
-        )
-        .unwrap();
-        (filters, output)
+        directory
     }
 }
 
@@ -126,7 +81,6 @@ fn initial() -> Position {
 }
 
 fn after_d3() -> Position {
-    // White owns E5; Black owns D3, D4, E4 and D5. White moves next.
     Position {
         board: Board::new(1 << 36, (1 << 19) | (1 << 27) | (1 << 28) | (1 << 35)),
         side_to_move: Color::White,
@@ -141,7 +95,6 @@ fn class_d3() -> Position {
 }
 
 fn disconnected() -> Position {
-    // An isolated A1 disc cannot have been placed by a legal move.
     let mut position = initial();
     position.board.player |= 1;
     position
@@ -158,6 +111,57 @@ fn class_population() -> Value {
     json!({
         "definition": "equivalence_classes_center_occupied",
         "size": CLASS_SIZE
+    })
+}
+
+fn fixed_absolute(discs: u32, size: &str) -> Value {
+    json!({
+        "definition": "absolute_positions_fixed_discs",
+        "discs": discs,
+        "size": size,
+    })
+}
+
+fn fixed_classes(discs: u32, size: &str) -> Value {
+    json!({
+        "definition": "equivalence_classes_fixed_discs",
+        "discs": discs,
+        "size": size,
+    })
+}
+
+fn sat_stage(encoding: SatEncoding) -> SatStage {
+    SatStage {
+        encodings: encoding.into(),
+        seeds: 1,
+        parallel_goals: 1,
+        timeout: None,
+        reverse_bfs: None,
+    }
+}
+
+fn limited_dfs() -> Strategy {
+    Strategy::Dfs {
+        discs: 4,
+        max_nodes: 0,
+    }
+}
+
+fn complete_dfs() -> Strategy {
+    Strategy::Dfs {
+        discs: 4,
+        max_nodes: 128,
+    }
+}
+
+fn external(tmp_dir: PathBuf, resume: bool) -> Strategy {
+    Strategy::BfsExternal(ExternalBfs {
+        discs: 4,
+        jobs: 2,
+        verbose: 0,
+        block_size: 4,
+        tmp_dir,
+        resume,
     })
 }
 
@@ -180,20 +184,6 @@ fn d3_record(input_index: usize) -> ReachabilityRecord {
     }
 }
 
-fn limited_dfs() -> Strategy {
-    Strategy::Dfs {
-        discs: 4,
-        max_nodes: 0,
-    }
-}
-
-fn complete_dfs() -> Strategy {
-    Strategy::Dfs {
-        discs: 4,
-        max_nodes: 128,
-    }
-}
-
 fn write_positions(path: &Path, positions: &[Position]) {
     fs::write(path, position_text(positions)).unwrap();
 }
@@ -201,8 +191,13 @@ fn write_positions(path: &Path, positions: &[Position]) {
 fn position_text(positions: &[Position]) -> String {
     positions
         .iter()
-        .map(|&position| format!("{}\n", format_position(position)))
+        .map(|position| format!("{}\n", format_position(*position)))
         .collect()
+}
+
+fn read_positions(path: &Path) -> Vec<Position> {
+    let text = path.to_str().unwrap();
+    othello_complexity_rs::io::parse_file_to_positions(text).unwrap()
 }
 
 fn read_records(path: &Path) -> Vec<ReachabilityRecord> {
@@ -228,40 +223,6 @@ fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
 }
 
-fn saved_sat_with_unknown(fixture: &Fixture, filters: &Path, encoding: SatEncoding) -> PathBuf {
-    let directory = fixture.path("saved-sat");
-    fs::create_dir(&directory).unwrap();
-    write_positions(&directory.join("sat_exact_OK.txt"), &[initial()]);
-    write_positions(&directory.join("sat_exact_NG.txt"), &[]);
-    write_positions(&directory.join("sat_exact_UNKNOWN.txt"), &[after_d3()]);
-    write_records(
-        &directory.join("sat_exact_records.csv"),
-        &[initial_record(1)],
-    );
-
-    let confidence =
-        interval::compute(1, 1, 2, NonZeroU128::new(ABSOLUTE_SIZE).unwrap(), ALPHA).unwrap();
-    write_json(
-        &directory.join("summary.json"),
-        &json!({
-            "stage": format!("sat:{encoding}"),
-            "from": filters.canonicalize().unwrap(),
-            "population": absolute_population(),
-            "mode": "exact",
-            "with_replacement": true,
-            "accepted_samples": 4,
-            "counts": {"OK": 1, "NG": 1, "UNKNOWN": 2},
-            "alpha": ALPHA,
-            "wilson_interval": [confidence.lower, confidence.upper],
-            "reachable_interval": [
-                confidence.expected_lower.to_string(),
-                confidence.expected_upper.to_string(),
-            ],
-        }),
-    );
-    directory
-}
-
 fn read_json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
@@ -270,77 +231,42 @@ fn close(actual: f64, expected: f64) {
     assert!((actual - expected).abs() < 1e-12, "{actual} != {expected}");
 }
 
-fn assert_summary_keys(summary: &Value, expected: &[&str]) {
-    let actual: BTreeSet<_> = summary
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    let expected: BTreeSet<_> = expected.iter().copied().collect();
-    assert_eq!(actual, expected);
+fn tree_files(directory: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn collect(root: &Path, directory: &Path, files: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let mut entries = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                collect(root, &path, files);
+            } else {
+                files.push((
+                    path.strip_prefix(root).unwrap().to_owned(),
+                    fs::read(path).unwrap(),
+                ));
+            }
+        }
+    }
+
+    if !directory.exists() {
+        return Vec::new();
+    }
+    let mut files = Vec::new();
+    collect(directory, directory, &mut files);
+    files
 }
 
-fn base_summary_keys() -> Vec<&'static str> {
-    vec![
-        "stage",
-        "from",
-        "population",
-        "mode",
-        "with_replacement",
-        "accepted_samples",
-        "counts",
-        "alpha",
-        "wilson_interval",
-        "reachable_interval",
-    ]
+fn assert_error_without_changes<T>(directory: &Path, operation: impl FnOnce() -> io::Result<T>) {
+    let before = tree_files(directory);
+    assert!(operation().is_err());
+    assert_eq!(tree_files(directory), before);
 }
 
-fn filter_summary_keys() -> Vec<&'static str> {
-    let mut keys = base_summary_keys();
-    keys.push("sample_dir");
-    keys
-}
-
-fn reverse_summary_keys() -> Vec<&'static str> {
-    let mut keys = base_summary_keys();
-    keys.push("nodes");
-    keys
-}
-
-fn file_names(directory: &Path) -> Vec<String> {
-    let mut names: Vec<_> = fs::read_dir(directory)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
-}
-
-fn directory_files(directory: &Path) -> Vec<(String, Vec<u8>)> {
-    file_names(directory)
-        .into_iter()
-        .map(|name| {
-            let bytes = fs::read(directory.join(&name)).unwrap();
-            (name, bytes)
-        })
-        .collect()
-}
-
-fn assert_rejected_without_changes<T>(directory: &Path, operation: impl FnOnce() -> io::Result<T>) {
-    let before = directory_files(directory);
-    let error = match operation() {
-        Ok(_) => panic!("input directory was accepted as output"),
-        Err(error) => error,
-    };
-    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    assert_eq!(directory_files(directory), before);
-}
-
-fn assert_stage_rejected(fixture: &Fixture, from: &Path, output_name: &str) {
-    let output = fixture.path(output_name);
-    assert!(estimate::reverse_search(from, &output, ALPHA, &limited_dfs()).is_err());
-    assert!(!output.exists());
+fn summary(run: &Path) -> Value {
+    read_json(&run.join("summary.json"))
 }
 
 fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
@@ -369,14 +295,7 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
             use_lp: false,
             threads: 2,
         },
-        Strategy::BfsExternal(ExternalBfs {
-            discs: 4,
-            jobs: 2,
-            verbose: 0,
-            block_size: 4,
-            tmp_dir: sequential_tmp,
-            resume: false,
-        }),
+        external(sequential_tmp, false),
         Strategy::BfsExternalParallel(ExternalBfs {
             discs: 4,
             jobs: 2,
@@ -396,191 +315,104 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
 }
 
 #[test]
-fn filters_deduplicate_inputs_chain_each_filter_and_write_only_stage_files() {
+fn filters_deduplicate_in_first_appearance_order_and_keep_row_weights() {
     let fixture = Fixture::new();
-    let positions = [
-        initial(),
-        disconnected(),
-        after_d3(),
-        initial(),
-        disconnected(),
-    ];
-    let sample = fixture.sample("sample", &positions, absolute_population());
-    let output = fixture.path("filters");
-    for (threads, directory) in [(1, fixture.path("filters-serial")), (20, output.clone())] {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap()
-            .install(|| estimate::filters(&sample, &directory, ALPHA))
-            .unwrap();
-    }
-    assert_eq!(
-        directory_files(&fixture.path("filters-serial")),
-        directory_files(&output),
-        "filter outputs must not depend on worker count",
+    let sample = fixture.sample(
+        "sample",
+        &[
+            initial(),
+            disconnected(),
+            after_d3(),
+            initial(),
+            disconnected(),
+        ],
+        absolute_population(),
     );
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
 
     assert_eq!(
-        fs::read_to_string(output.join("con_OK.txt")).unwrap(),
-        position_text(&[initial(), after_d3()]),
+        fs::read_to_string(run.join("01-filters/con_OK.txt")).unwrap(),
+        position_text(&[initial(), after_d3()])
     );
     assert_eq!(
-        fs::read_to_string(output.join("con_NG.txt")).unwrap(),
-        position_text(&[disconnected()]),
+        fs::read_to_string(run.join("01-filters/con_NG.txt")).unwrap(),
+        position_text(&[disconnected()])
     );
     for filter in ["edge", "occupancy", "seg3more", "lp"] {
         assert_eq!(
-            fs::read_to_string(output.join(format!("{filter}_OK.txt"))).unwrap(),
-            position_text(&[initial(), after_d3()]),
+            fs::read_to_string(run.join(format!("01-filters/{filter}_OK.txt"))).unwrap(),
+            position_text(&[initial(), after_d3()])
         );
-        assert!(fs::read(output.join(format!("{filter}_NG.txt")))
+        assert!(fs::read(run.join(format!("01-filters/{filter}_NG.txt")))
             .unwrap()
             .is_empty());
     }
-
+    assert_eq!((report.ok, report.ng, report.unknown), (0, 2, 3));
+    let saved = summary(&run);
+    assert_eq!(saved["stages"][0]["result"]["input"], 3);
     assert_eq!(
-        file_names(&output),
-        [
-            "con_NG.txt",
-            "con_OK.txt",
-            "edge_NG.txt",
-            "edge_OK.txt",
-            "lp_NG.txt",
-            "lp_OK.txt",
-            "occupancy_NG.txt",
-            "occupancy_OK.txt",
-            "seg3more_NG.txt",
-            "seg3more_OK.txt",
-            "summary.json",
-        ]
+        saved["stages"][0]["result"]["classified"],
+        json!({"OK": 0, "NG": 1, "UNKNOWN": 2})
     );
-    let summary = read_json(&output.join("summary.json"));
-    assert_summary_keys(&summary, &filter_summary_keys());
-    assert_eq!(summary["stage"], "filters");
-    assert!(summary["from"].is_null());
-    assert_eq!(summary["sample_dir"], json!(sample.canonicalize().unwrap()));
-    assert_eq!(summary["counts"], json!({"OK": 0, "NG": 2, "UNKNOWN": 3}));
+    assert_eq!(
+        saved["stages"][0]["result"]["counts"],
+        json!({"OK": 0, "NG": 2, "UNKNOWN": 3})
+    );
 }
 
 #[test]
-fn duplicate_sample_rows_keep_their_weight_for_three_populations() {
-    for (position, population, size, mode) in [
-        (
-            initial(),
-            json!({"definition": "absolute_positions_fixed_discs", "discs": 4, "size": "32"}),
-            32.0,
-            "exact",
-        ),
-        (
-            initial(),
-            json!({"definition": "equivalence_classes_fixed_discs", "discs": 4, "size": "6"}),
-            6.0,
-            "equivalence",
-        ),
-        (
-            after_d3(),
-            json!({"definition": "absolute_positions_fixed_discs", "discs": 5, "size": "3840"}),
-            3840.0,
-            "exact",
-        ),
+fn duplicate_rows_keep_weight_for_three_populations() {
+    for (position, population, mode, size) in [
+        (initial(), fixed_absolute(4, "32"), "exact", 32.0),
+        (initial(), fixed_classes(4, "6"), "equivalence", 6.0),
+        (after_d3(), fixed_absolute(5, "3840"), "exact", 3840.0),
     ] {
         let fixture = Fixture::new();
-        let sample = fixture.sample("sample", &[position; 3], population.clone());
-        let filters = fixture.path("filters");
-        estimate::filters(&sample, &filters, ALPHA).unwrap();
-        assert_eq!(
-            fs::read_to_string(filters.join("lp_OK.txt")).unwrap(),
-            position_text(&[position]),
-        );
-
-        let sat = fixture.path("sat");
-        estimate::sat(
-            &filters,
-            &sat,
-            ALPHA,
-            SatEncoding::Ply.into(),
-            1,
-            2,
-            None,
-            None,
-        )
-        .unwrap();
-        let summary = read_json(&sat.join("summary.json"));
-        assert_summary_keys(&summary, &base_summary_keys());
-        assert_eq!(summary["stage"], "sat:ply");
-        assert_eq!(summary["from"], json!(filters.canonicalize().unwrap()));
-        assert!(summary.get("sample_dir").is_none());
-        assert_eq!(summary["population"], population);
-        assert_eq!(summary["mode"], mode);
-        assert_eq!(summary["with_replacement"], true);
-        assert_eq!(summary["accepted_samples"], 3);
-        assert_eq!(summary["counts"], json!({"OK": 3, "NG": 0, "UNKNOWN": 0}));
-        assert_eq!(summary["alpha"], ALPHA);
-        close(summary["wilson_interval"][0].as_f64().unwrap(), 0.75);
-        close(summary["wilson_interval"][1].as_f64().unwrap(), 1.0);
+        let sample = fixture.sample("sample", &[position; 3], population);
+        let run = fixture.path("run");
+        let report = Pipeline::from_sample_dir(&sample)
+            .sat(sat_stage(SatEncoding::Ply))
+            .run(&run, ALPHA)
+            .unwrap();
+        assert_eq!((report.ok, report.ng, report.unknown), (3, 0, 0));
+        close(report.interval.lower, 0.75);
+        close(report.interval.upper, 1.0);
         close(
-            summary["reachable_interval"][0]
-                .as_str()
-                .unwrap()
-                .parse()
-                .unwrap(),
+            report.interval.expected_lower.to_string().parse().unwrap(),
             0.75 * size,
         );
-        close(
-            summary["reachable_interval"][1]
-                .as_str()
-                .unwrap()
-                .parse()
-                .unwrap(),
-            size,
-        );
-        let records = read_records(&sat.join(format!("sat_{mode}_records.csv")));
+        let records = read_records(&run.join(format!("01-sat/sat_{mode}_records.csv")));
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].input_index, 1);
         assert_eq!(records[0].goal, position);
-        assert_eq!(records[0].goal_match.as_str(), mode);
         records[0].verify().unwrap();
     }
 }
 
 #[test]
-fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_sat() {
-    let cases = [
-        (
-            json!({"definition": "absolute_positions_fixed_discs", "discs": 5, "size": "3840"}),
-            "exact",
-            "NG",
-        ),
-        (
-            json!({"definition": "equivalence_classes_fixed_discs", "discs": 5, "size": "264"}),
-            "equivalence",
-            "OK",
-        ),
-    ];
-    for (population, mode, expected) in cases {
+fn black_turn_d3_is_exact_ng_but_equivalence_ok() {
+    for (population, mode, expected) in [
+        (fixed_absolute(5, "3840"), "exact", "NG"),
+        (fixed_classes(5, "264"), "equivalence", "OK"),
+    ] {
         let fixture = Fixture::new();
-        let filters = fixture.filters("sample", "filters", &[class_d3()], population);
-        let sat = fixture.path("sat");
-        estimate::sat(
-            &filters,
-            &sat,
-            ALPHA,
-            SatEncoding::Ply.into(),
-            1,
-            1,
-            None,
-            None,
-        )
-        .unwrap();
+        let sample = fixture.sample("sample", &[class_d3()], population);
+        let run = fixture.path("run");
+        Pipeline::from_sample_dir(&sample)
+            .sat(sat_stage(SatEncoding::Ply))
+            .run(&run, ALPHA)
+            .unwrap();
         assert_eq!(
-            fs::read_to_string(sat.join(format!("sat_{mode}_{expected}.txt"))).unwrap(),
-            position_text(&[class_d3()]),
+            fs::read_to_string(run.join(format!("01-sat/sat_{mode}_{expected}.txt"))).unwrap(),
+            position_text(&[class_d3()])
         );
-        let records = read_records(&sat.join(format!("sat_{mode}_records.csv")));
+        let records = read_records(&run.join(format!("01-sat/sat_{mode}_records.csv")));
         if expected == "OK" {
             assert_eq!(records.len(), 1);
-            assert_eq!(records[0].goal, class_d3());
             assert_eq!(records[0].goal_match, GoalMatch::EquivalenceClass);
             records[0].verify().unwrap();
         } else {
@@ -590,600 +422,538 @@ fn black_turn_d3_is_exact_ng_but_equivalence_ok_in_sat() {
 }
 
 #[test]
-fn filter_ng_rows_skip_sat_and_sat_indices_use_lp_input_lines() {
+fn filter_ng_skips_sat_and_sat_indices_use_stage_input_order() {
     let fixture = Fixture::new();
     let sample = fixture.sample(
         "sample",
         &[disconnected(), disconnected(), after_d3(), after_d3()],
-        json!({"definition": "absolute_positions_fixed_discs", "discs": 5, "size": "3840"}),
+        fixed_absolute(5, "3840"),
     );
-    let filters = fixture.path("filters");
-    estimate::filters(&sample, &filters, ALPHA).unwrap();
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .filters()
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, ALPHA)
+        .unwrap();
     assert_eq!(
-        fs::read_to_string(filters.join("con_NG.txt")).unwrap(),
-        position_text(&[disconnected()]),
+        read_positions(&run.join("01-filters/con_NG.txt")),
+        [disconnected()]
     );
     assert_eq!(
-        fs::read_to_string(filters.join("lp_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
+        read_positions(&run.join("02-sat/sat_exact_OK.txt")),
+        [after_d3()]
     );
-
-    let sat = fixture.path("sat");
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    let records = read_records(&sat.join("sat_exact_records.csv"));
-    assert_eq!(records, [d3_record(1)]);
-    records[0].verify().unwrap();
     assert_eq!(
-        read_json(&sat.join("summary.json"))["counts"],
-        json!({"OK": 2, "NG": 2, "UNKNOWN": 0}),
+        read_records(&run.join("02-sat/sat_exact_records.csv")),
+        [d3_record(1)]
     );
+    assert_eq!((report.ok, report.ng, report.unknown), (2, 2, 0));
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
 }
 
 #[test]
-fn all_filter_ng_rows_produce_empty_sat_outputs() {
+fn stage_kinds_can_repeat_and_run_in_every_required_order() {
     let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[disconnected(); 2],
+
+    let sample = fixture.sample(
+        "sat-reverse-sample",
+        &[initial(), after_d3()],
         absolute_population(),
     );
-    assert!(fs::read(filters.join("lp_OK.txt")).unwrap().is_empty());
-    let sat = fixture.path("sat");
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    for suffix in ["OK.txt", "NG.txt", "UNKNOWN.txt", "records.csv"] {
-        assert!(fs::read(sat.join(format!("sat_exact_{suffix}")))
-            .unwrap()
-            .is_empty());
-    }
-    let summary = read_json(&sat.join("summary.json"));
-    assert_eq!(summary["counts"], json!({"OK": 0, "NG": 2, "UNKNOWN": 0}));
-    close(summary["wilson_interval"][0].as_f64().unwrap(), 0.0);
-    close(summary["wilson_interval"][1].as_f64().unwrap(), 1.0 / 3.0);
-}
-
-#[test]
-fn sat_stage_names_for_every_encoding_are_reread() {
-    for encoding in SatEncoding::ALL {
-        let fixture = Fixture::new();
-        let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
-        let sat = fixture.path(&format!("sat-{encoding}"));
-        estimate::sat(&filters, &sat, ALPHA, encoding.into(), 1, 1, None, None).unwrap();
-        assert_eq!(
-            read_json(&sat.join("summary.json"))["stage"],
-            format!("sat:{encoding}")
-        );
-
-        let next = fixture.path("next");
-        estimate::sat(
-            &sat,
-            &next,
-            ALPHA,
-            SatEncoding::Ply.into(),
-            1,
-            1,
-            None,
-            None,
-        )
+    let run = fixture.path("sat-reverse");
+    Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::Ply))
+        .reverse_search(complete_dfs())
+        .run(&run, ALPHA)
         .unwrap();
-        assert_eq!(
-            read_json(&next.join("summary.json"))["counts"],
-            json!({"OK": 1, "NG": 0, "UNKNOWN": 0}),
-        );
-    }
-}
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 0);
+    assert!(read_positions(&run.join("02-reverse-search/reverse_exact_OK.txt")).is_empty());
 
-#[test]
-fn sat_portfolio_stage_name_is_reread_by_a_following_stage() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
-    let sat = fixture.path("sat-portfolio");
-    let portfolio = "nopass-witness+placement-columns"
-        .parse::<SatPortfolio>()
-        .unwrap();
-    estimate::sat(&filters, &sat, ALPHA, portfolio, 1, 1, None, None).unwrap();
-    assert_eq!(
-        read_json(&sat.join("summary.json"))["stage"],
-        "sat:nopass-witness+placement-columns"
-    );
-
-    let next = fixture.path("next");
-    estimate::sat(
-        &sat,
-        &next,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(
-        read_json(&next.join("summary.json"))["counts"],
-        json!({"OK": 1, "NG": 0, "UNKNOWN": 0}),
-    );
-}
-
-#[test]
-fn witness_only_estimate_stage_rejects_bfs_without_creating_output() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
-    let output = fixture.path("witness-only-bfs");
-    let error = estimate::sat(
-        &filters,
-        &output,
-        ALPHA,
-        SatEncoding::NoPassWitness.into(),
-        1,
-        1,
-        None,
-        Some(ReverseBfs {
-            discs: 4,
-            state_budget: 1,
-        }),
-    )
-    .unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    assert_eq!(
-        error.to_string(),
-        "reverse BFS requires a complete encoding in the portfolio; \
-         nopass-witness alone cannot record its results"
-    );
-    assert!(!output.exists());
-}
-
-#[test]
-fn nopass_stage_preserves_sample_weights_and_leaves_negative_queries_for_general_sat() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[
-            disconnected(),
-            initial(),
-            initial(),
-            after_d3(),
-            class_d3(),
-            class_d3(),
-        ],
+    let sample = fixture.sample(
+        "reverse-sat-sample",
+        &[initial(), after_d3()],
         absolute_population(),
     );
-    let witness = fixture.path("nopass");
-    estimate::sat(
-        &filters,
-        &witness,
-        ALPHA,
-        SatEncoding::NoPassWitness.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    let summary = read_json(&witness.join("summary.json"));
-    assert_eq!(summary["stage"], "sat:nopass-witness");
-    assert_eq!(summary["counts"], json!({"OK": 3, "NG": 1, "UNKNOWN": 2}));
-    assert!(fs::read(witness.join("sat_exact_NG.txt"))
-        .unwrap()
-        .is_empty());
+    let run = fixture.path("reverse-sat");
+    Pipeline::from_sample_dir(&sample)
+        .reverse_search(limited_dfs())
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
     assert_eq!(
-        fs::read_to_string(witness.join("sat_exact_OK.txt")).unwrap(),
-        position_text(&[initial(), after_d3()]),
+        read_positions(&run.join("02-sat/sat_exact_OK.txt")),
+        [after_d3()]
     );
-    assert_eq!(
-        fs::read_to_string(witness.join("sat_exact_UNKNOWN.txt")).unwrap(),
-        position_text(&[class_d3()]),
-    );
-    let records = read_records(&witness.join("sat_exact_records.csv"));
-    assert_eq!(records, [initial_record(1), d3_record(2)]);
-    for record in records {
-        record.verify().unwrap();
-    }
-    let before = directory_files(&witness);
 
-    let general = fixture.path("general-after-nopass");
-    estimate::sat(
-        &witness,
-        &general,
-        ALPHA,
-        SatEncoding::PlacementColumns.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
+    let run = fixture.path("reverse-reverse");
+    Pipeline::from_sample_dir(&sample)
+        .reverse_search(limited_dfs())
+        .reverse_search(complete_dfs())
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
     assert_eq!(
-        read_json(&general.join("summary.json"))["counts"],
-        json!({"OK": 3, "NG": 3, "UNKNOWN": 0}),
+        read_positions(&run.join("02-reverse-search/reverse_exact_OK.txt")),
+        [after_d3()]
+    );
+
+    let sample = fixture.sample(
+        "sat-filters-sample",
+        &[initial(), disconnected(), class_d3()],
+        absolute_population(),
+    );
+    let run = fixture.path("sat-filters");
+    Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::NoPassWitness))
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 2);
+    assert_eq!(
+        read_positions(&run.join("02-filters/con_NG.txt")),
+        [disconnected()]
     );
     assert_eq!(
-        fs::read_to_string(general.join("sat_exact_NG.txt")).unwrap(),
-        position_text(&[class_d3()]),
+        read_positions(&run.join("02-filters/con_OK.txt")),
+        [class_d3()]
     );
-    for suffix in ["OK.txt", "UNKNOWN.txt", "records.csv"] {
-        assert!(fs::read(general.join(format!("sat_exact_{suffix}")))
-            .unwrap()
-            .is_empty());
-    }
-    assert_eq!(directory_files(&witness), before);
+
+    let sample = fixture.sample(
+        "filters-filters-sample",
+        &[disconnected(), after_d3()],
+        absolute_population(),
+    );
+    let run = fixture.path("filters-filters");
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
+    assert_eq!(
+        read_positions(&run.join("02-filters/con_OK.txt")),
+        [after_d3()]
+    );
+
+    let run = fixture.path("no-filters");
+    Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["stages"][0]["stage"]["kind"], "sat");
 }
 
 #[test]
-fn a_nopass_stage_cannot_claim_even_a_truly_unreachable_query_as_ng() {
+fn nopass_witness_only_settles_ok_and_leaves_ng_for_general_sat() {
     let fixture = Fixture::new();
-    let filters = fixture.filters("sample", "filters", &[class_d3()], absolute_population());
-    let witness = fixture.path("nopass");
-    estimate::sat(
-        &filters,
-        &witness,
-        ALPHA,
-        SatEncoding::NoPassWitness.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read_to_string(witness.join("sat_exact_UNKNOWN.txt")).unwrap(),
-        position_text(&[class_d3()]),
+    let sample = fixture.sample(
+        "sample",
+        &[initial(), initial(), after_d3(), class_d3(), class_d3()],
+        absolute_population(),
     );
-
-    // Keep the partition, counts, and intervals internally consistent. The
-    // rejection must follow from this stage's inability to prove negatives.
-    write_positions(&witness.join("sat_exact_UNKNOWN.txt"), &[]);
-    write_positions(&witness.join("sat_exact_NG.txt"), &[class_d3()]);
-    let confidence =
-        interval::compute(0, 1, 0, NonZeroU128::new(ABSOLUTE_SIZE).unwrap(), ALPHA).unwrap();
-    let summary_path = witness.join("summary.json");
-    let mut summary = read_json(&summary_path);
-    summary["counts"] = json!({"OK": 0, "NG": 1, "UNKNOWN": 0});
-    summary["wilson_interval"] = json!([confidence.lower, confidence.upper]);
-    summary["reachable_interval"] = json!([
-        confidence.expected_lower.to_string(),
-        confidence.expected_upper.to_string(),
-    ]);
-    write_json(&summary_path, &summary);
-
-    let next = fixture.path("general-after-forged-nopass");
-    assert!(estimate::sat(
-        &witness,
-        &next,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .is_err());
-    assert!(!next.exists());
-    assert_stage_rejected(&fixture, &witness, "reverse-after-forged-nopass");
-
-    // A general SAT stage may legitimately report this negative result.
-    summary["stage"] = json!("sat:placement-columns");
-    write_json(&summary_path, &summary);
-    let next = fixture.path("general-after-valid-negative");
-    estimate::sat(
-        &witness,
-        &next,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::NoPassWitness))
+        .sat(sat_stage(SatEncoding::PlacementColumns))
+        .run(&run, ALPHA)
+        .unwrap();
+    assert!(read_positions(&run.join("01-sat/sat_exact_NG.txt")).is_empty());
     assert_eq!(
-        read_json(&next.join("summary.json"))["counts"],
-        json!({"OK": 0, "NG": 1, "UNKNOWN": 0}),
+        read_positions(&run.join("01-sat/sat_exact_OK.txt")),
+        [initial(), after_d3()]
     );
+    assert_eq!(
+        read_positions(&run.join("01-sat/sat_exact_UNKNOWN.txt")),
+        [class_d3()]
+    );
+    assert_eq!(
+        read_records(&run.join("01-sat/sat_exact_records.csv")),
+        [initial_record(1), d3_record(2)]
+    );
+    assert_eq!(
+        read_positions(&run.join("02-sat/sat_exact_NG.txt")),
+        [class_d3()]
+    );
+    assert_eq!((report.ok, report.ng, report.unknown), (3, 2, 0));
 }
 
 #[test]
-fn invalid_sampling_metadata_is_rejected_by_filters() {
-    let variants = [
-        ("nonuniform", "uniform", json!(false)),
-        ("schema", "schema_version", json!(2)),
-        ("method", "method", json!("random-play")),
-        (
-            "fixed method on whole population",
-            "method",
-            json!("fixed-discs"),
-        ),
-        (
-            "generated without replacement",
-            "with_replacement",
-            json!(false),
-        ),
-        (
-            "replacement is not Boolean",
-            "with_replacement",
-            json!("true"),
-        ),
-        ("negative seed", "seed", json!(-1)),
-        ("seed is not an integer", "seed", json!(1.5)),
-        ("wrong accepted count", "accepted_count", json!(2)),
-        (
-            "wrong population size",
-            "population",
-            json!({"definition": "absolute_positions_center_occupied", "size": "32"}),
-        ),
-        (
-            "unknown population",
-            "population",
-            json!({"definition": "other", "size": "32"}),
-        ),
+fn settings_validation_is_complete_and_writes_nothing() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample("sample", &[initial()], absolute_population());
+    let invalid_alpha = fixture.path("invalid-alpha");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&invalid_alpha, 0.0)
+        .is_err());
+    assert!(!invalid_alpha.exists());
+
+    let mut cases = vec![
+        Pipeline::from_sample_dir(&sample),
+        Pipeline::sample(SampleSpec {
+            population: Population::Absolute,
+            discs: None,
+            count: 0,
+            seed: 1,
+        })
+        .filters(),
+        Pipeline::sample(SampleSpec {
+            population: Population::Absolute,
+            discs: Some(3),
+            count: 1,
+            seed: 1,
+        })
+        .filters(),
     ];
-    for (name, field, value) in variants {
+    for stage in [
+        SatStage {
+            seeds: 0,
+            ..sat_stage(SatEncoding::Ply)
+        },
+        SatStage {
+            parallel_goals: 0,
+            ..sat_stage(SatEncoding::Ply)
+        },
+        SatStage {
+            timeout: Some(Duration::ZERO),
+            ..sat_stage(SatEncoding::Ply)
+        },
+        SatStage {
+            reverse_bfs: Some(ReverseBfs {
+                discs: 4,
+                state_budget: 0,
+            }),
+            ..sat_stage(SatEncoding::Ply)
+        },
+        SatStage {
+            reverse_bfs: Some(ReverseBfs {
+                discs: 3,
+                state_budget: 1,
+            }),
+            ..sat_stage(SatEncoding::Ply)
+        },
+        SatStage {
+            reverse_bfs: Some(ReverseBfs {
+                discs: 4,
+                state_budget: 1,
+            }),
+            ..sat_stage(SatEncoding::NoPassWitness)
+        },
+    ] {
+        cases.push(Pipeline::from_sample_dir(&sample).filters().sat(stage));
+    }
+    cases.push(
+        Pipeline::from_sample_dir(&sample)
+            .filters()
+            .reverse_search(Strategy::Dfs {
+                discs: 3,
+                max_nodes: 1,
+            }),
+    );
+    let tmp = fixture.path("unused-tmp");
+    cases.push(
+        Pipeline::from_sample_dir(&sample)
+            .filters()
+            .reverse_search(Strategy::BfsExternal(ExternalBfs {
+                discs: 4,
+                jobs: 1,
+                verbose: 0,
+                block_size: 0,
+                tmp_dir: tmp,
+                resume: false,
+            })),
+    );
+
+    for (index, case) in cases.into_iter().enumerate() {
+        let output = fixture.path(&format!("invalid-{index}"));
+        assert!(
+            case.run(&output, ALPHA).is_err(),
+            "invalid case {index} was accepted"
+        );
+        assert!(!output.exists(), "invalid case {index} created output");
+    }
+}
+
+#[test]
+fn invalid_sample_metadata_is_rejected_before_output() {
+    for (field, value) in [
+        ("uniform", json!(false)),
+        ("schema_version", json!(2)),
+        ("method", json!("random-play")),
+        ("with_replacement", json!(false)),
+        ("seed", json!(-1)),
+        ("accepted_count", json!(2)),
+    ] {
         let fixture = Fixture::new();
         let sample = fixture.sample("sample", &[initial()], absolute_population());
         let path = sample.join("sampling.json");
         let mut metadata = read_json(&path);
         metadata[field] = value;
         write_json(&path, &metadata);
-        assert!(
-            estimate::filters(&sample, &fixture.path("filters"), ALPHA).is_err(),
-            "accepted {name}",
-        );
+        let output = fixture.path("run");
+        assert!(Pipeline::from_sample_dir(&sample)
+            .filters()
+            .run(&output, ALPHA)
+            .is_err());
+        assert!(!output.exists());
     }
-}
 
-#[test]
-fn sample_rows_and_methods_must_match_the_declared_population() {
-    let wrong_turn = Position {
-        side_to_move: Color::White,
-        ..initial()
-    };
-    let nonrepresentative = Position {
-        board: Board::new(initial().board.opponent, initial().board.player),
-        ..initial()
-    };
-    for (name, position, definition, method, size) in [
-        (
-            "wrong disc count",
-            after_d3(),
-            "absolute_positions_fixed_discs",
-            "fixed-discs",
-            "32",
-        ),
-        (
-            "white turn class",
-            wrong_turn,
-            "equivalence_classes_fixed_discs",
-            "fixed-discs",
-            "6",
-        ),
-        (
-            "nonminimal class representative",
-            nonrepresentative,
-            "equivalence_classes_fixed_discs",
-            "fixed-discs",
-            "6",
-        ),
-        (
-            "uniform method on fixed population",
-            initial(),
-            "absolute_positions_fixed_discs",
-            "uniform",
-            "32",
-        ),
-        (
-            "converted fixed population",
-            initial(),
-            "absolute_positions_fixed_discs",
-            "raw",
-            "32",
-        ),
-        (
-            "converted class population",
-            initial(),
-            "equivalence_classes_fixed_discs",
-            "representatives",
-            "6",
-        ),
-    ] {
-        let fixture = Fixture::new();
-        let sample = fixture.sample(
-            "sample",
-            &[position],
-            json!({"definition": definition, "discs": 4, "size": size}),
-        );
-        let path = sample.join("sampling.json");
-        let mut metadata = read_json(&path);
-        metadata["method"] = json!(method);
-        let provenance = fixture.path("provenance.txt");
-        fs::write(&provenance, "Uniform source sample.\n").unwrap();
-        metadata["provenance"] = json!({"path": provenance});
-        write_json(&path, &metadata);
-        assert!(
-            estimate::filters(&sample, &fixture.path("filters"), ALPHA).is_err(),
-            "accepted {name}",
-        );
-    }
-}
-
-#[test]
-fn converted_methods_cannot_describe_the_whole_class_population() {
-    for method in ["raw", "representatives"] {
-        let fixture = Fixture::new();
-        let sample = fixture.sample("sample", &[initial()], class_population());
-        let provenance = fixture.path("provenance.txt");
-        fs::write(&provenance, "Uniform source sample.\n").unwrap();
-        let path = sample.join("sampling.json");
-        let mut metadata = read_json(&path);
-        metadata["method"] = json!(method);
-        metadata["provenance"] = json!({"path": provenance});
-        write_json(&path, &metadata);
-        assert!(estimate::filters(&sample, &fixture.path("filters"), ALPHA).is_err());
-    }
-}
-
-#[test]
-fn converted_absolute_samples_use_only_accepted_rows_without_hash_checks() {
-    for method in ["raw", "representatives"] {
-        let fixture = Fixture::new();
-        let sample = fixture.sample("sample", &[initial(), after_d3()], absolute_population());
-        let provenance = fixture.path("provenance.txt");
-        fs::write(&provenance, "Uniform source sample without replacement.\n").unwrap();
-        let path = sample.join("sampling.json");
-        let mut metadata = read_json(&path);
-        metadata["method"] = json!(method);
-        metadata["with_replacement"] = json!(false);
-        metadata["input_count"] = json!(if method == "representatives" { 7 } else { 2 });
-        metadata["provenance"] = json!({"path": provenance, "sha256": "not checked"});
-        write_json(&path, &metadata);
-        let filters = fixture.path("filters");
-        estimate::filters(&sample, &filters, ALPHA).unwrap();
-        let summary = read_json(&filters.join("summary.json"));
-        assert_eq!(summary["accepted_samples"], 2);
-        assert_eq!(summary["counts"], json!({"OK": 0, "NG": 0, "UNKNOWN": 2}));
-        assert_eq!(summary["with_replacement"], false);
-    }
-}
-
-#[test]
-fn limited_reverse_can_be_followed_by_sat_or_a_larger_reverse() {
     let fixture = Fixture::new();
-    let filters = fixture.filters(
+    let sample = fixture.sample("empty-sample", &[], absolute_population());
+    let output = fixture.path("empty-run");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&output, ALPHA)
+        .is_err());
+    assert!(!output.exists());
+}
+
+#[test]
+fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample(
         "sample",
-        "filters",
-        &[disconnected(), initial(), after_d3()],
+        &[disconnected(), disconnected(), initial(), after_d3()],
         absolute_population(),
     );
-    let limited = fixture.path("reverse-limited");
-    estimate::reverse_search(&filters, &limited, ALPHA, &limited_dfs()).unwrap();
-    assert_eq!(
-        fs::read_to_string(limited.join("reverse_exact_OK.txt")).unwrap(),
-        position_text(&[initial()]),
-    );
-    assert_eq!(
-        fs::read_to_string(limited.join("reverse_exact_UNKNOWN.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        read_json(&limited.join("summary.json"))["counts"],
-        json!({"OK": 1, "NG": 1, "UNKNOWN": 1}),
-    );
-    let saved_limited_summary = fs::read(limited.join("summary.json")).unwrap();
+    let run = fixture.path("run");
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .reverse_search(limited_dfs())
+        .run(&run, ALPHA)
+        .unwrap();
+    let summaries = tree_files(&run)
+        .into_iter()
+        .filter(|(path, _)| path.file_name().unwrap() == "summary.json")
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 1);
+    assert!(!run.join("summary.json.tmp").exists());
 
-    let sat = fixture.path("sat-after-reverse");
-    estimate::sat(
-        &limited,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read_to_string(sat.join("sat_exact_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        read_json(&sat.join("summary.json"))["counts"],
-        json!({"OK": 2, "NG": 1, "UNKNOWN": 0}),
-    );
-
-    let larger = fixture.path("reverse-after-reverse");
-    estimate::reverse_search(&limited, &larger, ALPHA, &complete_dfs()).unwrap();
-    assert_eq!(
-        fs::read_to_string(larger.join("reverse_exact_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        read_json(&larger.join("summary.json"))["counts"],
-        json!({"OK": 2, "NG": 1, "UNKNOWN": 0}),
-    );
-    assert_eq!(
-        fs::read(limited.join("summary.json")).unwrap(),
-        saved_limited_summary
-    );
+    let saved = summary(&run);
+    assert_eq!(saved["sample"]["rows"], 4);
+    assert_eq!(saved["stages"].as_array().unwrap().len(), 2);
+    assert!(saved["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|stage| stage["result"].is_object()));
+    for stage in saved["stages"].as_array().unwrap() {
+        let result = &stage["result"];
+        let counts = &result["counts"];
+        let expected = interval::compute(
+            counts["OK"].as_u64().unwrap(),
+            counts["NG"].as_u64().unwrap(),
+            counts["UNKNOWN"].as_u64().unwrap(),
+            NonZeroU128::new(ABSOLUTE_SIZE).unwrap(),
+            ALPHA,
+        )
+        .unwrap();
+        close(
+            result["wilson_interval"][0].as_f64().unwrap(),
+            expected.lower,
+        );
+        close(
+            result["wilson_interval"][1].as_f64().unwrap(),
+            expected.upper,
+        );
+        assert_eq!(
+            result["reachable_interval"],
+            json!([
+                expected.expected_lower.to_string(),
+                expected.expected_upper.to_string()
+            ])
+        );
+    }
 }
 
 #[test]
-fn saved_sat_unknowns_flow_to_reverse_and_a_different_sat_encoding() {
+fn runtime_failure_leaves_declared_stages_incomplete_and_resume_runs_only_tail() {
     let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[disconnected(), initial(), after_d3(), after_d3()],
+    let sample = fixture.sample("sample", &[initial(), after_d3()], absolute_population());
+
+    let first_tmp = fixture.path("first-tmp");
+    fs::create_dir(&first_tmp).unwrap();
+    fs::write(first_tmp.join("junk"), b"x").unwrap();
+    let first_run = fixture.path("first-run");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .reverse_search(external(first_tmp, false))
+        .filters()
+        .run(&first_run, ALPHA)
+        .is_err());
+    let first_summary = summary(&first_run);
+    assert!(first_summary["stages"][0]["result"].is_null());
+    assert!(first_summary["stages"][1]["result"].is_null());
+
+    let later_tmp = fixture.path("later-tmp");
+    fs::create_dir(&later_tmp).unwrap();
+    fs::write(later_tmp.join("junk"), b"x").unwrap();
+    let later_run = fixture.path("later-run");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .reverse_search(external(later_tmp.clone(), false))
+        .run(&later_run, ALPHA)
+        .is_err());
+    let failed = summary(&later_run);
+    assert!(failed["stages"][0]["result"].is_object());
+    assert!(failed["stages"][1]["result"].is_null());
+    let first_elapsed = failed["stages"][0]["result"]["elapsed_secs"].clone();
+    let first_files = tree_files(&later_run.join("01-filters"));
+
+    fs::remove_file(later_tmp.join("junk")).unwrap();
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .reverse_search(external(later_tmp, false))
+        .run(&later_run, ALPHA)
+        .unwrap();
+    let resumed = summary(&later_run);
+    assert_eq!(
+        resumed["stages"][0]["result"]["elapsed_secs"],
+        first_elapsed
+    );
+    assert_eq!(tree_files(&later_run.join("01-filters")), first_files);
+    assert!(resumed["stages"][1]["result"].is_object());
+}
+
+#[test]
+fn resume_accepts_a_matching_prefix_and_alpha_only_changes_intervals() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample("sample", &[initial(), after_d3()], absolute_population());
+    let run = fixture.path("run");
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    let first_elapsed = summary(&run)["stages"][0]["result"]["elapsed_secs"].clone();
+    let filter_files = tree_files(&run.join("01-filters"));
+
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, ALPHA)
+        .unwrap();
+    let extended = summary(&run);
+    assert_eq!(
+        extended["stages"][0]["result"]["elapsed_secs"],
+        first_elapsed
+    );
+    assert!(extended["stages"][1]["result"].is_object());
+    assert_eq!(tree_files(&run.join("01-filters")), filter_files);
+    let old_bound = extended["stages"][1]["result"]["wilson_interval"][0]
+        .as_f64()
+        .unwrap();
+    let all_stage_files = [
+        tree_files(&run.join("01-filters")),
+        tree_files(&run.join("02-sat")),
+    ];
+
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, 0.05)
+        .unwrap();
+    let changed = summary(&run);
+    assert_eq!(changed["alpha"], 0.05);
+    assert_ne!(
+        changed["stages"][1]["result"]["wilson_interval"][0]
+            .as_f64()
+            .unwrap(),
+        old_bound
+    );
+    assert_eq!(tree_files(&run.join("01-filters")), all_stage_files[0]);
+    assert_eq!(tree_files(&run.join("02-sat")), all_stage_files[1]);
+}
+
+#[test]
+fn changed_generated_spec_or_completed_settings_fails_without_modification() {
+    let fixture = Fixture::new();
+    let run = fixture.path("generated");
+    let spec = SampleSpec {
+        population: Population::Absolute,
+        discs: Some(4),
+        count: 2,
+        seed: 7,
+    };
+    Pipeline::sample(spec.clone())
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_error_without_changes(&run, || {
+        Pipeline::sample(SampleSpec {
+            seed: 8,
+            ..spec.clone()
+        })
+        .filters()
+        .run(&run, ALPHA)
+    });
+
+    let sample = fixture.sample("sample", &[after_d3()], absolute_population());
+    let reverse_run = fixture.path("reverse");
+    Pipeline::from_sample_dir(&sample)
+        .reverse_search(limited_dfs())
+        .run(&reverse_run, ALPHA)
+        .unwrap();
+    assert_error_without_changes(&reverse_run, || {
+        Pipeline::from_sample_dir(&sample)
+            .reverse_search(complete_dfs())
+            .run(&reverse_run, ALPHA)
+    });
+}
+
+#[test]
+fn resume_rejects_partition_record_and_nopass_corruption_without_changes() {
+    let fixture = Fixture::new();
+
+    let filter_sample = fixture.sample(
+        "filter-sample",
+        &[initial(), after_d3()],
         absolute_population(),
     );
-    let saved = saved_sat_with_unknown(&fixture, &filters, SatEncoding::Ply);
-    assert_eq!(
-        fs::read_to_string(saved.join("sat_exact_UNKNOWN.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        read_json(&saved.join("summary.json"))["counts"],
-        json!({"OK": 1, "NG": 1, "UNKNOWN": 2}),
-    );
+    let filter_run = fixture.path("filter-run");
+    Pipeline::from_sample_dir(&filter_sample)
+        .filters()
+        .run(&filter_run, ALPHA)
+        .unwrap();
+    write_positions(&filter_run.join("01-filters/con_OK.txt"), &[initial()]);
+    assert_error_without_changes(&filter_run, || {
+        Pipeline::from_sample_dir(&filter_sample)
+            .filters()
+            .run(&filter_run, ALPHA)
+    });
 
-    let reverse = fixture.path("reverse-after-saved-sat");
-    estimate::reverse_search(&saved, &reverse, ALPHA, &complete_dfs()).unwrap();
-    assert_eq!(
-        fs::read_to_string(reverse.join("reverse_exact_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
+    let sat_sample = fixture.sample(
+        "sat-sample",
+        &[initial(), after_d3()],
+        absolute_population(),
     );
-    assert_eq!(
-        read_records(&reverse.join("reverse_exact_records.csv")),
-        [d3_record(1)],
-    );
-    assert_eq!(
-        read_json(&reverse.join("summary.json"))["counts"],
-        json!({"OK": 3, "NG": 1, "UNKNOWN": 0}),
-    );
+    let sat_run = fixture.path("sat-run");
+    Pipeline::from_sample_dir(&sat_sample)
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&sat_run, ALPHA)
+        .unwrap();
+    let path = sat_run.join("01-sat/sat_exact_records.csv");
+    let mut records = read_records(&path);
+    records[1].input_index = 1;
+    write_records(&path, &records);
+    assert_error_without_changes(&sat_run, || {
+        Pipeline::from_sample_dir(&sat_sample)
+            .sat(sat_stage(SatEncoding::Ply))
+            .run(&sat_run, ALPHA)
+    });
 
-    let sat = fixture.path("sat-after-saved-sat");
-    estimate::sat(
-        &saved,
-        &sat,
-        ALPHA,
-        SatEncoding::PlacementColumns.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read_to_string(sat.join("sat_exact_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        read_records(&sat.join("sat_exact_records.csv")),
-        [d3_record(1)],
-    );
-    let summary = read_json(&sat.join("summary.json"));
-    assert_eq!(summary["stage"], "sat:placement-columns");
-    assert_eq!(summary["counts"], json!({"OK": 3, "NG": 1, "UNKNOWN": 0}),);
+    let witness_sample = fixture.sample("witness-sample", &[class_d3()], absolute_population());
+    let witness_run = fixture.path("witness-run");
+    Pipeline::from_sample_dir(&witness_sample)
+        .sat(sat_stage(SatEncoding::NoPassWitness))
+        .run(&witness_run, ALPHA)
+        .unwrap();
+    write_positions(&witness_run.join("01-sat/sat_exact_UNKNOWN.txt"), &[]);
+    write_positions(&witness_run.join("01-sat/sat_exact_NG.txt"), &[class_d3()]);
+    assert_error_without_changes(&witness_run, || {
+        Pipeline::from_sample_dir(&witness_sample)
+            .sat(sat_stage(SatEncoding::NoPassWitness))
+            .run(&witness_run, ALPHA)
+    });
 }
 
 #[test]
@@ -1203,44 +973,37 @@ fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
         ),
     ] {
         let fixture = Fixture::new();
-        let filters = fixture.filters("sample", "filters", &positions, population);
+        let sample = fixture.sample("sample", &positions, population);
         for strategy in small_strategies(&fixture, stem) {
-            let output = fixture.path(&format!("reverse-{}", strategy.name()));
-            estimate::reverse_search(&filters, &output, ALPHA, &strategy).unwrap();
+            let run = fixture.path(&format!("run-{}", strategy.name()));
+            Pipeline::from_sample_dir(&sample)
+                .reverse_search(strategy.clone())
+                .run(&run, ALPHA)
+                .unwrap();
             let prefix = format!("reverse_{}", mode.as_str());
             assert_eq!(
-                fs::read_to_string(output.join(format!("{prefix}_OK.txt"))).unwrap(),
-                position_text(&positions),
-                "{} did not prove both {stem} positions",
-                strategy.name(),
+                read_positions(&run.join(format!("01-reverse-search/{prefix}_OK.txt"))),
+                positions,
+                "{} failed in {stem} mode",
+                strategy.name()
             );
-            assert!(fs::read(output.join(format!("{prefix}_NG.txt")))
-                .unwrap()
-                .is_empty());
-            assert!(fs::read(output.join(format!("{prefix}_UNKNOWN.txt")))
-                .unwrap()
-                .is_empty());
-            let records = read_records(&output.join(format!("{prefix}_records.csv")));
+            assert!(
+                read_positions(&run.join(format!("01-reverse-search/{prefix}_NG.txt"))).is_empty()
+            );
+            let records =
+                read_records(&run.join(format!("01-reverse-search/{prefix}_records.csv")));
             assert_eq!(records.len(), 2);
             assert_eq!(
                 records
                     .iter()
                     .map(|record| record.goal)
                     .collect::<HashSet<_>>(),
-                positions.into_iter().collect(),
+                positions.into_iter().collect()
             );
             assert!(records.iter().all(|record| record.goal_match == mode));
             for record in records {
                 record.verify().unwrap();
             }
-            let summary = read_json(&output.join("summary.json"));
-            assert_summary_keys(&summary, &reverse_summary_keys());
-            assert_eq!(
-                summary["stage"],
-                format!("reverse-search:{}", strategy.name())
-            );
-            assert!(summary.get("sample_dir").is_none());
-            assert_eq!(summary["counts"], json!({"OK": 2, "NG": 0, "UNKNOWN": 0}));
         }
     }
 }
@@ -1248,598 +1011,132 @@ fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
 #[test]
 fn external_bfs_resumes_only_the_same_input_and_settings() {
     let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample-a",
-        "filters-a",
-        &[initial(), after_d3()],
-        absolute_population(),
-    );
-    let tmp_dir = fixture.path("external-tmp");
-    fs::create_dir(&tmp_dir).unwrap();
-    let config = ExternalBfs {
-        discs: 4,
-        jobs: 2,
-        verbose: 0,
-        block_size: 4,
-        tmp_dir: tmp_dir.clone(),
-        resume: false,
-    };
-    let first = fixture.path("external-first");
-    estimate::reverse_search(
-        &filters,
-        &first,
-        ALPHA,
-        &Strategy::BfsExternal(config.clone()),
-    )
-    .unwrap();
-
-    let resumed = fixture.path("external-resumed");
-    let mut resume_config = config.clone();
-    resume_config.resume = true;
-    estimate::reverse_search(
-        &filters,
-        &resumed,
-        ALPHA,
-        &Strategy::BfsExternal(resume_config.clone()),
-    )
-    .unwrap();
-    for suffix in ["OK.txt", "NG.txt", "UNKNOWN.txt", "records.csv"] {
-        assert_eq!(
-            fs::read(first.join(format!("reverse_exact_{suffix}"))).unwrap(),
-            fs::read(resumed.join(format!("reverse_exact_{suffix}"))).unwrap(),
-        );
-    }
-    assert_eq!(
-        read_json(&first.join("summary.json"))["counts"],
-        read_json(&resumed.join("summary.json"))["counts"],
-    );
-
-    let mut changed_settings = resume_config.clone();
-    changed_settings.block_size = 5;
-    assert!(estimate::reverse_search(
-        &filters,
-        &fixture.path("external-changed-settings"),
-        ALPHA,
-        &Strategy::BfsExternal(changed_settings),
-    )
-    .is_err());
-
-    let other_filters = fixture.filters(
-        "sample-b",
-        "filters-b",
-        &[class_d3()],
-        absolute_population(),
-    );
-    assert!(estimate::reverse_search(
-        &other_filters,
-        &fixture.path("external-changed-input"),
-        ALPHA,
-        &Strategy::BfsExternal(resume_config),
-    )
-    .is_err());
-}
-
-#[test]
-fn filter_partitions_reject_missing_reordered_duplicate_overlapping_and_extra_rows() {
-    for variant in ["missing", "reordered", "duplicate", "overlap", "extra"] {
-        let fixture = Fixture::new();
-        let filters = fixture.filters(
-            "sample",
-            "filters",
-            &[initial(), after_d3(), disconnected()],
-            absolute_population(),
-        );
-        match variant {
-            "missing" => write_positions(&filters.join("con_OK.txt"), &[initial()]),
-            "reordered" => {
-                write_positions(&filters.join("con_OK.txt"), &[after_d3(), initial()]);
-            }
-            "duplicate" => write_positions(
-                &filters.join("con_OK.txt"),
-                &[initial(), initial(), after_d3()],
-            ),
-            "overlap" => write_positions(&filters.join("con_NG.txt"), &[disconnected(), initial()]),
-            "extra" => write_positions(&filters.join("con_NG.txt"), &[disconnected(), class_d3()]),
-            _ => unreachable!(),
-        }
-        assert_stage_rejected(&fixture, &filters, &format!("next-{variant}"));
-    }
-}
-
-#[test]
-fn solver_partitions_are_unordered_sets_but_reject_invalid_membership() {
-    for variant in ["missing", "duplicate", "overlap", "extra"] {
-        let fixture = Fixture::new();
-        let (_, reverse) = fixture.unknown_reverse();
-        match variant {
-            "missing" => write_positions(&reverse.join("reverse_exact_UNKNOWN.txt"), &[]),
-            "duplicate" => write_positions(
-                &reverse.join("reverse_exact_OK.txt"),
-                &[initial(), initial()],
-            ),
-            "overlap" => write_positions(&reverse.join("reverse_exact_NG.txt"), &[initial()]),
-            "extra" => write_positions(&reverse.join("reverse_exact_NG.txt"), &[class_d3()]),
-            _ => unreachable!(),
-        }
-        assert_stage_rejected(&fixture, &reverse, &format!("next-{variant}"));
-    }
-
-    let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[initial(), after_d3()],
-        absolute_population(),
-    );
-    let reverse = fixture.path("reverse");
-    estimate::reverse_search(&filters, &reverse, ALPHA, &complete_dfs()).unwrap();
-    write_positions(
-        &reverse.join("reverse_exact_OK.txt"),
-        &[after_d3(), initial()],
-    );
-    let mut records = read_records(&reverse.join("reverse_exact_records.csv"));
-    records.reverse();
-    write_records(&reverse.join("reverse_exact_records.csv"), &records);
-    let summary_path = reverse.join("summary.json");
-    let mut summary = read_json(&summary_path);
-    summary["nodes"] = json!("not used while rereading");
-    write_json(&summary_path, &summary);
-    let next = fixture.path("next");
-    estimate::reverse_search(&reverse, &next, ALPHA, &limited_dfs()).unwrap();
-    assert_eq!(
-        read_json(&next.join("summary.json"))["counts"],
-        json!({"OK": 2, "NG": 0, "UNKNOWN": 0}),
-    );
-}
-
-#[test]
-fn solver_records_reject_invalid_coverage_or_contents() {
-    for variant in [
-        "missing",
-        "duplicate",
-        "misindexed",
-        "noninitial",
-        "wrong-mode",
-        "bad-replay",
-    ] {
-        let fixture = Fixture::new();
-        let (_, sat) = fixture.sat_ok();
-        let path = sat.join("sat_exact_records.csv");
-        let mut record = read_records(&path).remove(0);
-        match variant {
-            "missing" => write_records(&path, &[]),
-            "duplicate" => write_records(&path, &[record.clone(), record]),
-            "misindexed" => {
-                record.input_index = 2;
-                write_records(&path, &[record]);
-            }
-            "noninitial" => {
-                record.start = after_d3();
-                write_records(&path, &[record]);
-            }
-            "wrong-mode" => {
-                record.goal_match = GoalMatch::EquivalenceClass;
-                write_records(&path, &[record]);
-            }
-            "bad-replay" => {
-                record.actions = vec![PlyAction::Play(0)];
-                write_records(&path, &[record]);
-            }
-            _ => unreachable!(),
-        }
-        assert_stage_rejected(&fixture, &sat, &format!("next-{variant}"));
-    }
-}
-
-#[test]
-fn solver_record_goals_must_match_their_indexed_input_lines() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[initial(), after_d3()],
-        absolute_population(),
-    );
-    let sat = fixture.path("sat");
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    let path = sat.join("sat_exact_records.csv");
-    let mut records = read_records(&path);
-    let d3 = records
-        .iter_mut()
-        .find(|record| record.goal == after_d3())
-        .unwrap();
-    d3.input_index = 1;
-    write_records(&path, &records);
-    assert_stage_rejected(&fixture, &sat, "next-wrong-indexed-goal");
-}
-
-#[test]
-fn solver_records_reject_a_valid_record_for_a_non_ok_input() {
-    let fixture = Fixture::new();
-    let (_, reverse) = fixture.unknown_reverse();
-    let path = reverse.join("reverse_exact_records.csv");
-    let mut records = read_records(&path);
-    records.push(d3_record(2));
-    write_records(&path, &records);
-    assert_stage_rejected(&fixture, &reverse, "next-extra-record");
-}
-
-#[test]
-fn rereading_revalidates_the_original_sample_files() {
-    for variant in ["positions", "metadata"] {
-        let fixture = Fixture::new();
-        let filters = fixture.filters(
-            "sample",
-            "filters",
-            &[initial(), after_d3()],
-            absolute_population(),
-        );
-        match variant {
-            "positions" => fs::write(fixture.path("sample/positions.txt"), "invalid\n").unwrap(),
-            "metadata" => {
-                let path = fixture.path("sample/sampling.json");
-                let mut metadata = read_json(&path);
-                metadata["uniform"] = json!(false);
-                write_json(&path, &metadata);
-            }
-            _ => unreachable!(),
-        }
-        assert_stage_rejected(&fixture, &filters, &format!("next-{variant}"));
-    }
-}
-
-#[test]
-fn summaries_reject_unknown_stages_and_invalid_from_or_sample_dir_keys() {
-    for variant in [
-        "unknown-stage",
-        "filter-from",
-        "filter-missing-from",
-        "filter-missing-sample",
-        "filter-relative-sample",
-    ] {
-        let fixture = Fixture::new();
-        let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
-        let path = filters.join("summary.json");
-        let mut summary = read_json(&path);
-        match variant {
-            "unknown-stage" => summary["stage"] = json!("reverse-search:unknown"),
-            "filter-from" => summary["from"] = json!(filters.canonicalize().unwrap()),
-            "filter-missing-from" => {
-                summary.as_object_mut().unwrap().remove("from");
-            }
-            "filter-missing-sample" => {
-                summary.as_object_mut().unwrap().remove("sample_dir");
-            }
-            "filter-relative-sample" => summary["sample_dir"] = json!("sample"),
-            _ => unreachable!(),
-        }
-        write_json(&path, &summary);
-        assert_stage_rejected(&fixture, &filters, &format!("next-{variant}"));
-    }
-
-    for variant in [
-        "solver-null-from",
-        "solver-missing-from",
-        "solver-sample-dir",
-    ] {
-        let fixture = Fixture::new();
-        let (_, reverse) = fixture.unknown_reverse();
-        let path = reverse.join("summary.json");
-        let mut summary = read_json(&path);
-        match variant {
-            "solver-null-from" => summary["from"] = Value::Null,
-            "solver-missing-from" => {
-                summary.as_object_mut().unwrap().remove("from");
-            }
-            "solver-sample-dir" => summary["sample_dir"] = Value::Null,
-            _ => unreachable!(),
-        }
-        write_json(&path, &summary);
-        assert_stage_rejected(&fixture, &reverse, &format!("next-{variant}"));
-    }
-
-    let fixture = Fixture::new();
-    let (_, reverse) = fixture.unknown_reverse();
-    let path = reverse.join("summary.json");
-    let mut summary = read_json(&path);
-    summary["from"] = json!("filters");
-    write_json(&path, &summary);
-    assert_stage_rejected(&fixture, &reverse, "next-relative-from");
-}
-
-#[test]
-fn summary_rejects_an_unknown_sat_encoding() {
-    let fixture = Fixture::new();
-    let (_, sat) = fixture.sat_ok();
-    let path = sat.join("summary.json");
-    let mut summary = read_json(&path);
-    summary["stage"] = json!("sat:unknown");
-    write_json(&path, &summary);
-
-    let output = fixture.path("next");
-    let error = estimate::reverse_search(&sat, &output, ALPHA, &limited_dfs()).unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    assert!(error
-        .to_string()
-        .contains("unknown estimate stage: sat:unknown"));
-    assert!(!output.exists());
-}
-
-#[test]
-fn stage_chains_reject_cycles_missing_summaries_and_missing_directories() {
-    let fixture = Fixture::new();
-    let (_, reverse) = fixture.unknown_reverse();
-    let path = reverse.join("summary.json");
-    let mut summary = read_json(&path);
-    summary["from"] = json!(reverse.canonicalize().unwrap());
-    write_json(&path, &summary);
-    assert_stage_rejected(&fixture, &reverse, "next-cycle");
-
-    let fixture = Fixture::new();
-    let filters = fixture.filters("sample", "filters", &[initial()], absolute_population());
-    fs::remove_file(filters.join("summary.json")).unwrap();
-    assert_stage_rejected(&fixture, &filters, "next-missing-summary");
-
-    let fixture = Fixture::new();
-    let (filters, reverse) = fixture.unknown_reverse();
-    fs::rename(&filters, fixture.path("moved-filters")).unwrap();
-    assert_stage_rejected(&fixture, &reverse, "next-missing-directory");
-}
-
-#[test]
-fn reverse_ng_updates_all_duplicate_sample_rows_without_a_record() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[class_d3(); 2],
-        json!({"definition": "absolute_positions_fixed_discs", "discs": 5, "size": "3840"}),
-    );
-    let reverse = fixture.path("reverse");
-    estimate::reverse_search(&filters, &reverse, ALPHA, &complete_dfs()).unwrap();
-    assert_eq!(
-        fs::read_to_string(reverse.join("reverse_exact_NG.txt")).unwrap(),
-        position_text(&[class_d3()]),
-    );
-    assert!(fs::read(reverse.join("reverse_exact_records.csv"))
-        .unwrap()
-        .is_empty());
-    assert_eq!(
-        read_json(&reverse.join("summary.json"))["counts"],
-        json!({"OK": 0, "NG": 2, "UNKNOWN": 0}),
-    );
-}
-
-#[test]
-fn reverse_summary_has_positive_nodes_for_searched_ok_and_ng() {
-    let fixture = Fixture::new();
-    let filters = fixture.filters(
-        "sample",
-        "filters",
-        &[after_d3(), class_d3()],
-        absolute_population(),
-    );
-    let reverse = fixture.path("reverse");
-    estimate::reverse_search(&filters, &reverse, ALPHA, &complete_dfs()).unwrap();
-    assert_eq!(
-        fs::read_to_string(reverse.join("reverse_exact_OK.txt")).unwrap(),
-        position_text(&[after_d3()]),
-    );
-    assert_eq!(
-        fs::read_to_string(reverse.join("reverse_exact_NG.txt")).unwrap(),
-        position_text(&[class_d3()]),
-    );
-    let summary = read_json(&reverse.join("summary.json"));
-    assert_summary_keys(&summary, &reverse_summary_keys());
-    assert_eq!(summary["stage"], "reverse-search:dfs");
-    assert_eq!(summary["from"], json!(filters.canonicalize().unwrap()));
-    assert!(summary.get("sample_dir").is_none());
-    assert_eq!(summary["counts"], json!({"OK": 1, "NG": 1, "UNKNOWN": 0}));
-    let nodes = summary["nodes"].as_array().unwrap();
-    assert_eq!(nodes.len(), 2);
-    assert!(nodes.iter().all(|nodes| nodes.as_u64().unwrap() > 0));
-}
-
-#[test]
-fn all_stages_write_to_existing_directories_and_preserve_unrelated_files() {
-    let fixture = Fixture::new();
     let sample = fixture.sample("sample", &[initial(), after_d3()], absolute_population());
-    let filters = fixture.path("filters");
-    fs::create_dir(&filters).unwrap();
-    fs::write(filters.join("keep.txt"), b"filters").unwrap();
-    estimate::filters(&sample, &filters, ALPHA).unwrap();
-
-    let sat = fixture.path("sat");
-    fs::create_dir(&sat).unwrap();
-    fs::write(sat.join("keep.txt"), b"sat").unwrap();
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-
-    let reverse = fixture.path("reverse");
-    fs::create_dir(&reverse).unwrap();
-    fs::write(reverse.join("keep.txt"), b"reverse").unwrap();
-    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
-
-    assert_eq!(fs::read(filters.join("keep.txt")).unwrap(), b"filters");
-    assert_eq!(fs::read(sat.join("keep.txt")).unwrap(), b"sat");
-    assert_eq!(fs::read(reverse.join("keep.txt")).unwrap(), b"reverse");
-}
-
-#[test]
-fn rerunning_all_stages_replaces_outputs_with_fresh_run_bytes() {
-    let fixture = Fixture::new();
-    let large_sample = fixture.sample(
-        "large-sample",
-        &[initial(), after_d3()],
-        absolute_population(),
+    let tmp = fixture.path("tmp");
+    fs::create_dir(&tmp).unwrap();
+    let first = fixture.path("first");
+    Pipeline::from_sample_dir(&sample)
+        .reverse_search(external(tmp.clone(), false))
+        .run(&first, ALPHA)
+        .unwrap();
+    let resumed = fixture.path("resumed");
+    Pipeline::from_sample_dir(&sample)
+        .reverse_search(external(tmp.clone(), true))
+        .run(&resumed, ALPHA)
+        .unwrap();
+    assert_eq!(
+        tree_files(&first.join("01-reverse-search")),
+        tree_files(&resumed.join("01-reverse-search"))
     );
-    let small_sample = fixture.sample("small-sample", &[initial()], absolute_population());
 
-    let filters = fixture.path("filters");
-    estimate::filters(&large_sample, &filters, ALPHA).unwrap();
-    let sat = fixture.path("sat");
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    let reverse = fixture.path("reverse");
-    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
+    let changed = fixture.path("changed");
+    let mut config = match external(tmp.clone(), true) {
+        Strategy::BfsExternal(config) => config,
+        _ => unreachable!(),
+    };
+    config.block_size = 5;
+    assert!(Pipeline::from_sample_dir(&sample)
+        .reverse_search(Strategy::BfsExternal(config))
+        .run(&changed, ALPHA)
+        .is_err());
 
-    estimate::filters(&small_sample, &filters, ALPHA).unwrap();
-    let fresh_filters = fixture.path("fresh-filters");
-    estimate::filters(&small_sample, &fresh_filters, ALPHA).unwrap();
-    assert_eq!(directory_files(&filters), directory_files(&fresh_filters));
-
-    estimate::sat(
-        &filters,
-        &sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    let fresh_sat = fixture.path("fresh-sat");
-    estimate::sat(
-        &filters,
-        &fresh_sat,
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(directory_files(&sat), directory_files(&fresh_sat));
-
-    estimate::reverse_search(&filters, &reverse, ALPHA, &limited_dfs()).unwrap();
-    let fresh_reverse = fixture.path("fresh-reverse");
-    estimate::reverse_search(&filters, &fresh_reverse, ALPHA, &limited_dfs()).unwrap();
-    assert_eq!(directory_files(&reverse), directory_files(&fresh_reverse));
+    let other_sample = fixture.sample("other-sample", &[class_d3()], absolute_population());
+    assert!(Pipeline::from_sample_dir(&other_sample)
+        .reverse_search(external(tmp, true))
+        .run(&fixture.path("other"), ALPHA)
+        .is_err());
 }
 
 #[test]
-fn stages_reject_input_directories_as_outputs_without_modifying_them() {
+fn reverse_ng_updates_duplicate_rows_and_nodes_cover_each_stage_input() {
     let fixture = Fixture::new();
-    let (filters, reverse) = fixture.unknown_reverse();
-    let sample = fixture.path("sample");
-
-    assert_rejected_without_changes(&sample, || estimate::filters(&sample, &sample, ALPHA));
-    for output in [&reverse, &filters, &sample] {
-        assert_rejected_without_changes(output, || {
-            estimate::sat(
-                &reverse,
-                output,
-                ALPHA,
-                SatEncoding::Ply.into(),
-                1,
-                1,
-                None,
-                None,
-            )
-        });
-        assert_rejected_without_changes(output, || {
-            estimate::reverse_search(&reverse, output, ALPHA, &limited_dfs())
-        });
-    }
+    let sample = fixture.sample(
+        "sample",
+        &[after_d3(), class_d3(), class_d3()],
+        fixed_absolute(5, "3840"),
+    );
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .reverse_search(complete_dfs())
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(
+        read_positions(&run.join("01-reverse-search/reverse_exact_OK.txt")),
+        [after_d3()]
+    );
+    assert_eq!(
+        read_positions(&run.join("01-reverse-search/reverse_exact_NG.txt")),
+        [class_d3()]
+    );
+    assert_eq!((report.ok, report.ng, report.unknown), (1, 2, 0));
+    let nodes = summary(&run)["stages"][0]["result"]["nodes"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(nodes.len(), 2);
+    assert!(nodes.iter().all(|count| count.as_u64().unwrap() > 0));
 }
 
 #[test]
-fn invalid_controls_and_empty_samples_fail() {
+fn existing_directories_keep_unrelated_files_and_inputs_cannot_be_outputs() {
     let fixture = Fixture::new();
     let sample = fixture.sample("sample", &[initial()], absolute_population());
-    let filters = fixture.path("filters");
-    estimate::filters(&sample, &filters, ALPHA).unwrap();
+    let before_sample = tree_files(&sample);
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&sample, ALPHA)
+        .is_err());
+    assert_eq!(tree_files(&sample), before_sample);
 
-    for (index, alpha) in [0.0, 1.0, f64::NAN].into_iter().enumerate() {
-        assert!(estimate::filters(
-            &sample,
-            &fixture.path(&format!("invalid-filter-alpha-{index}")),
-            alpha,
-        )
-        .is_err());
-        assert!(estimate::sat(
-            &filters,
-            &fixture.path(&format!("invalid-sat-alpha-{index}")),
-            alpha,
-            SatEncoding::Ply.into(),
-            1,
-            1,
-            None,
-            None,
-        )
-        .is_err());
-        assert!(estimate::reverse_search(
-            &filters,
-            &fixture.path(&format!("invalid-reverse-alpha-{index}")),
-            alpha,
-            &limited_dfs(),
-        )
-        .is_err());
-    }
-    assert!(estimate::sat(
-        &filters,
-        &fixture.path("seeds-zero"),
-        ALPHA,
-        SatEncoding::Ply.into(),
-        0,
-        1,
-        None,
-        None,
-    )
-    .is_err());
-    assert!(estimate::sat(
-        &filters,
-        &fixture.path("parallel-zero"),
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        0,
-        None,
-        None,
-    )
-    .is_err());
-    assert!(estimate::sat(
-        &filters,
-        &fixture.path("timeout-zero"),
-        ALPHA,
-        SatEncoding::Ply.into(),
-        1,
-        1,
-        Some(Duration::ZERO),
-        None,
-    )
-    .is_err());
+    let run = fixture.path("run");
+    fs::create_dir_all(run.join("01-filters")).unwrap();
+    fs::write(run.join("keep.txt"), b"root").unwrap();
+    fs::write(run.join("01-filters/keep.txt"), b"stage").unwrap();
+    Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(fs::read(run.join("keep.txt")).unwrap(), b"root");
+    assert_eq!(fs::read(run.join("01-filters/keep.txt")).unwrap(), b"stage");
+}
 
-    let empty = fixture.sample("empty-sample", &[], absolute_population());
-    assert!(estimate::filters(&empty, &fixture.path("empty-filters"), ALPHA).is_err());
+#[test]
+fn from_run_copies_prefix_without_touching_source_and_survives_source_deletion() {
+    let fixture = Fixture::new();
+    let source = fixture.path("source");
+    let spec = SampleSpec {
+        population: Population::Absolute,
+        discs: Some(4),
+        count: 4,
+        seed: 20261022,
+    };
+    Pipeline::sample(spec)
+        .filters()
+        .run(&source, ALPHA)
+        .unwrap();
+    let source_before = tree_files(&source);
+    let source_sample = tree_files(&source.join("sample"));
+    let source_stage = tree_files(&source.join("01-filters"));
+    let source_argument = source.join("..").join("source");
+
+    let branch = fixture.path("branch");
+    Pipeline::from_run(&source_argument, 1)
+        .filters()
+        .run(&branch, ALPHA)
+        .unwrap();
+    assert_eq!(tree_files(&source), source_before);
+    assert_eq!(tree_files(&branch.join("sample")), source_sample);
+    assert_eq!(tree_files(&branch.join("01-filters")), source_stage);
+    assert!(summary(&branch)["stages"][1]["result"].is_object());
+    assert_eq!(
+        summary(&branch)["branched_from"],
+        json!({"run": source_argument, "stages": 1})
+    );
+
+    fs::remove_dir_all(&source).unwrap();
+    Pipeline::from_run(&source_argument, 1)
+        .filters()
+        .run(&branch, 0.05)
+        .unwrap();
+    assert_eq!(summary(&branch)["alpha"], 0.05);
 }

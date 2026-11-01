@@ -3,7 +3,9 @@
 //! A transition consists of either a legal placement by the current player, or
 //! one forced pass followed by a legal placement by the other player. The last
 //! layer may additionally take one legal pass. Absolute colors and the absolute
-//! side to move are retained throughout. Every SAT witness is replayed using the
+//! side to move are retained throughout. The encoding always imposes a column
+//! constraint requiring each square added between the endpoints to be played
+//! exactly once across all layers. Every SAT witness is replayed using the
 //! ordinary game rules, including its intermediate layer positions.
 
 use crate::filters::sat::cnf::{absolute_colors, value, FALSE, SQUARES, TRUE};
@@ -342,12 +344,7 @@ fn encode_transition(builder: &mut Builder, vars: &Variables, layer: usize, patt
     }
 }
 
-fn encode_problem(
-    start: Position,
-    goal: Position,
-    placements: usize,
-    column_constraints: bool,
-) -> (Variables, Builder) {
+fn encode_problem(start: Position, goal: Position, placements: usize) -> (Variables, Builder) {
     let start_occupied = start.board.player | start.board.opponent;
     let target_occupied = goal.board.player | goal.board.opponent;
     let patterns = patterns(start_occupied, target_occupied);
@@ -368,19 +365,17 @@ fn encode_problem(
     for layer in 0..placements {
         encode_transition(&mut builder, &vars, layer, &patterns);
     }
-    if column_constraints {
-        // Occupancy is monotone: each square added between the endpoints must
-        // be played exactly once. This is already entailed by the transitions
-        // and the fixed boards, but exposing it avoids deriving it through the
-        // entire chain of color/flip gates. Together with one play per layer,
-        // these columns describe a permutation of the newly occupied squares.
-        let mut added = target_occupied & !start_occupied;
-        while added != 0 {
-            let square = added.trailing_zeros() as usize;
-            added &= added - 1;
-            let column: Vec<_> = vars.play.iter().map(|plays| plays[square]).collect();
-            builder.exactly_one(&column);
-        }
+    // Occupancy is monotone: each square added between the endpoints must
+    // be played exactly once. This is already entailed by the transitions
+    // and the fixed boards, but exposing it avoids deriving it through the
+    // entire chain of color/flip gates. Together with one play per layer,
+    // these columns describe a permutation of the newly occupied squares.
+    let mut added = target_occupied & !start_occupied;
+    while added != 0 {
+        let square = added.trailing_zeros() as usize;
+        added &= added - 1;
+        let column: Vec<_> = vars.play.iter().map(|plays| plays[square]).collect();
+        builder.exactly_one(&column);
     }
 
     // The board at the final layer is fixed, so the legality of a pass into
@@ -458,7 +453,9 @@ fn decode_and_verify(
     let trace = replay(start, &actions)?;
     verify_replayed_layers(&layers, &trace, &boundaries)?;
     if trace.last() != Some(&goal) {
-        return Err("placement SAT witness does not reach the exact requested goal".to_owned());
+        return Err(
+            "placement-columns SAT witness does not reach the exact requested goal".to_owned(),
+        );
     }
     Ok(actions)
 }
@@ -470,32 +467,26 @@ pub(crate) fn verify_replayed_layers(
 ) -> Result<(), String> {
     for (layer, (&boundary, expected)) in boundaries.iter().zip(layers).enumerate() {
         if trace.get(boundary) != Some(expected) {
-            return Err(format!(
-                "placement SAT model disagrees with replay at layer {layer}"
-            ));
+            return Err(format!("SAT model disagrees with replay at layer {layer}"));
         }
     }
     Ok(())
 }
 
-pub(crate) fn encode(
-    start: Position,
-    goal: Position,
-    column_constraints: bool,
-) -> Result<EncodingResult, String> {
+pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, String> {
     let start_occupied = start.board.player | start.board.opponent;
     let goal_occupied = goal.board.player | goal.board.opponent;
     let Some(placements) = goal.board.popcount().checked_sub(start.board.popcount()) else {
         return Ok(EncodingResult::Trivial(ExactOutcome::Unreachable));
     };
     if placements == 0 {
-        return Err("placement SAT encoding requires at least one placement".to_owned());
+        return Err("placement-columns SAT encoding requires at least one placement".to_owned());
     }
     if start_occupied & goal_occupied != start_occupied {
         return Ok(EncodingResult::Trivial(ExactOutcome::Unreachable));
     }
     let placements = placements as usize;
-    let (vars, builder) = encode_problem(start, goal, placements, column_constraints);
+    let (vars, builder) = encode_problem(start, goal, placements);
     Ok(EncodingResult::Cnf(CnfProblem::new(
         builder.variables as usize,
         builder.clauses,
@@ -509,37 +500,11 @@ mod tests {
     use super::*;
     use crate::filters::sat::solve_problem;
 
-    struct Report {
-        outcome: ExactOutcome,
-        clauses: usize,
-    }
-
-    fn solve(start: Position, goal: Position) -> Result<Report, String> {
-        solve_with_columns(start, goal, false)
-    }
-
-    fn solve_with_columns(
-        start: Position,
-        goal: Position,
-        column_constraints: bool,
-    ) -> Result<Report, String> {
-        match encode(start, goal, column_constraints)? {
-            EncodingResult::Trivial(outcome) => Ok(Report {
-                clauses: usize::from(matches!(outcome, ExactOutcome::Unreachable)),
-                outcome,
-            }),
-            EncodingResult::Cnf(problem) => {
-                let clauses = problem.clause_count();
-                Ok(Report {
-                    outcome: solve_problem(&problem, None)?,
-                    clauses,
-                })
-            }
+    fn solve(start: Position, goal: Position) -> Result<ExactOutcome, String> {
+        match encode(start, goal)? {
+            EncodingResult::Trivial(outcome) => Ok(outcome),
+            EncodingResult::Cnf(problem) => solve_problem(&problem, None),
         }
-    }
-
-    fn accepts(outcome: &ExactOutcome) -> bool {
-        matches!(outcome, ExactOutcome::Reachable(_))
     }
 
     #[test]
@@ -556,7 +521,7 @@ mod tests {
         // E3 is White's opening, while Black's legal openings all lie outside
         // this goal's occupancy. A false pass would incorrectly reach it.
         assert!(matches!(
-            solve(start, goal).unwrap().outcome,
+            solve(start, goal).unwrap(),
             ExactOutcome::Unreachable
         ));
     }
@@ -570,7 +535,7 @@ mod tests {
             .unwrap();
         let placements = goal.board.popcount() as usize - start.board.popcount() as usize;
         assert!(placements > 0);
-        let (vars, _) = encode_problem(start, goal, placements, false);
+        let (vars, _) = encode_problem(start, goal, placements);
         let goal_occupied = goal.board.player | goal.board.opponent;
         for square in 0..SQUARES {
             if goal_occupied & (1_u64 << square) != 0 {
@@ -592,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn placement_columns_preserve_a_legal_history_and_add_explicit_constraints() {
+    fn three_move_history_is_reachable_and_replays() {
         let start = Position::initial();
         let goal = *replay(
             start,
@@ -605,14 +570,10 @@ mod tests {
         .unwrap()
         .last()
         .unwrap();
-        let ordinary = solve(start, goal).unwrap();
-        let with_columns = solve_with_columns(start, goal, true).unwrap();
-        assert!(accepts(&ordinary.outcome));
-        let ExactOutcome::Reachable(actions) = &with_columns.outcome else {
+        let ExactOutcome::Reachable(actions) = solve(start, goal).unwrap() else {
             panic!("placement columns rejected a legal history");
         };
-        assert_eq!(replay(start, actions).unwrap().last(), Some(&goal));
-        assert!(with_columns.clauses > ordinary.clauses);
+        assert_eq!(replay(start, &actions).unwrap().last(), Some(&goal));
     }
 
     #[test]

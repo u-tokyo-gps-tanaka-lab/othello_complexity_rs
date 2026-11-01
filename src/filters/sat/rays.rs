@@ -437,7 +437,7 @@ mod tests {
     }
 
     fn solve_placement(start: Position, goal: Position) -> Result<ExactOutcome, String> {
-        match placement::encode(start, goal, true)? {
+        match placement::encode(start, goal)? {
             EncodingResult::Trivial(outcome) => Ok(outcome),
             EncodingResult::Cnf(problem) => solve_problem(&problem, None),
         }

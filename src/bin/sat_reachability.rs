@@ -39,7 +39,7 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     goal_file: Option<PathBuf>,
 
-    /// Mode: exact, symmetry (geometry only), or equivalence (geometry and color/turn exchange)
+    /// Mode: exact or equivalence (geometry and color/turn exchange)
     #[arg(long, value_name = "MODE")]
     mode: GoalMatch,
 

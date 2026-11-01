@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use othello_complexity_rs::filters::sat::{
-    run_with_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
+    run_with_options, validate_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
 };
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::query::{candidates, GoalClassification};
@@ -44,6 +44,15 @@ fn options(
         sat_timeout_per_instance: None,
         reverse_bfs: None,
     }
+}
+
+fn validation_options() -> RunOptions {
+    options(
+        Position::initial(),
+        Vec::new(),
+        GoalMatch::Exact,
+        SatEncoding::PlacementRays,
+    )
 }
 
 struct TestDirectory(PathBuf);
@@ -152,9 +161,6 @@ fn verify_answer(
             assert_eq!(record.input_index, input_index);
             if goal_match == GoalMatch::Exact {
                 assert_eq!(record.transform, PositionTransform::IDENTITY);
-            }
-            if goal_match != GoalMatch::EquivalenceClass {
-                assert!(!record.transform.exchange_colors);
             }
             let independent_trace = start.replay(&record.actions).unwrap();
             let endpoint = *independent_trace.last().unwrap();
@@ -273,7 +279,6 @@ fn has_witness(
 ) -> bool {
     match goal_match {
         GoalMatch::Exact => reachable.contains(&goal),
-        GoalMatch::SymmetryOrbit => goal.orbit().any(|image| reachable.contains(&image)),
         GoalMatch::EquivalenceClass => goal.orbit().any(|image| {
             reachable.contains(&image) || reachable.contains(&image.color_exchanged())
         }),
@@ -296,9 +301,6 @@ fn verify_witness(
         .all(|action| matches!(action, PlyAction::Play(_))));
     if goal_match == GoalMatch::Exact {
         assert_eq!(record.transform, PositionTransform::IDENTITY);
-    }
-    if goal_match != GoalMatch::EquivalenceClass {
-        assert!(!record.transform.exchange_colors);
     }
     let mut endpoint = goal.transformed(record.transform.symmetry);
     if record.transform.exchange_colors {
@@ -449,18 +451,13 @@ fn all_seven_disc_targets_and_both_turns_agree_with_independent_enumeration() {
     let reachable = enumerate(start, 7);
     let goals = query_targets(&reachable);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    for goal_match in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         classify(
             start,
             &goals,
             goal_match,
             |goal| match goal_match {
                 GoalMatch::Exact => reachable.contains(&goal),
-                GoalMatch::SymmetryOrbit => goal.orbit().any(|image| reachable.contains(&image)),
                 GoalMatch::EquivalenceClass => goal.orbit().any(|image| {
                     reachable.contains(&image) || reachable.contains(&image.color_exchanged())
                 }),
@@ -572,15 +569,8 @@ fn zero_placement_queries_allow_identity_or_one_legal_pass_only() {
         reflected.color_exchanged(),
     ];
     let exact = classify(start, &goals, GoalMatch::Exact, |goal| goal == start, None);
-    let symmetric = classify(
-        start,
-        &goals,
-        GoalMatch::SymmetryOrbit,
-        |goal| goal == start || goal == reflected,
-        None,
-    );
     let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
-    for outcome in exact.iter().chain(&symmetric).chain(&equivalent) {
+    for outcome in exact.iter().chain(&equivalent) {
         if let Some(record) = outcome.record() {
             assert!(record.actions.is_empty());
         }
@@ -782,11 +772,7 @@ fn stone_count_cannot_decrease_and_opening_move_changes_turn() {
         "-------------------X-------XX------XX---------------------------",
         true,
     );
-    for goal_match in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         classify(after_move, &[start], goal_match, |_| false, None);
         classify(start, &[monochromatic], goal_match, |_| false, None);
     }
@@ -829,34 +815,6 @@ fn simultaneous_geometry_and_absolute_color_exchange_preserve_reachability() {
             assert!(reachable.contains(&target));
             assert!(!reachable.contains(&target.color_exchanged()));
         }
-    }
-}
-
-#[test]
-fn independent_start_and_goal_images_equal_fixed_start_orbit_query() {
-    let initial = ArrayPosition::initial();
-    for start in [initial, initial.apply(PlyAction::Play(19)).unwrap()] {
-        let cap = start.discs() + 1;
-        let fixed_start_reachable = enumerate(start, cap);
-        let moved_start_reachable: Vec<_> =
-            start.orbit().map(|image| enumerate(image, cap)).collect();
-        let goals = query_targets(&fixed_start_reachable);
-        classify(
-            start,
-            &goals,
-            GoalMatch::SymmetryOrbit,
-            |goal| {
-                let independent_images = moved_start_reachable
-                    .iter()
-                    .any(|reachable| goal.orbit().any(|image| reachable.contains(&image)));
-                let fixed_start = goal
-                    .orbit()
-                    .any(|image| fixed_start_reachable.contains(&image));
-                assert_eq!(independent_images, fixed_start);
-                independent_images
-            },
-            None,
-        );
     }
 }
 
@@ -923,7 +881,7 @@ fn recorded_symmetry_must_be_allowed_and_select_the_actual_endpoint() {
     // Even an image equal to the endpoint is disallowed in an exact record.
     assert_eq!(start.transformed(record.transform.symmetry), start);
     assert!(record.verify().is_err());
-    record.goal_match = GoalMatch::SymmetryOrbit;
+    record.goal_match = GoalMatch::EquivalenceClass;
     assert!(record.verify().is_ok());
     record.transform.symmetry = BoardSymmetry::Rotate90;
     assert_ne!(start.transformed(record.transform.symmetry), start);
@@ -936,9 +894,14 @@ fn parallel_duplicate_queries_each_keep_their_own_input_index() {
     let after_move = start.apply(PlyAction::Play(19)).unwrap();
     let wrong_turn = after_move.color_exchanged();
     let goals = [start, after_move, wrong_turn, after_move, start, wrong_turn];
-    for goal_match in [GoalMatch::Exact, GoalMatch::SymmetryOrbit] {
-        classify(start, &goals, goal_match, |goal| goal != wrong_turn, None);
-    }
+    classify(
+        start,
+        &goals,
+        GoalMatch::Exact,
+        |goal| goal != wrong_turn,
+        None,
+    );
+    classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
 }
 
 #[test]
@@ -986,11 +949,7 @@ fn six_disc_queries_and_repeated_inputs_match_independent_placement_enumeration(
     let mut goals = query_targets(&reachable);
     goals.extend([start, goals[0], start]);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    for mode in [
-        GoalMatch::Exact,
-        GoalMatch::SymmetryOrbit,
-        GoalMatch::EquivalenceClass,
-    ] {
+    for mode in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         check_queries(start, &goals, mode);
     }
 }
@@ -1023,11 +982,7 @@ fn seven_and_eight_disc_witnesses_preserve_colors_turns_and_arbitrary_starts() {
                 ]);
             }
         }
-        for mode in [
-            GoalMatch::Exact,
-            GoalMatch::SymmetryOrbit,
-            GoalMatch::EquivalenceClass,
-        ] {
+        for mode in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
             check_queries(start, &goals, mode);
         }
     }
@@ -1113,6 +1068,138 @@ fn a_solver_deadline_never_produces_a_negative_reachability_proof() {
         GoalClassification::Unknown { .. } => {}
         GoalClassification::Unreachable { .. } => panic!("a timeout is not an unreachable proof"),
     }
+}
+
+#[test]
+fn validate_options_rejects_invalid_settings_without_goals() {
+    fn assert_error(opts: &RunOptions, expected: &str) {
+        assert!(opts.goals.is_empty());
+        assert_eq!(validate_options(opts).unwrap_err(), expected);
+    }
+
+    let mut opts = validation_options();
+    opts.start.board = Board {
+        player: 0,
+        opponent: 0,
+    };
+    assert!(validate_options(&opts)
+        .unwrap_err()
+        .starts_with("invalid start:"));
+
+    let mut opts = validation_options();
+    opts.parallel_goals = 0;
+    assert_error(&opts, "parallel_goals must be positive");
+
+    let mut opts = validation_options();
+    opts.seeds = 0;
+    assert_error(&opts, "seeds must be positive");
+
+    let mut opts = validation_options();
+    opts.sat_timeout_per_instance = Some(Duration::ZERO);
+    assert_error(&opts, "SAT timeout must be positive");
+
+    let mut opts = validation_options();
+    opts.cnf_dump_only = true;
+    assert_error(&opts, "CNF-only runs require an output directory");
+
+    let mut opts = validation_options();
+    opts.encodings = SatEncoding::NoPassWitness.into();
+    opts.reverse_bfs = Some(ReverseBfs {
+        discs: 4,
+        state_budget: 1,
+    });
+    assert_error(
+        &opts,
+        "reverse BFS requires a complete encoding in the portfolio; \
+         nopass-witness alone cannot record its results",
+    );
+
+    let mut opts = validation_options();
+    opts.reverse_bfs = Some(ReverseBfs {
+        discs: 4,
+        state_budget: 0,
+    });
+    assert_error(&opts, "reverse BFS state budget must be positive");
+
+    for discs in [3, 65] {
+        let mut opts = validation_options();
+        opts.reverse_bfs = Some(ReverseBfs {
+            discs,
+            state_budget: 1,
+        });
+        assert_error(
+            &opts,
+            "reverse BFS discs must be between the start stone count and 64",
+        );
+    }
+}
+
+#[test]
+fn validate_options_leaves_goal_validation_to_run_with_options() {
+    let invalid_goal = Position {
+        board: Board {
+            player: 0,
+            opponent: 0,
+        },
+        ..Position::initial()
+    };
+    let opts = options(
+        Position::initial(),
+        vec![invalid_goal],
+        GoalMatch::Exact,
+        SatEncoding::PlacementRays,
+    );
+
+    validate_options(&opts).unwrap();
+    assert!(run_with_options(opts, |_| Ok(()))
+        .unwrap_err()
+        .starts_with("invalid goal[1]:"));
+}
+
+#[test]
+fn run_with_options_validates_settings_before_goals() {
+    let invalid_goal = Position {
+        board: Board {
+            player: 0,
+            opponent: 0,
+        },
+        ..Position::initial()
+    };
+    let error = run_with_options(
+        RunOptions {
+            parallel_goals: 0,
+            ..options(
+                Position::initial(),
+                vec![invalid_goal],
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            )
+        },
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error, "parallel_goals must be positive");
+}
+
+#[test]
+fn sat_pipeline_settings_serialize_as_declared() {
+    let portfolio =
+        SatPortfolio::new(vec![SatEncoding::NoPassWitness, SatEncoding::PlacementRays]).unwrap();
+    assert_eq!(
+        serde_json::to_string(&portfolio).unwrap(),
+        r#""nopass-witness+placement-rays""#
+    );
+    assert_eq!(
+        serde_json::to_value(ReverseBfs {
+            discs: 10,
+            state_budget: 1_000_000,
+        })
+        .unwrap(),
+        serde_json::json!({
+            "discs": 10,
+            "state_budget": 1_000_000,
+        })
+    );
 }
 
 #[test]

@@ -5,9 +5,10 @@ mod support;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{
-    create_output_dir, fixed_discs_class_population, fixed_discs_population, is_representative,
-    position_from_rank, rank_of_position, read_sample_dir, representative_candidates,
-    sample_fixed_discs, select_representative, Population, CLASS_POPULATION_SIZE, POPULATION_SIZE,
+    create_output_dir, fixed_discs_class_population, fixed_discs_population, generate,
+    is_representative, position_from_rank, rank_of_position, read_sample_dir,
+    representative_candidates, sample_fixed_discs, select_representative, Population,
+    CLASS_POPULATION_SIZE, POPULATION_SIZE,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -398,6 +399,51 @@ fn changing_the_suffix_exchanges_absolute_colors_together_with_the_turn() {
         rank_of_position(turn_only).unwrap(),
         rank_of_position(color_exchanged).unwrap()
     );
+}
+
+#[test]
+fn invalid_generation_settings_do_not_create_an_output_directory() {
+    for (label, discs, count) in [("count", Some(4), 0), ("discs", Some(3), 1)] {
+        let directory = std::env::temp_dir().join(format!(
+            "othello-invalid-generation-{label}-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let error = generate(&directory, Population::Absolute, discs, count, 17).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(!directory.exists());
+    }
+}
+
+#[test]
+fn generated_samples_are_reproducible_and_pass_sample_validation() {
+    let first = std::env::temp_dir().join(format!(
+        "othello-generated-sample-first-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    let second = std::env::temp_dir().join(format!(
+        "othello-generated-sample-second-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    generate(&first, Population::Absolute, Some(8), 16, 20261031).unwrap();
+    generate(&second, Population::Absolute, Some(8), 16, 20261031).unwrap();
+
+    assert_eq!(
+        fs::read(first.join("positions.txt")).unwrap(),
+        fs::read(second.join("positions.txt")).unwrap()
+    );
+    for directory in [&first, &second] {
+        let sample = read_sample_dir(directory).unwrap();
+        assert_eq!(sample.population, Population::Absolute);
+        assert_eq!(sample.discs, Some(8));
+        assert_eq!(sample.positions.len(), 16);
+    }
+
+    fs::remove_dir_all(first).unwrap();
+    fs::remove_dir_all(second).unwrap();
 }
 
 #[test]

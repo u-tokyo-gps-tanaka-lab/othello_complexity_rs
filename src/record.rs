@@ -13,10 +13,6 @@ pub use crate::io::{format_actions, parse_actions};
 pub enum GoalMatch {
     /// 要求した相対盤面と絶対手番に完全一致する。
     Exact,
-    /// 目標の8対称像のいずれかに一致する。絶対色と手番は変えない。
-    ///
-    /// 開始と終了の向きを独立に変えてよい到達判定と同値である。
-    SymmetryOrbit,
     /// 目標の8対称像と、各像の絶対色・手番をともに交換した局面のいずれかに一致する。
     EquivalenceClass,
 }
@@ -25,7 +21,6 @@ impl GoalMatch {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Exact => "exact",
-            Self::SymmetryOrbit => "symmetry",
             Self::EquivalenceClass => "equivalence",
         }
     }
@@ -44,7 +39,6 @@ impl GoalMatch {
             })
             .filter(move |transform| match self {
                 Self::Exact => *transform == PositionTransform::IDENTITY,
-                Self::SymmetryOrbit => !transform.exchange_colors,
                 Self::EquivalenceClass => true,
             })
     }
@@ -365,7 +359,7 @@ mod tests {
             side_to_move: Color::Black,
         };
         let mut record = ReachabilityRecord {
-            goal_match: GoalMatch::SymmetryOrbit,
+            goal_match: GoalMatch::EquivalenceClass,
             transform: PositionTransform {
                 symmetry: BoardSymmetry::MirrorHorizontal,
                 exchange_colors: false,
@@ -378,7 +372,7 @@ mod tests {
         record.transform.symmetry = BoardSymmetry::MirrorHorizontal;
         record.goal_match = GoalMatch::Exact;
         assert!(record.verify().is_err());
-        record.goal_match = GoalMatch::SymmetryOrbit;
+        record.goal_match = GoalMatch::EquivalenceClass;
         record.goal.side_to_move = Color::White;
         assert!(record.verify().is_err());
     }
