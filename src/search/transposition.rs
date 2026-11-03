@@ -1,11 +1,44 @@
 //! Exact position identity for reverse-search visited sets.
 
-use crate::hash::CustomHash;
-use crate::othello::Position;
 use std::collections::HashSet;
+
+use dashmap::DashSet;
+
+use crate::hash::CustomHash;
+use crate::othello::{Board, Color, Position};
 
 /// The key includes the relative board, its orientation and the absolute turn.
 pub type Visited = HashSet<Position, CustomHash>;
+
+/// An exact concurrent visited set with compact board keys per absolute turn.
+pub(crate) struct ConcurrentVisited {
+    by_side: [DashSet<Board, CustomHash>; 2],
+}
+
+impl Default for ConcurrentVisited {
+    fn default() -> Self {
+        Self {
+            by_side: std::array::from_fn(|_| DashSet::with_hasher(CustomHash::default())),
+        }
+    }
+}
+
+impl ConcurrentVisited {
+    pub fn insert(&self, position: Position) -> bool {
+        self.by_side[side_index(position.side_to_move)].insert(position.board)
+    }
+
+    pub fn contains(&self, position: &Position) -> bool {
+        self.by_side[side_index(position.side_to_move)].contains(&position.board)
+    }
+}
+
+const fn side_index(side_to_move: Color) -> usize {
+    match side_to_move {
+        Color::Black => 0,
+        Color::White => 1,
+    }
+}
 
 /// A bounded sorted table with a separate insertion cache.
 /// When a full cache would exceed the table limit, only that cache is forgotten.
@@ -67,5 +100,35 @@ impl Btable {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_visited_distinguishes_the_same_board_by_turn() {
+        let black = Position::initial();
+        let white = Position {
+            side_to_move: Color::White,
+            ..black
+        };
+        let visited = ConcurrentVisited::default();
+
+        assert!(visited.insert(black));
+        assert!(visited.contains(&black));
+        assert!(!visited.contains(&white));
+        assert!(visited.insert(white));
+        assert!(visited.contains(&white));
+    }
+
+    #[test]
+    fn concurrent_visited_rejects_a_duplicate_insert() {
+        let position = Position::initial();
+        let visited = ConcurrentVisited::default();
+
+        assert!(visited.insert(position));
+        assert!(!visited.insert(position));
     }
 }

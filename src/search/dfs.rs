@@ -6,6 +6,7 @@ use crate::search::{
     constraints::ReverseConstraints,
     core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},
     forward::ForwardTable,
+    frontier::ForwardOccupancyIndex,
     transposition::Btable,
 };
 
@@ -39,7 +40,8 @@ pub(crate) fn search(
     if goal.board.popcount() <= table.discs() {
         return Ok(SearchOutcome::NotFound { nodes: 0 });
     }
-    let constraints = ReverseConstraints::new(table, goal);
+    let frontier = ForwardOccupancyIndex::new(table, goal);
+    let constraints = ReverseConstraints::new(table, &frontier);
     let mut open = vec![Work::Visit(SearchNode::root(goal))];
     let mut nodes = 0;
     while let Some(work) = open.pop() {

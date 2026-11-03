@@ -1,18 +1,22 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 use std::io;
-use std::sync::{Condvar, Mutex};
-
-use crate::filters::{
-    impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp, FilterResult,
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+    Mutex,
 };
+
+use crossbeam::utils::Backoff;
+use crossbeam_skiplist::{set::Entry as SkipEntry, SkipSet};
+
+use crate::filters::{linear_programming::check_lp, FilterResult};
 use crate::othello::{get_last_moves, Position};
 use crate::record::PlyAction;
 use crate::search::{
     constraints::ReverseConstraints,
     core::{found, pass_predecessor, PlacementPredecessors, SearchNode, SearchOutcome},
     forward::ForwardTable,
-    transposition::Visited,
+    frontier::ForwardOccupancyIndex,
+    transposition::ConcurrentVisited,
 };
 
 /// Count exactly the placement predecessors, without materializing them.
@@ -73,6 +77,32 @@ struct Entry {
     // conditions. A rejected root retains None for node-limit accounting.
     candidates: Option<u64>,
 }
+
+struct XorShift64(u64);
+
+impl XorShift64 {
+    fn new(worker: usize) -> Self {
+        Self((worker as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+    }
+
+    fn next(&mut self) -> u64 {
+        let mut value = self.0;
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        self.0 = value;
+        value
+    }
+
+    fn other_queue(&mut self, worker: usize, queues: usize) -> Option<usize> {
+        if queues == 1 {
+            return None;
+        }
+        let queue = self.next() as usize % (queues - 1);
+        Some(if queue >= worker { queue + 1 } else { queue })
+    }
+}
+
 impl PartialEq for Entry {
     fn eq(&self, other: &Self) -> bool {
         self.priority == other.priority && self.node.position == other.node.position
@@ -86,82 +116,129 @@ impl PartialOrd for Entry {
 }
 impl Ord for Entry {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .priority
-            .cmp(&self.priority)
-            .then_with(|| other.node.position.cmp(&self.node.position))
-    }
-}
-
-struct Work {
-    open: BinaryHeap<Entry>,
-    visited: Visited,
-    active: usize,
-    /// Distinct registered positions, including both possible initial states.
-    nodes: usize,
-    result: Option<io::Result<SearchOutcome>>,
-}
-
-impl Work {
-    /// Removing a task and counting it as active are one locked operation.
-    fn take(&mut self) -> Option<Entry> {
-        let entry = self.open.pop()?;
-        self.active += 1;
-        Some(entry)
-    }
-
-    fn exhausted(&self) -> bool {
-        self.open.is_empty() && self.active == 0
+        self.priority
+            .cmp(&other.priority)
+            .then_with(|| self.node.position.cmp(&other.node.position))
     }
 }
 
 struct Shared {
-    work: Mutex<Work>,
-    changed: Condvar,
+    open: Vec<SkipSet<Entry>>,
+    visited: ConcurrentVisited,
+    /// Distinct registered positions, including both possible initial states.
+    nodes: AtomicUsize,
+    /// Positions that are queued or currently being processed.
+    pending: AtomicUsize,
+    stop: AtomicBool,
+    result: Mutex<Option<io::Result<SearchOutcome>>>,
 }
+
+fn result_priority(result: &io::Result<SearchOutcome>) -> u8 {
+    match result {
+        Err(_) => 2,
+        Ok(SearchOutcome::Found { .. }) => 1,
+        Ok(SearchOutcome::NotFound { .. } | SearchOutcome::Unknown { .. }) => 0,
+    }
+}
+
 impl Shared {
-    fn claim(&self, node_limit: usize) -> Option<Entry> {
-        let mut work = self.work.lock().expect("search mutex poisoned");
+    fn new(workers: usize) -> Self {
+        Self {
+            open: (0..workers).map(|_| SkipSet::new()).collect(),
+            visited: ConcurrentVisited::default(),
+            nodes: AtomicUsize::new(0),
+            pending: AtomicUsize::new(0),
+            stop: AtomicBool::new(false),
+            result: Mutex::new(None),
+        }
+    }
+
+    fn record_result(&self, outcome: io::Result<SearchOutcome>) {
+        let mut result = self.result.lock().expect("result mutex poisoned");
+        let replace = match result.as_ref() {
+            Some(current) => result_priority(&outcome) >= result_priority(current),
+            None => true,
+        };
+        if replace {
+            *result = Some(outcome);
+        }
+        drop(result);
+        self.stop.store(true, AtomicOrdering::Release);
+    }
+
+    fn claim(
+        &self,
+        worker: usize,
+        node_limit: usize,
+        random: &mut XorShift64,
+    ) -> Option<SkipEntry<'_, Entry>> {
+        let backoff = Backoff::new();
         loop {
-            if work.result.is_some() {
+            if self.stop.load(AtomicOrdering::Acquire) {
                 return None;
             }
             // The original bound applies before removing another state,
             // including before its meeting-table lookup.
-            if work.nodes >= node_limit {
-                work.result = Some(Ok(SearchOutcome::Unknown { nodes: work.nodes }));
-                self.changed.notify_all();
+            let nodes = self.nodes.load(AtomicOrdering::Acquire);
+            if nodes >= node_limit {
+                self.record_result(Ok(SearchOutcome::Unknown { nodes }));
                 return None;
             }
-            if let Some(node) = work.take() {
-                return Some(node);
+            let other = random.other_queue(worker, self.open.len());
+            let own_priority = self.open[worker].front().map(|entry| entry.priority);
+            let other_priority =
+                other.and_then(|queue| self.open[queue].front().map(|entry| entry.priority));
+            let queue = match (own_priority, other_priority) {
+                (Some(own), Some(other_priority)) if own <= other_priority => Some(worker),
+                (Some(_), Some(_)) => other,
+                (Some(_), None) => Some(worker),
+                (None, Some(_)) => other,
+                (None, None) => None,
+            };
+            if let Some(queue) = queue {
+                if let Some(entry) = self.open[queue].pop_front() {
+                    return Some(entry);
+                }
+                continue;
             }
-            if work.exhausted() {
-                work.result = Some(Ok(SearchOutcome::NotFound { nodes: work.nodes }));
-                self.changed.notify_all();
+            let mut retry = false;
+            for queue in &self.open {
+                if queue.front().is_none() {
+                    continue;
+                }
+                retry = true;
+                if let Some(entry) = queue.pop_front() {
+                    return Some(entry);
+                }
+                break;
+            }
+            if retry {
+                continue;
+            }
+            if self.stop.load(AtomicOrdering::Acquire) {
                 return None;
             }
-            work = self.changed.wait(work).expect("search mutex poisoned");
+            if self.pending.load(AtomicOrdering::Acquire) == 0 {
+                self.stop.store(true, AtomicOrdering::Release);
+                return None;
+            }
+            backoff.snooze();
         }
     }
 }
 
-struct Context<'a> {
+struct Context<'a, 'b> {
     table: &'a ForwardTable,
-    constraints: ReverseConstraints,
+    constraints: ReverseConstraints<'b>,
     standard_start: bool,
 }
 
-impl Context<'_> {
-    fn prepare(&self, node: SearchNode, root: bool) -> Option<Entry> {
-        let position = node.position;
+impl Context<'_, '_> {
+    fn prepare(&self, position: Position, root: bool) -> Option<(usize, Option<u64>)> {
         let meeting = self.table.contains(position);
         let candidates = if meeting {
             Some(0)
-        } else if position.board.popcount() <= self.table.discs()
-            || self.standard_start
-                && !check_virtual_edge_patterns(position.board.player, position.board.opponent)
-        {
+        } else if position.board.popcount() <= self.table.discs() {
             None
         } else {
             self.constraints.candidates(position)
@@ -174,68 +251,72 @@ impl Context<'_> {
         if !root && !meeting && candidates == Some(0) {
             return None;
         }
-        Some(Entry {
-            priority: if meeting {
+        Some((
+            if meeting {
                 0
             } else {
                 heuristic_function(position)
             },
-            node,
             candidates,
-        })
+        ))
     }
 }
 
 fn expand_node(
     node: &SearchNode,
     candidates: u64,
-    context: &Context<'_>,
+    context: &Context<'_, '_>,
     shared: &Shared,
+    worker: usize,
     node_limit: usize,
 ) {
     let previous = PlacementPredecessors::new(node.position, candidates);
     for (position, action) in previous {
-        let child = node.preceding(position, action);
         // A frontier step removes one placement. Its predecessor before a
         // legal pass is also registered in that same stone-count layer; the
         // certificate still stores the placement and pass as separate actions.
-        let before_pass =
-            pass_predecessor(position).map(|previous| child.preceding(previous, PlyAction::Pass));
-        for child in std::iter::once(child).chain(before_pass) {
-            {
-                let work = shared.work.lock().expect("search mutex poisoned");
-                if work.result.is_some() {
-                    return;
-                }
-                if work.visited.contains(&child.position) {
-                    continue;
-                }
-            }
-            let Some(entry) = context.prepare(child, false) else {
-                continue;
-            };
-            let mut work = shared.work.lock().expect("search mutex poisoned");
-            if work.result.is_some() {
+        let before_pass = pass_predecessor(position);
+        for (position, include_pass) in
+            std::iter::once((position, false)).chain(before_pass.map(|position| (position, true)))
+        {
+            if shared.stop.load(AtomicOrdering::Acquire) {
                 return;
             }
-            if work.visited.insert(entry.node.position) {
-                work.nodes += 1;
-                if work.nodes > node_limit {
-                    work.result = Some(Ok(SearchOutcome::Unknown { nodes: work.nodes }));
-                    shared.changed.notify_all();
+            if shared.visited.contains(&position) {
+                continue;
+            }
+            let Some((priority, candidates)) = context.prepare(position, false) else {
+                continue;
+            };
+            if shared.stop.load(AtomicOrdering::Acquire) {
+                return;
+            }
+            if shared.visited.insert(position) {
+                let nodes = shared.nodes.fetch_add(1, AtomicOrdering::AcqRel) + 1;
+                if nodes > node_limit {
+                    shared.record_result(Ok(SearchOutcome::Unknown { nodes }));
                     return;
                 }
-                work.open.push(entry);
-                shared.changed.notify_one();
+                shared.pending.fetch_add(1, AtomicOrdering::AcqRel);
+                let mut child = node.preceding(position, action);
+                if include_pass {
+                    child.push_reverse_action(PlyAction::Pass);
+                }
+                shared.open[worker].insert(Entry {
+                    priority,
+                    node: child,
+                    candidates,
+                });
             }
         }
     }
 }
 
 /// Greedy best-first search ranks nonzero placement-branch counts ascending,
-/// with zero last and no contribution from passes. Queue and in-flight
-/// accounting share a mutex, including exhaustion. The node limit counts
-/// distinct registered positions, including the initial state and reverse pass.
+/// with zero last and no contribution from passes. A pending counter covers
+/// queued and in-flight work so exhaustion cannot race with queue removal. The
+/// node limit counts distinct registered positions, including the initial state
+/// and reverse pass.
 pub fn parallel_retrospective_greedy_best_first_search(
     goal: Position,
     table: &ForwardTable,
@@ -250,48 +331,52 @@ pub fn parallel_retrospective_greedy_best_first_search(
     if goal.board.popcount() <= table.discs() {
         return Ok(SearchOutcome::NotFound { nodes: 0 });
     }
-    let context = Context {
-        table,
-        constraints: ReverseConstraints::new(table, goal),
-        standard_start: table.start() == Position::initial(),
-    };
+    let standard_start = table.start() == Position::initial();
     let workers = if threads == 0 { 1 } else { threads };
-    let mut open = BinaryHeap::new();
-    let root = SearchNode::root(goal);
-    let before_pass =
-        pass_predecessor(goal).map(|previous| root.preceding(previous, PlyAction::Pass));
-    let mut visited = Visited::default();
-    for node in std::iter::once(root).chain(before_pass) {
-        if visited.insert(node.position) {
-            open.push(
-                context
-                    .prepare(node, true)
-                    .expect("root registration is unconditional"),
-            );
+    let shared = Shared::new(workers);
+    let frontier = ForwardOccupancyIndex::new(table, goal);
+    {
+        let context = Context {
+            table,
+            constraints: ReverseConstraints::new(table, &frontier),
+            standard_start,
+        };
+        let root = SearchNode::root(goal);
+        let before_pass =
+            pass_predecessor(goal).map(|previous| root.preceding(previous, PlyAction::Pass));
+        for node in std::iter::once(root).chain(before_pass) {
+            if shared.visited.insert(node.position) {
+                let (priority, candidates) = context
+                    .prepare(node.position, true)
+                    .expect("root registration is unconditional");
+                shared.nodes.fetch_add(1, AtomicOrdering::AcqRel);
+                shared.pending.fetch_add(1, AtomicOrdering::AcqRel);
+                shared.open[0].insert(Entry {
+                    priority,
+                    node,
+                    candidates,
+                });
+            }
         }
     }
-    let nodes = visited.len();
-    let shared = Shared {
-        work: Mutex::new(Work {
-            open,
-            visited,
-            active: 0,
-            nodes,
-            result: None,
-        }),
-        changed: Condvar::new(),
-    };
     std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| {
-                while let Some(entry) = shared.claim(node_limit) {
-                    let node = entry.node;
+        for worker in 0..workers {
+            let shared = &shared;
+            let frontier = &frontier;
+            scope.spawn(move || {
+                let context = Context {
+                    table,
+                    constraints: ReverseConstraints::new(table, frontier),
+                    standard_start,
+                };
+                let mut random = XorShift64::new(worker);
+                while let Some(entry) = shared.claim(worker, node_limit, &mut random) {
+                    let entry = &*entry;
+                    let node = &entry.node;
                     let expansion = (|| -> io::Result<()> {
                         if table.contains(node.position) {
-                            let mut work = shared.work.lock().expect("search mutex poisoned");
-                            if !matches!(work.result, Some(Err(_))) {
-                                work.result = Some(found(table, goal, &node, work.nodes));
-                            }
+                            let nodes = shared.nodes.load(AtomicOrdering::Acquire);
+                            shared.record_result(found(table, goal, node, nodes));
                             return Ok(());
                         }
                         if node.position.board.popcount() <= table.discs() {
@@ -314,32 +399,33 @@ pub fn parallel_retrospective_greedy_best_first_search(
                                 return Ok(());
                             }
                         }
-                        expand_node(&node, candidates, &context, &shared, node_limit);
+                        expand_node(node, candidates, &context, shared, worker, node_limit);
                         Ok(())
                     })();
-                    let mut work = shared.work.lock().expect("search mutex poisoned");
-                    work.active -= 1;
                     if let Err(error) = expansion {
-                        work.result = Some(Err(error));
+                        shared.record_result(Err(error));
                     }
-                    shared.changed.notify_all();
+                    let pending = shared.pending.fetch_sub(1, AtomicOrdering::AcqRel);
+                    debug_assert!(pending > 0);
                 }
             });
         }
     });
-    shared
-        .work
-        .into_inner()
-        .expect("search mutex poisoned")
-        .result
-        .ok_or_else(|| io::Error::other("workers stopped without a result"))?
+    let nodes = shared.nodes.load(AtomicOrdering::Acquire);
+    let pending = shared.pending.load(AtomicOrdering::Acquire);
+    let result = shared.result.into_inner().expect("result mutex poisoned");
+    match result {
+        Some(result) => result,
+        None if pending == 0 => Ok(SearchOutcome::NotFound { nodes }),
+        None => Err(io::Error::other("workers stopped with pending work")),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         heuristic_function, parallel_retrospective_greedy_best_first_search,
-        placement_predecessor_count, Context,
+        placement_predecessor_count, Context, Entry, Shared, XorShift64,
     };
     use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
     use crate::othello::{Board, Color, Position, CENTER_MASK};
@@ -354,6 +440,8 @@ mod tests {
         frontier::ForwardOccupancyIndex,
     };
     use rand::{Rng, SeedableRng};
+    use std::io;
+    use std::sync::atomic::Ordering as AtomicOrdering;
 
     fn assert_count_matches_enumeration(position: Position) {
         let mut previous = Vec::new();
@@ -575,23 +663,22 @@ mod tests {
         assert_eq!(successors(before_pass), [(after_pass, PlyAction::Pass)]);
         assert_eq!(successors(after_pass), [(goal, PlyAction::Play(63))]);
         let table = ForwardTable::from_start(start, 62, Some(goal)).unwrap();
+        let frontier = ForwardOccupancyIndex::new(&table, goal);
         assert_eq!(
-            ReverseConstraints::new(&table, goal).candidates(after_pass),
+            ReverseConstraints::new(&table, &frontier).candidates(after_pass),
             Some(0)
         );
         let context = Context {
             table: &table,
-            constraints: ReverseConstraints::new(&table, goal),
+            constraints: ReverseConstraints::new(&table, &frontier),
             standard_start: false,
         };
-        assert!(context
-            .prepare(SearchNode::root(after_pass), false)
-            .is_none());
+        assert!(context.prepare(after_pass, false).is_none());
         assert_eq!(
             context
-                .prepare(SearchNode::root(after_pass), true)
+                .prepare(after_pass, true)
                 .expect("root registration is unconditional")
-                .candidates,
+                .1,
             Some(0)
         );
         assert_found(
@@ -614,7 +701,7 @@ mod tests {
         };
         let table = ForwardTable::new(6, None).unwrap();
         let frontier = ForwardOccupancyIndex::new(&table, goal);
-        let placement_filter = PlacementFilter::new();
+        let placement_filter = PlacementFilter::new(crate::record::GoalMatch::Exact);
         let occupied = goal.board.player | goal.board.opponent;
         assert_eq!(
             placement_filter.candidates(goal),
@@ -625,7 +712,7 @@ mod tests {
             goal.board.player,
             goal.board.opponent
         ));
-        let candidates = ReverseConstraints::new(&table, goal)
+        let candidates = ReverseConstraints::new(&table, &frontier)
             .candidates(goal)
             .expect("root passes the shared constraints");
         assert_eq!(candidates, 0x0000_0002_0000_0000);
@@ -659,7 +746,10 @@ mod tests {
             frontier.required_squares(goal.board.player | goal.board.opponent),
             None
         );
-        assert_eq!(ReverseConstraints::new(&table, goal).candidates(goal), None);
+        assert_eq!(
+            ReverseConstraints::new(&table, &frontier).candidates(goal),
+            None
+        );
         assert!(matches!(
             parallel_retrospective_greedy_best_first_search(goal, &table, 1, false, 3).unwrap(),
             SearchOutcome::Unknown { nodes: 1 }
@@ -706,20 +796,75 @@ mod tests {
         let table = ForwardTable::new(4, None).unwrap();
         let initial = Position::initial();
         let goal = successors(initial)[0].0;
+        let frontier = ForwardOccupancyIndex::new(&table, goal);
         let context = Context {
             table: &table,
-            constraints: ReverseConstraints::new(&table, goal),
+            constraints: ReverseConstraints::new(&table, &frontier),
             standard_start: true,
         };
-        let meeting = context
-            .prepare(SearchNode::root(initial), false)
+        let (meeting_priority, meeting_candidates) = context
+            .prepare(initial, false)
             .expect("the initial position is in the table");
-        let heuristic = context
-            .prepare(SearchNode::root(goal), true)
+        let (heuristic_priority, heuristic_candidates) = context
+            .prepare(goal, true)
             .expect("root registration is unconditional");
-        assert_eq!(meeting.priority, 0);
-        assert!(heuristic.priority > meeting.priority);
-        let mut open = std::collections::BinaryHeap::from([heuristic, meeting]);
-        assert_eq!(open.pop().unwrap().node.position, initial);
+        assert_eq!(meeting_priority, 0);
+        assert!(heuristic_priority > meeting_priority);
+        let open = crossbeam_skiplist::SkipSet::new();
+        open.insert(Entry {
+            priority: heuristic_priority,
+            node: SearchNode::root(goal),
+            candidates: heuristic_candidates,
+        });
+        open.insert(Entry {
+            priority: meeting_priority,
+            node: SearchNode::root(initial),
+            candidates: meeting_candidates,
+        });
+        assert_eq!(open.pop_front().unwrap().node.position, initial);
+    }
+
+    #[test]
+    fn one_queue_claims_entries_in_strict_priority_order() {
+        let shared = Shared::new(1);
+        let positions = successors(Position::initial());
+        for (priority, position) in [3, 1, 2]
+            .into_iter()
+            .zip(positions.into_iter().map(|(position, _)| position))
+        {
+            shared.open[0].insert(Entry {
+                priority,
+                node: SearchNode::root(position),
+                candidates: Some(0),
+            });
+        }
+
+        let mut random = XorShift64::new(0);
+        let priorities: Vec<_> = (0..3)
+            .map(|_| {
+                shared
+                    .claim(0, usize::MAX, &mut random)
+                    .expect("the queue contains another entry")
+                    .priority
+            })
+            .collect();
+        assert_eq!(priorities, [1, 2, 3]);
+    }
+
+    #[test]
+    fn error_result_overrides_unknown_after_stop() {
+        let shared = Shared::new(1);
+        shared.record_result(Ok(SearchOutcome::Unknown { nodes: 1 }));
+        assert!(shared.stop.load(AtomicOrdering::Acquire));
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| shared.record_result(Err(io::Error::other("worker failed"))));
+        });
+
+        assert!(shared
+            .result
+            .into_inner()
+            .expect("result mutex poisoned")
+            .is_some_and(|result| result.is_err()));
     }
 }

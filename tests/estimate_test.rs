@@ -294,6 +294,7 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
             max_nodes: 128,
             use_lp: false,
             threads: 2,
+            parallel_goals: 1,
         },
         external(sequential_tmp, false),
         Strategy::BfsExternalParallel(ExternalBfs {
@@ -731,6 +732,7 @@ fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
     assert!(!run.join("summary.json.tmp").exists());
 
     let saved = summary(&run);
+    assert_eq!(saved["format"], 1);
     assert_eq!(saved["sample"]["rows"], 4);
     assert_eq!(saved["stages"].as_array().unwrap().len(), 2);
     assert!(saved["stages"]
@@ -764,6 +766,34 @@ fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
                 expected.expected_upper.to_string()
             ])
         );
+    }
+}
+
+#[test]
+fn resume_rejects_missing_or_unknown_summary_formats_without_changes() {
+    for format in [None, Some(2)] {
+        let fixture = Fixture::new();
+        let sample = fixture.sample("sample", &[initial()], absolute_population());
+        let run = fixture.path("run");
+        Pipeline::from_sample_dir(&sample)
+            .filters()
+            .run(&run, ALPHA)
+            .unwrap();
+        let path = run.join("summary.json");
+        let mut saved = read_json(&path);
+        match format {
+            Some(format) => saved["format"] = json!(format),
+            None => {
+                saved.as_object_mut().unwrap().remove("format");
+            }
+        }
+        write_json(&path, &saved);
+
+        assert_error_without_changes(&run, || {
+            Pipeline::from_sample_dir(&sample)
+                .filters()
+                .run(&run, ALPHA)
+        });
     }
 }
 
@@ -1006,6 +1036,53 @@ fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
             }
         }
     }
+}
+
+#[test]
+fn reverse_pipeline_aggregation_matches_across_parallel_goal_counts() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample(
+        "sample",
+        &[after_d3(), class_d3(), class_d3()],
+        fixed_absolute(5, "3840"),
+    );
+    let strategy = |parallel_goals| Strategy::GbfsParallel {
+        discs: 4,
+        max_nodes: 128,
+        use_lp: false,
+        threads: 1,
+        parallel_goals,
+    };
+    let serial_run = fixture.path("serial");
+    let serial_report = Pipeline::from_sample_dir(&sample)
+        .reverse_search(strategy(1))
+        .run(&serial_run, ALPHA)
+        .unwrap();
+    let parallel_run = fixture.path("parallel");
+    let parallel_report = Pipeline::from_sample_dir(&sample)
+        .reverse_search(strategy(2))
+        .run(&parallel_run, ALPHA)
+        .unwrap();
+
+    assert_eq!(
+        (
+            parallel_report.ok,
+            parallel_report.ng,
+            parallel_report.unknown
+        ),
+        (serial_report.ok, serial_report.ng, serial_report.unknown)
+    );
+    let mut serial_result = summary(&serial_run)["stages"][0]["result"].clone();
+    let mut parallel_result = summary(&parallel_run)["stages"][0]["result"].clone();
+    serial_result
+        .as_object_mut()
+        .unwrap()
+        .remove("elapsed_secs");
+    parallel_result
+        .as_object_mut()
+        .unwrap()
+        .remove("elapsed_secs");
+    assert_eq!(parallel_result, serial_result);
 }
 
 #[test]

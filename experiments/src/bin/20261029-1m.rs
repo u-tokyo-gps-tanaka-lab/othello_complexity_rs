@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_nodes: 10_000_000,
         use_lp: false,
         threads: 20,
+        parallel_goals: 1,
     })
     .run(Path::new("result/20261029-1m"), 0.005)?;
     println!("{}", report.interval);

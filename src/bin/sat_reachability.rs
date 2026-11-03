@@ -84,7 +84,7 @@ struct Cli {
     #[arg(long)]
     cnf_dump_only: bool,
 
-    /// SAT solver timeout in seconds for each exact candidate
+    /// SAT solver timeout in seconds for each exact candidate, starting after CNF loading
     #[arg(long, value_name = "SECS", value_parser = parse_positive_u64)]
     sat_timeout_secs: Option<u64>,
 

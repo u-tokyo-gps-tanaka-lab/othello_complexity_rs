@@ -20,6 +20,8 @@ use crate::record::{GoalMatch, ReachabilityRecord};
 use crate::sampling::{self, read_sample_dir, Population, Sample};
 use crate::search::run::{run_strategy, Strategy};
 
+const SUMMARY_FORMAT: u32 = 1;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SampleSpec {
@@ -80,6 +82,7 @@ impl Stage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Summary {
+    format: u32,
     sample: SampleRecord,
     #[serde(skip_serializing_if = "Option::is_none")]
     branched_from: Option<BranchedFrom>,
@@ -258,6 +261,7 @@ fn initialize_run(
             )?;
             let sample = read_sample_dir(&out_dir.join("sample"))?;
             let summary = Summary {
+                format: SUMMARY_FORMAT,
                 sample: sample_record(SampleSource::Generated(spec.clone()), &sample)?,
                 branched_from: None,
                 alpha,
@@ -272,6 +276,7 @@ fn initialize_run(
             let sample = read_sample_dir(&directory)?;
             validate_stages(stages, population_goal_match(sample.population))?;
             let summary = Summary {
+                format: SUMMARY_FORMAT,
                 sample: sample_record(SampleSource::Directory(directory), &sample)?,
                 branched_from: None,
                 alpha,
@@ -318,6 +323,7 @@ fn initialize_branch(
         )?;
     }
     let summary = Summary {
+        format: SUMMARY_FORMAT,
         sample: source_summary.sample,
         branched_from: Some(BranchedFrom {
             run: source_path.to_owned(),
@@ -1152,9 +1158,19 @@ fn write_summary_atomic(directory: &Path, summary: &Summary) -> io::Result<()> {
 
 fn read_optional_summary(path: &Path) -> io::Result<Option<Summary>> {
     match File::open(path) {
-        Ok(file) => serde_json::from_reader(file)
-            .map(Some)
-            .map_err(|error| invalid(format!("invalid {}: {error}", path.display()))),
+        Ok(file) => {
+            let summary: Summary = serde_json::from_reader(file)
+                .map_err(|error| invalid(format!("invalid {}: {error}", path.display())))?;
+            if summary.format != SUMMARY_FORMAT {
+                return Err(invalid(format!(
+                    "unsupported {} format {}; expected {}",
+                    path.display(),
+                    summary.format,
+                    SUMMARY_FORMAT
+                )));
+            }
+            Ok(Some(summary))
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }

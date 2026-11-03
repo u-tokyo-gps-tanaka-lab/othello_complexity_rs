@@ -174,7 +174,8 @@ pub struct ReverseBfs {
 }
 
 /// Each goal is a relative board together with its absolute side to move.
-/// Time limits apply separately to each candidate's solver call, not to a query.
+/// Time limits apply separately to each candidate's solver call, not to a query,
+/// and start after every portfolio worker has loaded its CNF into Kissat.
 /// CNF-only runs return no classifications and never call the outcome callback.
 pub struct RunOptions {
     pub start: Position,
@@ -302,33 +303,35 @@ where
     if opts.goals.is_empty() {
         return Ok(Vec::new());
     }
-    // One immutable forward table serves every parallel goal. Its boundary is
-    // capped by the largest goal but never placed below the start position.
-    let forward_table = match opts.reverse_bfs {
-        Some(bfs) if !opts.cnf_dump_only => {
-            let largest = opts
-                .goals
-                .iter()
-                .map(|goal| goal.board.popcount())
-                .max()
-                .expect("goals are nonempty");
-            Some(
-                ForwardTable::from_start(
-                    opts.start,
-                    bfs.discs.min(largest).max(opts.start.board.popcount()),
-                    None,
-                )
-                .map_err(|error| format!("failed to build the forward table: {error}"))?,
-            )
-        }
-        _ => None,
-    };
-    let cancelled = AtomicBool::new(false);
-    let (tx, rx) = mpsc::channel();
     let pool = ThreadPoolBuilder::new()
         .num_threads(opts.parallel_goals.min(opts.goals.len()))
         .build()
         .map_err(|error| format!("failed to build rayon pool for SAT: {error}"))?;
+    // One immutable forward table serves every parallel goal. Its boundary is
+    // capped by the largest goal but never placed below the start position.
+    let forward_table = pool.install(|| -> Result<Option<ForwardTable>, String> {
+        Ok(match opts.reverse_bfs {
+            Some(bfs) if !opts.cnf_dump_only => {
+                let largest = opts
+                    .goals
+                    .iter()
+                    .map(|goal| goal.board.popcount())
+                    .max()
+                    .expect("goals are nonempty");
+                Some(
+                    ForwardTable::from_start(
+                        opts.start,
+                        bfs.discs.min(largest).max(opts.start.board.popcount()),
+                        None,
+                    )
+                    .map_err(|error| format!("failed to build the forward table: {error}"))?,
+                )
+            }
+            _ => None,
+        })
+    })?;
+    let cancelled = AtomicBool::new(false);
+    let (tx, rx) = mpsc::channel();
 
     std::thread::scope(|scope| {
         let opts = &opts;
@@ -1093,6 +1096,42 @@ struct SolvedPortfolio {
     reports: Vec<WorkerReport>,
 }
 
+enum WorkerMessage {
+    Loaded,
+    Finished(WorkerReport),
+}
+
+struct DeadlineState {
+    remaining_loads: usize,
+    limit: Option<Duration>,
+}
+
+impl DeadlineState {
+    fn new(workers: usize, limit: Option<Duration>) -> Self {
+        Self {
+            remaining_loads: workers,
+            limit,
+        }
+    }
+
+    fn worker_loaded(&mut self, loaded_at: Instant) -> Result<Option<Instant>, String> {
+        self.remaining_loads = self
+            .remaining_loads
+            .checked_sub(1)
+            .ok_or_else(|| "SAT worker reported CNF loaded more than once".to_owned())?;
+        if self.remaining_loads != 0 {
+            return Ok(None);
+        }
+        self.limit
+            .map(|limit| {
+                loaded_at
+                    .checked_add(limit)
+                    .ok_or_else(|| "SAT deadline overflow".to_owned())
+            })
+            .transpose()
+    }
+}
+
 fn solve_portfolio(
     problems: &[PortfolioProblem<'_>],
     seeds: usize,
@@ -1124,15 +1163,8 @@ fn solve_portfolio(
             })
         })
         .collect();
-    let solve_started = Instant::now();
-    let deadline = match timeout {
-        Some(limit) => Some(
-            solve_started
-                .checked_add(limit)
-                .ok_or_else(|| "SAT deadline overflow".to_owned())?,
-        ),
-        None => None,
-    };
+    let mut deadline_state = DeadlineState::new(worker_count, timeout);
+    let mut deadline: Option<Instant> = None;
     let mut reports = Vec::with_capacity(worker_count);
     let mut collection_error = None;
 
@@ -1151,14 +1183,14 @@ fn solve_portfolio(
                     key,
                     scope.spawn(move || {
                         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            solve_worker(worker_index, key, problem, registry)
+                            solve_worker(worker_index, key, problem, registry, &sender)
                         }))
                         .unwrap_or(WorkerReport {
                             key,
                             solve_seconds: 0.0,
                             event: WorkerEvent::Panicked,
                         });
-                        let _ = sender.send(report);
+                        let _ = sender.send(WorkerMessage::Finished(report));
                     }),
                 ));
             }
@@ -1182,7 +1214,21 @@ fn solve_portfolio(
                     .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
             };
             match received {
-                Ok(report) => {
+                Ok(WorkerMessage::Loaded) => match deadline_state.worker_loaded(Instant::now()) {
+                    Ok(Some(started_deadline)) => deadline = Some(started_deadline),
+                    Ok(None) => {}
+                    Err(error) => {
+                        if collection_error.is_none() {
+                            collection_error = Some(error);
+                        }
+                        if let Err(error) = registry.stop_all(StopReason::Decision) {
+                            if collection_error.is_none() {
+                                collection_error = Some(error);
+                            }
+                        }
+                    }
+                },
+                Ok(WorkerMessage::Finished(report)) => {
                     if report.requests_stop() {
                         if let Err(error) = registry.stop_all(StopReason::Decision) {
                             if collection_error.is_none() {
@@ -1240,6 +1286,7 @@ fn solve_worker(
     key: WorkerKey,
     problem: PortfolioProblem<'_>,
     registry: &InterrupterRegistry,
+    sender: &mpsc::Sender<WorkerMessage>,
 ) -> WorkerReport {
     let mut solver = rustsat_kissat::Kissat::default();
     if let Err(error) = configure_seed(&mut solver, key.seed) {
@@ -1247,6 +1294,9 @@ fn solve_worker(
     }
     if let Err(error) = add_problem_to_solver(&mut solver, problem.problem) {
         return worker_error(key, error);
+    }
+    if sender.send(WorkerMessage::Loaded).is_err() {
+        return worker_error(key, "SAT portfolio collector disconnected".to_owned());
     }
     let solve_started = Instant::now();
     let (solve_result, interruption_reason) = {
@@ -1455,6 +1505,40 @@ mod tests {
     use super::*;
     use crate::othello::{Board, Color};
 
+    struct TestDecoder;
+
+    impl ModelDecoder for TestDecoder {
+        fn decode_and_verify(
+            &self,
+            _solver: &rustsat_kissat::Kissat<'_>,
+        ) -> Result<Vec<PlyAction>, String> {
+            Err("test decoder must not receive a satisfiable model".to_owned())
+        }
+    }
+
+    fn pigeonhole_problem() -> CnfProblem {
+        let pigeons = 12_i32;
+        let holes = 11_i32;
+        let variable = |pigeon: i32, hole: i32| 1 + pigeon * holes + hole;
+        let mut clauses = Vec::new();
+        for pigeon in 0..pigeons {
+            clauses.push((0..holes).map(|hole| variable(pigeon, hole)).collect());
+        }
+        for hole in 0..holes {
+            for pigeon in 0..pigeons {
+                for earlier in 0..pigeon {
+                    clauses.push(vec![-variable(pigeon, hole), -variable(earlier, hole)]);
+                }
+            }
+        }
+        CnfProblem::new(
+            (pigeons * holes) as usize,
+            clauses,
+            TestDecoder,
+            ProofScope::Complete,
+        )
+    }
+
     #[test]
     fn encoding_names_round_trip() {
         for encoding in SatEncoding::ALL {
@@ -1503,6 +1587,64 @@ mod tests {
             configure_seed(&mut solver, seed).unwrap();
             assert_eq!(solver.get_option("seed").unwrap(), seed as i32);
         }
+    }
+
+    #[test]
+    fn deadline_starts_when_the_last_worker_finishes_loading() {
+        let first = Instant::now();
+        let second = first.checked_add(Duration::from_secs(3)).unwrap();
+        let limit = Duration::from_secs(5);
+        let mut state = DeadlineState::new(2, Some(limit));
+
+        assert_eq!(state.worker_loaded(first).unwrap(), None);
+        assert_eq!(
+            state.worker_loaded(second).unwrap(),
+            second.checked_add(limit)
+        );
+    }
+
+    #[test]
+    fn deadline_state_rejects_overflow_without_waiting() {
+        let mut state = DeadlineState::new(1, Some(Duration::MAX));
+        assert_eq!(
+            state.worker_loaded(Instant::now()).unwrap_err(),
+            "SAT deadline overflow"
+        );
+    }
+
+    #[test]
+    fn loading_failure_stops_an_unbounded_portfolio() {
+        let invalid = CnfProblem::new(1, vec![vec![0]], TestDecoder, ProofScope::Complete);
+        let pigeonhole = pigeonhole_problem();
+        let problems = [
+            PortfolioProblem {
+                encoding: SatEncoding::Ply,
+                problem: &invalid,
+            },
+            PortfolioProblem {
+                encoding: SatEncoding::PlacementColumns,
+                problem: &pigeonhole,
+            },
+        ];
+
+        let error = solve_portfolio(&problems, 1, None)
+            .err()
+            .expect("invalid CNF loading must fail");
+        assert!(error.contains("CNF contains literal 0"));
+    }
+
+    #[test]
+    fn overflowing_portfolio_deadline_stops_workers() {
+        let pigeonhole = pigeonhole_problem();
+        let problem = PortfolioProblem {
+            encoding: SatEncoding::Ply,
+            problem: &pigeonhole,
+        };
+
+        let error = solve_portfolio(&[problem], 1, Some(Duration::MAX))
+            .err()
+            .expect("overflowing deadline must fail");
+        assert_eq!(error, "SAT deadline overflow");
     }
 
     fn report(encoding: SatEncoding, seed: usize, event: WorkerEvent) -> WorkerReport {

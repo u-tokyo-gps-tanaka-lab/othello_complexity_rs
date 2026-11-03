@@ -12,11 +12,12 @@ use crate::io::{format_position, parse_file_to_positions};
 use crate::othello::{validate_board, Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use same_file::Handle;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 pub const POPULATION_SIZE: u128 = 32 * 3_u128.pow(60);
@@ -449,6 +450,67 @@ pub fn select_representative(
     Ok(candidates.get(draw).copied())
 }
 
+/// Parse each 64-cell relative board without retaining the input file.
+/// The callback receives a one-based input line number.
+pub fn for_each_relative_board(
+    path: &Path,
+    mut visit: impl FnMut(usize, Board) -> io::Result<()>,
+) -> io::Result<usize> {
+    let reader = BufReader::new(File::open(path)?);
+    let mut count = 0;
+    for (index, line) in reader.lines().enumerate() {
+        let line_number = index + 1;
+        let line = line.map_err(|error| {
+            io::Error::new(error.kind(), format!("line {line_number}: {error}"))
+        })?;
+        let invalid = |message: &str| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("line {line_number}: {message}"),
+            )
+        };
+        if line.len() != 64 {
+            return Err(invalid("expected exactly 64 X/O/- cells"));
+        }
+        let mut board = Board::empty();
+        for (square, cell) in line.bytes().enumerate() {
+            match cell {
+                b'X' => board.player |= 1_u64 << square,
+                b'O' => board.opponent |= 1_u64 << square,
+                b'-' => (),
+                _ => return Err(invalid("invalid board character")),
+            }
+        }
+        validate_board(&board).map_err(|error| invalid(&format!("invalid board: {error:?}")))?;
+        visit(line_number, board)?;
+        count = line_number;
+    }
+    Ok(count)
+}
+
+/// Reject output paths that resolve to the input file, including links.
+pub fn ensure_distinct_files(input: &Path, outputs: &[&Path]) -> io::Result<()> {
+    let input_handle = Handle::from_path(input)?;
+    for &output in outputs {
+        let output_handle = match Handle::from_path(output) {
+            Ok(handle) => handle,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if input_handle == output_handle {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "input and output refer to the same file: {} and {}",
+                    input.display(),
+                    output.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn population() -> Value {
     json!({"definition": POPULATION_DEFINITION, "size": POPULATION_SIZE.to_string()})
 }
@@ -459,9 +521,13 @@ pub fn sha256(bytes: &[u8]) -> String {
 }
 
 pub fn artifact(path: &Path) -> io::Result<Value> {
+    let mut file = File::open(path)?;
+    let mut digest = Sha256::new();
+    io::copy(&mut file, &mut digest)?;
+    let digest = digest.finalize();
     Ok(json!({
         "path": fs::canonicalize(path)?,
-        "sha256": sha256(&fs::read(path)?),
+        "sha256": format!("{digest:x}"),
     }))
 }
 

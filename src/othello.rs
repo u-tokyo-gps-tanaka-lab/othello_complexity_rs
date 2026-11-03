@@ -194,8 +194,9 @@ impl BoardSymmetry {
         }
     }
 
-    pub fn apply(self, board: Board) -> Board {
-        let transform = |bits| match self {
+    #[inline]
+    pub(crate) fn apply_bits(self, bits: u64) -> u64 {
+        match self {
             Self::Identity => bits,
             Self::Rotate90 => Board::horizontal_mirror(Board::transpose(bits)),
             Self::Rotate180 => Board::horizontal_mirror(Board::vertical_mirror(bits)),
@@ -206,8 +207,14 @@ impl BoardSymmetry {
             Self::AntiTranspose => {
                 Board::horizontal_mirror(Board::vertical_mirror(Board::transpose(bits)))
             }
-        };
-        Board::new(transform(board.player), transform(board.opponent))
+        }
+    }
+
+    pub fn apply(self, board: Board) -> Board {
+        Board::new(
+            self.apply_bits(board.player),
+            self.apply_bits(board.opponent),
+        )
     }
 
     pub fn apply_position(self, position: Position) -> Position {

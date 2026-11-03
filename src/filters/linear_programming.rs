@@ -142,8 +142,15 @@ fn classify_highs_status(status: HighsModelStatus) -> io::Result<FilterResult> {
         HighsModelStatus::Infeasible => Ok(FilterResult::Rejected {
             reason: "HiGHS proved the relaxation infeasible".to_owned(),
         }),
-        HighsModelStatus::UnboundedOrInfeasible
-        | HighsModelStatus::ReachedTimeLimit
+        HighsModelStatus::UnboundedOrInfeasible => {
+            // Every objective coefficient is zero, so any feasible solution has
+            // the finite objective value zero. This status therefore means that
+            // the relaxation is infeasible rather than unbounded.
+            Ok(FilterResult::Rejected {
+                reason: "HiGHS proved the relaxation infeasible (UnboundedOrInfeasible)".to_owned(),
+            })
+        }
+        HighsModelStatus::ReachedTimeLimit
         | HighsModelStatus::ReachedIterationLimit
         | HighsModelStatus::Unknown => Ok(FilterResult::Undetermined {
             reason: format!("HiGHS status: {status:?}"),
@@ -383,12 +390,22 @@ mod tests {
     }
 
     #[test]
-    fn only_proven_infeasibility_rejects_a_relaxation() {
-        assert!(!classify_highs_status(HighsModelStatus::Infeasible)
-            .unwrap()
-            .passes());
+    fn only_infeasibility_rejects_a_relaxation() {
         for status in [
+            HighsModelStatus::Infeasible,
             HighsModelStatus::UnboundedOrInfeasible,
+        ] {
+            let result = classify_highs_status(status).unwrap();
+            assert!(!result.passes());
+            assert_eq!(result.status(), "rejected");
+        }
+        assert!(
+            classify_highs_status(HighsModelStatus::UnboundedOrInfeasible)
+                .unwrap()
+                .reason()
+                .contains("UnboundedOrInfeasible")
+        );
+        for status in [
             HighsModelStatus::ReachedTimeLimit,
             HighsModelStatus::ReachedIterationLimit,
             HighsModelStatus::Unknown,

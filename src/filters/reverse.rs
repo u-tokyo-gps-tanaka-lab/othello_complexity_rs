@@ -9,6 +9,7 @@ use crate::filters::{
 };
 use crate::hash::CustomHash;
 use crate::othello::{get_last_moves, Color, Position, CENTER_MASK};
+use crate::record::GoalMatch;
 
 const GEOMETRY_CACHE_CAPACITY: usize = 4096;
 
@@ -42,14 +43,15 @@ struct GeometryCache {
 /// A worker may briefly retain an Arc to an evicted entry while checking colors.
 pub(crate) struct PlacementFilter {
     cache: Mutex<GeometryCache>,
+    goal_match: GoalMatch,
 }
 
 impl PlacementFilter {
-    pub(crate) fn new() -> Self {
-        Self::with_capacity(GEOMETRY_CACHE_CAPACITY)
+    pub(crate) fn new(goal_match: GoalMatch) -> Self {
+        Self::with_capacity(GEOMETRY_CACHE_CAPACITY, goal_match)
     }
 
-    fn with_capacity(capacity: usize) -> Self {
+    fn with_capacity(capacity: usize, goal_match: GoalMatch) -> Self {
         assert!(capacity > 0);
         Self {
             cache: Mutex::new(GeometryCache {
@@ -57,6 +59,7 @@ impl PlacementFilter {
                 insertion_order: VecDeque::with_capacity(capacity),
                 capacity,
             }),
+            goal_match,
         }
     }
 
@@ -100,18 +103,31 @@ impl PlacementFilter {
         let OccupancyGeometry::Viable { removable, seg3 } = geometry.as_ref() else {
             return None;
         };
-        let black = match position.side_to_move {
-            Color::Black => board.player,
-            Color::White => board.opponent,
-        };
-        let initial_black = Position::initial().board.player;
-        if (black ^ initial_black) & seg3.immutable_centers() != 0 {
+        if !centers_match(position, seg3.immutable_centers(), self.goal_match) {
             return None;
         }
         if !check_seg3_more_with_geometry(board.player, board.opponent, seg3) {
             return None;
         }
         Some(removable & get_last_moves(board.opponent, board.player))
+    }
+}
+
+fn centers_match(position: Position, immutable: u64, goal_match: GoalMatch) -> bool {
+    let initial = Position::initial().board;
+    match goal_match {
+        GoalMatch::Exact => {
+            let black = match position.side_to_move {
+                Color::Black => position.board.player,
+                Color::White => position.board.opponent,
+            };
+            (black ^ initial.player) & immutable == 0
+        }
+        GoalMatch::EquivalenceClass => {
+            let player = position.board.player;
+            (player ^ initial.player) & immutable == 0
+                || (player ^ initial.opponent) & immutable == 0
+        }
     }
 }
 
@@ -141,7 +157,7 @@ fn removable_squares(occupied: u64, order: &[u64; 64], candidates: u64) -> u64 {
 /// `Some(0)` rejects all placement predecessors, but does not reject a legal
 /// pass predecessor. Pass exploration must remain separate from this mask.
 #[cfg(test)]
-fn placement_candidates(position: Position) -> Option<u64> {
+fn placement_candidates(position: Position, goal_match: GoalMatch) -> Option<u64> {
     let board = position.board;
     let occupied = board.player | board.opponent;
     if !check_occupancy(occupied) {
@@ -149,12 +165,7 @@ fn placement_candidates(position: Position) -> Option<u64> {
     }
     let order = occupancy_order(occupied);
     let geometry = seg3_geometry(occupied, &order);
-    let black = match position.side_to_move {
-        Color::Black => board.player,
-        Color::White => board.opponent,
-    };
-    let initial_black = Position::initial().board.player;
-    if (black ^ initial_black) & geometry.immutable_centers() != 0
+    if !centers_match(position, geometry.immutable_centers(), goal_match)
         || !check_seg3_more_with_geometry(board.player, board.opponent, &geometry)
     {
         return None;
@@ -173,6 +184,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     use super::*;
+    use crate::othello::BoardSymmetry;
     use crate::record::PlyAction;
     use crate::search::core::successors;
 
@@ -214,7 +226,7 @@ mod tests {
 
     #[test]
     fn every_legal_transition_through_eight_discs_retains_its_last_placement() {
-        let placement_filter = PlacementFilter::new();
+        let placement_filter = PlacementFilter::new(GoalMatch::Exact);
         let mut seen = HashSet::new();
         let mut open = vec![Position::initial()];
         while let Some(position) = open.pop() {
@@ -232,7 +244,7 @@ mod tests {
 
     #[test]
     fn full_legal_games_retain_last_placements_including_after_passes() {
-        let placement_filter = PlacementFilter::new();
+        let placement_filter = PlacementFilter::new(GoalMatch::Exact);
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x1a57_5eed);
         let mut passes = 0;
         for _ in 0..64 {
@@ -270,13 +282,31 @@ mod tests {
                 board.opponent,
                 false,
             ));
-            assert!(PlacementFilter::new().candidates(position).is_none());
+            assert!(PlacementFilter::new(GoalMatch::Exact)
+                .candidates(position)
+                .is_none());
+            assert!(PlacementFilter::new(GoalMatch::EquivalenceClass)
+                .candidates(position)
+                .is_none());
         }
     }
 
     #[test]
+    fn equivalence_centers_accept_either_opening_alignment() {
+        let mirrored = BoardSymmetry::MirrorHorizontal.apply_position(Position::initial());
+
+        assert!(PlacementFilter::new(GoalMatch::Exact)
+            .candidates(mirrored)
+            .is_none());
+        assert_eq!(
+            PlacementFilter::new(GoalMatch::EquivalenceClass).candidates(mirrored),
+            Some(0)
+        );
+    }
+
+    #[test]
     fn bounded_geometry_cache_preserves_candidates_for_color_variants() {
-        let placement_filter = PlacementFilter::new();
+        let placement_filter = PlacementFilter::new(GoalMatch::Exact);
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x6361_6368);
         for _ in 0..64 {
             let a = rng.random::<u64>();
@@ -296,7 +326,7 @@ mod tests {
                     };
                     assert_eq!(
                         placement_filter.candidates(position),
-                        placement_candidates(position),
+                        placement_candidates(position, GoalMatch::Exact),
                         "position={position:?}"
                     );
                 }
@@ -313,7 +343,7 @@ mod tests {
         const D3: usize = 19;
         const C4: usize = 26;
 
-        let placement_filter = PlacementFilter::with_capacity(2);
+        let placement_filter = PlacementFilter::with_capacity(2, GoalMatch::Exact);
         let initial = Position::initial();
         let successor_after = |square| {
             successors(initial)
@@ -349,7 +379,7 @@ mod tests {
 
     #[test]
     fn bounded_geometry_cache_keeps_its_limit_under_concurrent_misses() {
-        let placement_filter = PlacementFilter::with_capacity(7);
+        let placement_filter = PlacementFilter::with_capacity(7, GoalMatch::Exact);
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x6d75_7465);
         let positions: Vec<_> = (0..32)
             .map(|_| {
@@ -370,7 +400,7 @@ mod tests {
                         let position = positions[(step + offset) % positions.len()];
                         assert_eq!(
                             placement_filter.candidates(position),
-                            placement_candidates(position)
+                            placement_candidates(position, GoalMatch::Exact)
                         );
                         let cache = placement_filter.cache.lock().unwrap();
                         assert!(cache.entries.len() <= cache.capacity);

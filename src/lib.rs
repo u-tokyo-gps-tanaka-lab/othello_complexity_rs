@@ -8,3 +8,7 @@ pub mod query;
 pub mod record;
 pub mod sampling;
 pub mod search;
+
+// Concurrent searches in one process use more CPU and memory under glibc malloc.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

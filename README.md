@@ -37,7 +37,7 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
    │ 時間制限などで決着がつかなかった局面 (UNKNOWN)
    ▼
 3. 逆探索による判定 (Pipeline::reverse_search / reverse_search)
-   └─ 目標局面から後向きに深さ優先探索を行い、初期局面側から生成した局面と合流するか調べる。
+   └─ 目標局面から後向きにグラフ探索を行い、初期局面側から生成した局面と合流するか調べる。
    │
    ▼
 [最終結果: OK / NG / UNKNOWN]
@@ -72,6 +72,14 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 cargo build --release
 cargo test
 ```
+
+### メモリの設定
+
+本リポジトリはメモリアロケータに mimalloc を使います。mimalloc は次の2つの環境変数で最大常駐メモリを減らせます。どちらも判定の手順を変える設定ではありません。
+
+`MIMALLOC_PURGE_DELAY=0` は、解放したメモリをすぐ OS へ返す設定です。`MIMALLOC_ALLOW_THP=0` は、Linux の透過的巨大ページ (THP) をそのプロセスで無効にする設定で、大きな探索が遅くなることがあります。
+
+どちらも `.cargo/config.toml` に書いてあるので、`cargo run` と `cargo test` では自動で有効になります。`target/release/` のバイナリを直接実行するときは有効にならないので、`MIMALLOC_PURGE_DELAY=0 MIMALLOC_ALLOW_THP=0 target/release/reverse_search ...` のように自分で指定してください。速度を優先して THP を使うときは、`MIMALLOC_ALLOW_THP=1 cargo run --release --bin reverse_search -- ...` のように指定すると、`.cargo/config.toml` の値を上書きできます。
 
 
 ## 到達可能局面数の推計（基本手順）
@@ -176,12 +184,16 @@ cargo run --release --example estimate
 | `encodings` | SAT への符号化方式。`SatEncoding::Ply.into()` のように1つの方式を指定するか、`SatPortfolio::new(vec![..])` で複数の方式を組み合わせる。各方式は後述の「SAT 判定の詳細仕様」を参照。 |
 | `seeds` | 1つの符号化方式につき、乱数シードを変えてソルバを実行する回数。 |
 | `parallel_goals` | 同時に判定する局面数。 |
-| `timeout` | 候補局面1つあたりの SAT ソルバの制限時間。`None` なら制限時間を設けない。`equivalence` モードでは1つの入力局面につき最大16通りの対称局面を個別に解くため、1局面あたりの合計時間は指定値を超えることがある。 |
+| `timeout` | 候補局面1つあたりの SAT ソルバの制限時間。ポートフォリオの全ワーカーが CNF を Kissat に読み込んだ時点から測る。`None` なら制限時間を設けない。`equivalence` モードでは、標準の開始局面を固定する対称変換で候補をまとめるため、1つの入力局面につき最大4通りの対称局面を個別に解く。したがって、1局面あたりの合計時間は指定値を超えることがある。 |
 | `reverse_bfs` | SAT 実行前の幅優先逆探索の設定。`None` なら実行しない。後述の「SAT 実行前の幅優先逆探索」を参照。 |
 
 #### `reverse_search(Strategy::..)` の設定項目
 
 逆探索の方式は `Strategy` の7つの列挙子から選びます。列挙子とフィールドは、単体コマンド `reverse_search` のサブコマンドおよびオプションに対応します（例: `Strategy::DfsParallel` は `dfs-parallel` に対応）。
+
+`Strategy::GbfsParallel` では、`threads` が1局面の探索に使うワーカースレッド数、`parallel_goals` が同時に探索する局面数です。単体コマンドの対応するオプションは `--threads` と `--parallel-goals` であり、どちらも既定値は1です。`parallel_goals` を2以上にする場合は、`threads` に1以上を指定し、両者の積を64以下にしてください。
+
+`gbfs-parallel` の概算メモリ使用量は「`parallel_goals` × 1局面のピーク」です。探索上限が大きい場合は、1ノードあたり約90 Bが目安となります。多数の局面を処理するときは、`threads` を小さくし、利用可能な計算資源とメモリの範囲で `parallel_goals` を大きくする方が、単位時間あたりに処理できる局面数を増やしやすくなります。
 
 ### 3. 出力ディレクトリの構成と仕様
 
@@ -196,8 +208,8 @@ out/estimate/
 └── summary.json            推計全体の設定と各ステージの結果記録
 ```
 
-- 各ステージのディレクトリ（`01-filters/` など）: 宣言順の2桁の番号とステージ種別をつないだ名前になります。SAT ステージでは判定が完了した局面から順にファイルへ追記されるため、出力行の並び順は入力順とは一致しません。
-- `_records.csv`: `OK`（到達可能）と判定された局面への到達手順（棋譜）が記録されます。後述の `verify_record` コマンドで独立に検証できます。
+- 各ステージのディレクトリ（`01-filters/` など）: 宣言順の2桁の番号とステージ種別をつないだ名前になります。SAT ステージと、`parallel_goals` が2以上の `gbfs-parallel` では、判定が完了した局面から順にファイルへ追記されるため、出力行の並び順は入力順とは一致しません。
+- `_records.csv`: `OK`（到達可能）と判定された局面への到達手順（棋譜）が記録されます。完了順で出力される場合は、CSV の行番号ではなく `input_index` で入力局面に対応付けます。棋譜は後述の `verify_record` コマンドで独立に検証できます。
 - `summary.json`: 標本の情報、有意水準（`alpha`）、および各ステージの設定値・完了状態・判定件数・そのステージ終了時点での信頼区間が記録されます。ステージが1つ完了するたびに更新されるため、実行が途中で止まっても完了したステージまでの結果が残ります。
 
 出力ディレクトリの指定に関する注意点:
@@ -228,7 +240,7 @@ Expected |R| interval: [0.000000e+0, 6.628144e+26]
 
 ### 5. 中断した推計の再開とステージの追加
 
-すでに `summary.json` が存在する出力ディレクトリに対して `run` を呼ぶと、完了済みのステージの出力ファイルを読み込んで検証し、未完了のステージから実行を再開します。
+すでに `summary.json` が存在する出力ディレクトリに対して `run` を呼ぶと、完了済みのステージの出力ファイルを読み込んで検証し、未完了のステージから実行を再開します。現在の保存形式と一致しない結果は再開できません。
 
 再開できるのは、プログラムで指定した標本および先頭ステージ群の設定が、保存済みの完了ステージと一致している場合です。一致しない場合は、ディレクトリを変更せずにエラーで終了します（最初からやり直す場合は別の出力ディレクトリを指定してください）。
 
@@ -250,7 +262,8 @@ Pipeline::from_run(Path::new("out/estimate"), 2)
         discs: 10,
         max_nodes: 10_000_000,
         use_lp: false,
-        threads: 20,
+        threads: 1,
+        parallel_goals: 20,
     })
     .run(Path::new("out/estimate-gbfs"), 0.005)?;
 ```
@@ -389,13 +402,15 @@ cargo run --release --bin verify_record -- \
 
 ### 逆探索の単体実行 (`reverse_search`)
 
-局面ファイルに対して深さ優先の逆探索を実行します。
+局面ファイルに対して逆探索を実行します。次の例では、4局面を同時に処理し、各局面の探索に1スレッドを使います。
+
+`--max-nodes` は、`exact` では完全一致の候補ごとに、`equivalence` では入力局面ごとに適用されます。DFS では訪問した局面数、GBFS では登録した局面数を制限します。メモリ内 BFS では、現在の層と次の層に同時に保持する局面数を制限し、保持する全層の合計は制限しません。
 
 ```sh
-cargo run --release --bin reverse_search -- dfs-parallel \
+cargo run --release --bin reverse_search -- gbfs-parallel \
   out/estimate/02-sat/sat_equivalence_UNKNOWN.txt \
   --mode equivalence \
-  --discs 8 --max-nodes 10000 --table-size 100000 --threads 2 \
+  --discs 8 --max-nodes 10000 --threads 1 --parallel-goals 4 \
   --out-dir out/reverse_search
 ```
 
@@ -466,6 +481,7 @@ cargo run --release --bin convert_boards -- representatives \
 > 注意:
 > - `convert_boards` で変換した標本の推計対象は `exact` モード（到達可能な局面数）に限られます。`equivalence` モードの同値類数や、石数を固定した推計には使用できません。
 > - `convert_boards` は、入力ファイルが本当に一様抽出された標本かどうかは検査できません（`representatives` が検査するのは各行が代表元であるかという点のみです）。手動で選んだ盤面などを入力してもエラーにはなりませんが、出力が一様標本にならず推計結果に偏りが生じます。
+> - 入力ファイルを出力先の `positions.txt`、`mapping.jsonl`、`sampling.json` と同じファイルにはできません。シンボリックリンクとハードリンクで同じファイルを指す場合もエラーになります。
 
 #### 補足: `representatives` の変換アルゴリズム
 

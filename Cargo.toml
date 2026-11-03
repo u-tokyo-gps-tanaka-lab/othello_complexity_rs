@@ -32,6 +32,8 @@ flurry = "0.5"
 rapidhash = "4.2.2"
 foldhash = "0.2.0"
 ahash = "0.8.12"
+mimalloc = "0.1.52"
+same-file = "1"
 
 [[bin]]
 name = "reverse_search"

@@ -3,6 +3,7 @@ use othello_complexity_rs::io::{parse_file_to_positions, reject_estimate_output_
 use othello_complexity_rs::record::GoalMatch;
 use othello_complexity_rs::search::run::{run_strategy, ExternalBfs, Strategy};
 use std::io;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -52,7 +53,7 @@ struct BasicOpts {
     /// Forward-search boundary, including passes and terminals at this count.
     #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
     discs: u32,
-    /// Per-exact-candidate limit: visited nodes in DFS, registered positions in GBFS.
+    /// Query limit: DFS counts visits and GBFS counts registered positions. It applies per exact candidate or per equivalence input position.
     #[arg(long, env = "MAX_NODES", default_value_t = 1_000_000)]
     max_nodes: usize,
 }
@@ -76,8 +77,11 @@ struct GbfsOpts {
     #[arg(long)]
     use_lp: bool,
     /// Worker threads; zero selects available parallelism, capped at 64.
-    #[arg(long, env = "RAYON_THREADS", default_value_t = 60)]
+    #[arg(long, env = "RAYON_THREADS", default_value_t = 1)]
     threads: usize,
+    /// Positions searched concurrently.
+    #[arg(long, default_value = "1")]
+    parallel_goals: NonZeroUsize,
 }
 
 #[derive(Args, Debug)]
@@ -92,7 +96,7 @@ struct InmemoryBfsOpts {
     /// Forward-search boundary, including passes and terminals at this count.
     #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
     discs: u32,
-    /// Per-exact-candidate maximum positions in the current and next layers.
+    /// Maximum positions held in the current and next layers, per exact candidate or equivalence input position. This does not bound all retained layers together.
     #[arg(long, default_value_t = usize::MAX)]
     max_nodes: usize,
     #[arg(long)]
@@ -179,6 +183,7 @@ fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
                 max_nodes,
                 use_lp: opts.use_lp,
                 threads: opts.threads,
+                parallel_goals: opts.parallel_goals.get(),
             })
         }
         Command::ExternalBfs(opts) => into_external_strategy(opts, Strategy::BfsExternal),

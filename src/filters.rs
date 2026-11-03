@@ -53,14 +53,16 @@ impl Filter {
                 "some occupied squares cannot be reached from the centre",
             )),
             Self::Seg3More => {
-                if !occupancy::check_occupancy(board.player | board.opponent) {
+                let occupied = board.player | board.opponent;
+                if !occupancy::check_occupancy(occupied) {
                     return Ok(necessary_condition(
                         false,
                         "occupancy reachability prerequisite is not satisfied",
                     ));
                 }
+                let order = occupancy::occupancy_order(occupied);
                 Ok(necessary_condition(
-                    seg3::check_seg3_more(board.player, board.opponent, false),
+                    seg3::check_seg3_more_with_order(board.player, board.opponent, &order),
                     "the possible flips cannot explain the final colours",
                 ))
             }

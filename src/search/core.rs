@@ -3,8 +3,8 @@
 use std::io;
 
 use crate::io::{TriCategory, TriOutcome};
-use crate::othello::{flip, get_moves, Board, Position, CENTER_MASK};
-use crate::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
+use crate::othello::{flip, get_moves, Board, BoardSymmetry, Position, CENTER_MASK};
+use crate::record::{replay, PlyAction, ReachabilityRecord};
 use crate::search::forward::ForwardTable;
 
 /// A resource stop is distinct from a proof that the search was exhausted.
@@ -25,7 +25,8 @@ impl TriOutcome for SearchResult {
     }
 }
 
-/// Every successful search carries a replayed certificate for its exact goal.
+/// Every successful search carries a replayed certificate whose endpoint
+/// satisfies the requested `goal_match` condition.
 #[derive(Debug, Clone)]
 pub enum SearchOutcome {
     Found {
@@ -63,10 +64,12 @@ impl SearchOutcome {
 #[derive(Debug, Clone)]
 pub(crate) struct SearchNode {
     pub position: Position,
-    pub reverse_actions: Vec<PlyAction>,
+    pub reverse_actions: Vec<u8>,
 }
 
 impl SearchNode {
+    const PASS_ACTION: u8 = 64;
+
     pub fn root(position: Position) -> Self {
         Self {
             position,
@@ -74,12 +77,48 @@ impl SearchNode {
         }
     }
 
+    pub fn from_reverse_actions(
+        position: Position,
+        reverse_actions: impl IntoIterator<Item = PlyAction>,
+    ) -> Self {
+        Self {
+            position,
+            reverse_actions: reverse_actions
+                .into_iter()
+                .map(Self::encode_action)
+                .collect(),
+        }
+    }
+
     pub fn preceding(&self, position: Position, action: PlyAction) -> Self {
         let mut reverse_actions = self.reverse_actions.clone();
-        reverse_actions.push(action);
+        reverse_actions.push(Self::encode_action(action));
         Self {
             position,
             reverse_actions,
+        }
+    }
+
+    pub fn push_reverse_action(&mut self, action: PlyAction) {
+        self.reverse_actions.push(Self::encode_action(action));
+    }
+
+    fn encode_action(action: PlyAction) -> u8 {
+        match action {
+            PlyAction::Play(square) => {
+                debug_assert!(square < 64);
+                square as u8
+            }
+            PlyAction::Pass => Self::PASS_ACTION,
+        }
+    }
+
+    fn decode_action(action: u8) -> PlyAction {
+        if action == Self::PASS_ACTION {
+            PlyAction::Pass
+        } else {
+            debug_assert!(action < Self::PASS_ACTION);
+            PlyAction::Play(action as usize)
         }
     }
 }
@@ -90,25 +129,57 @@ pub(crate) fn found(
     node: &SearchNode,
     nodes: usize,
 ) -> io::Result<SearchOutcome> {
-    let mut actions = table.actions_to(node.position).ok_or_else(|| {
+    let (mut actions, start_symmetry) = table.actions_to(node.position).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             "meeting position has no forward path",
         )
     })?;
-    actions.extend(node.reverse_actions.iter().rev().copied());
+    actions.extend(
+        node.reverse_actions
+            .iter()
+            .rev()
+            .copied()
+            .map(SearchNode::decode_action),
+    );
+    for action in &mut actions {
+        if let PlyAction::Play(square) = action {
+            *square = transform_square(*square, start_symmetry);
+        }
+    }
+    let trace = replay(table.start(), &actions)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let endpoint = *trace.last().expect("replay includes its starting position");
+    let transform = table
+        .goal_match()
+        .transforms()
+        .find(|transform| transform.apply_position(goal) == endpoint)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "reconstructed endpoint does not match the requested goal",
+            )
+        })?;
     let record = ReachabilityRecord {
         input_index: 1,
         start: table.start(),
         goal,
-        goal_match: GoalMatch::Exact,
-        transform: PositionTransform::IDENTITY,
+        goal_match: table.goal_match(),
+        transform,
         actions,
     };
     record
         .verify()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     Ok(SearchOutcome::Found { record, nodes })
+}
+
+fn transform_square(square: usize, symmetry: BoardSymmetry) -> usize {
+    debug_assert!(square < 64);
+    symmetry
+        .apply(Board::new(1_u64 << square, 0))
+        .player
+        .trailing_zeros() as usize
 }
 
 /// Each successor is exactly one placement or one legal pass. A terminal
@@ -304,14 +375,22 @@ impl Iterator for PlacementPredecessors {
 
 pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) -> io::Result<bool> {
     use crate::filters::{
-        impossible_edges::check_virtual_edge_patterns, linear_programming::check_lp,
-        occupancy::check_occupancy, seg3::check_seg3_more,
+        impossible_edges::check_virtual_edge_patterns,
+        linear_programming::check_lp,
+        occupancy::{check_occupancy, occupancy_order, occupancy_order_cached},
+        seg3::check_seg3_more_with_order,
     };
     let Board { player, opponent } = position.board;
-    if !check_occupancy(player | opponent)
-        || !check_virtual_edge_patterns(player, opponent)
-        || !check_seg3_more(player, opponent, occupancy_cache)
-    {
+    let occupied = player | opponent;
+    if !check_occupancy(occupied) || !check_virtual_edge_patterns(player, opponent) {
+        return Ok(false);
+    }
+    let order = if occupancy_cache {
+        occupancy_order_cached(occupied)
+    } else {
+        occupancy_order(occupied)
+    };
+    if !check_seg3_more_with_order(player, opponent, &order) {
         return Ok(false);
     }
     if use_lp {
@@ -326,6 +405,27 @@ pub(crate) fn viable(position: Position, use_lp: bool, occupancy_cache: bool) ->
         return Ok(result.passes());
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod search_node_tests {
+    use super::*;
+
+    #[test]
+    fn reverse_actions_use_the_external_bfs_byte_codes() {
+        let actions = [PlyAction::Play(0), PlyAction::Play(63), PlyAction::Pass];
+        let node = SearchNode::from_reverse_actions(Position::initial(), actions);
+
+        assert_eq!(node.reverse_actions, [0, 63, 64]);
+        assert_eq!(
+            node.reverse_actions
+                .iter()
+                .copied()
+                .map(SearchNode::decode_action)
+                .collect::<Vec<_>>(),
+            actions
+        );
+    }
 }
 
 #[cfg(test)]

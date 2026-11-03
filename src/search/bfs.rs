@@ -12,6 +12,7 @@ use crate::search::{
     constraints::ReverseConstraints,
     core::{found, pass_predecessor, PlacementPredecessors, SearchNode, SearchOutcome},
     forward::ForwardTable,
+    frontier::ForwardOccupancyIndex,
     transposition::Visited,
 };
 
@@ -46,7 +47,8 @@ pub fn retrospective_bfs(
     if goal.board.popcount() <= table.discs() {
         return Ok(BfsOutcome::Resolved(SearchOutcome::NotFound { nodes: 0 }));
     }
-    let constraints = ReverseConstraints::new(table, goal);
+    let frontier = ForwardOccupancyIndex::new(table, goal);
+    let constraints = ReverseConstraints::new(table, &frontier);
     let mut nodes: Vec<Node> = Vec::new();
     let mut seen = Visited::default();
     let Some(candidates) = constraints.candidates(goal) else {
@@ -137,7 +139,7 @@ fn register(
     nodes: &mut Vec<Node>,
     seen: &mut Visited,
     table: &ForwardTable,
-    constraints: &ReverseConstraints,
+    constraints: &ReverseConstraints<'_>,
     position: Position,
     parent: usize,
     action: PlyAction,
@@ -182,8 +184,5 @@ fn reverse_node(
     // Actions were collected from the meeting position towards the goal, but
     // SearchNode stores them from the goal towards the node.
     reverse_actions.reverse();
-    SearchNode {
-        position,
-        reverse_actions,
-    }
+    SearchNode::from_reverse_actions(position, reverse_actions)
 }

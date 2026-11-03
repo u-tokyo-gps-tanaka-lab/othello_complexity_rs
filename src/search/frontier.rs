@@ -1,7 +1,9 @@
-//! Necessary occupancy conditions supplied by the exact forward frontier.
+//! Necessary occupancy conditions supplied by the forward frontier.
 
-use crate::othello::{Position, CENTER_MASK};
-use crate::search::forward::{compatible, ForwardTable};
+use crate::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
+use crate::record::GoalMatch;
+use crate::search::forward::{compatible, ForwardTable, SEQUENTIAL_LAYER_LIMIT};
+use rayon::prelude::*;
 use std::sync::Mutex;
 
 const CACHE_SIZE: usize = 4096;
@@ -97,43 +99,57 @@ impl OccupancyTree {
 /// Distinct frontier occupancies compatible with one query's goal occupancy.
 ///
 /// If a reverse node with at least `table.discs()` stones is reachable, some
-/// exact forward position at that boundary must have an occupancy contained in
-/// the node. Its remaining reverse placement steps cannot remove a square
-/// shared by every such frontier occupancy before reaching the boundary.
+/// forward position at that boundary must have an occupancy contained in the
+/// node. Equivalence tables store canonical representatives, so this index
+/// expands their geometric images before applying the goal condition. The
+/// remaining reverse placement steps cannot remove a square shared by every
+/// such frontier occupancy before reaching the boundary.
 ///
 /// Callers must use this index only for reverse ancestors of the goal used to
 /// construct it and validate that goal against the supplied forward table.
 pub(crate) struct ForwardOccupancyIndex {
     occupancies: Vec<u64>,
     tree: Option<OccupancyTree>,
+}
+
+pub(crate) struct ForwardOccupancyCache {
     // A direct-mapped cache stores complete keys. A collision only causes a
     // recomputation; it can never turn a missing frontier into a proof.
-    cache: Mutex<Vec<CacheEntry>>,
+    entries: Mutex<Vec<CacheEntry>>,
 }
 
 impl ForwardOccupancyIndex {
     pub(crate) fn new(table: &ForwardTable, goal: Position) -> Self {
-        let occupancies: Vec<u64> = table
-            .positions()
-            .filter(|position| position.board.popcount() == table.discs())
-            // Apply the goal-specific immutable-color condition before dropping
-            // colors. One compatible assignment is enough to retain its mask.
-            .filter(|position| compatible(*position, goal))
-            .map(|position| position.board.player | position.board.opponent)
-            .collect();
-        Self::from_occupancies(occupancies)
+        Self::new_with_limit(table, goal, SEQUENTIAL_LAYER_LIMIT)
     }
 
+    fn new_with_limit(table: &ForwardTable, goal: Position, sequential_layer_limit: usize) -> Self {
+        let boundary_len = table.boundary_layer().iter().map(Vec::len).sum::<usize>();
+        let sequential = boundary_len <= sequential_layer_limit;
+        let mut occupancies = if sequential {
+            collect_occupancies_sequential(table, goal)
+        } else {
+            collect_occupancies_parallel(table, goal)
+        };
+        if sequential {
+            occupancies.sort_unstable();
+        } else {
+            occupancies.par_sort_unstable();
+        }
+        Self::from_sorted_occupancies(occupancies)
+    }
+
+    #[cfg(test)]
     fn from_occupancies(mut occupancies: Vec<u64>) -> Self {
         occupancies.sort_unstable();
+        Self::from_sorted_occupancies(occupancies)
+    }
+
+    fn from_sorted_occupancies(mut occupancies: Vec<u64>) -> Self {
         occupancies.dedup();
         occupancies.shrink_to_fit();
         let tree = (occupancies.len() >= TREE_THRESHOLD).then(|| OccupancyTree::new(&occupancies));
-        Self {
-            occupancies,
-            tree,
-            cache: Mutex::new(vec![None; CACHE_SIZE]),
-        }
+        Self { occupancies, tree }
     }
 
     /// Return the squares shared by all frontier occupancies contained in
@@ -142,20 +158,29 @@ impl ForwardOccupancyIndex {
     /// For a nonboundary reverse node, a placement on any returned square is
     /// impossible as its last move: removing it would eliminate every possible
     /// meeting occupancy. Legal reverse passes leave this condition unchanged.
+    #[cfg(test)]
     pub(crate) fn required_squares(&self, occupied: u64) -> Option<u64> {
+        self.compute_required_squares(occupied)
+    }
+
+    pub(crate) fn required_squares_cached(
+        &self,
+        cache: &ForwardOccupancyCache,
+        occupied: u64,
+    ) -> Option<u64> {
         let mixed = (occupied ^ (occupied >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         let mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         let slot = ((mixed ^ (mixed >> 31)) as usize) & (CACHE_SIZE - 1);
         {
-            let cache = self.cache.lock().expect("frontier cache mutex poisoned");
-            if let Some((key, required)) = cache[slot] {
+            let entries = cache.entries.lock().expect("frontier cache mutex poisoned");
+            if let Some((key, required)) = entries[slot] {
                 if key == occupied {
                     return required;
                 }
             }
         }
         let required = self.compute_required_squares(occupied);
-        self.cache.lock().expect("frontier cache mutex poisoned")[slot] =
+        cache.entries.lock().expect("frontier cache mutex poisoned")[slot] =
             Some((occupied, required));
         required
     }
@@ -185,13 +210,100 @@ impl ForwardOccupancyIndex {
     }
 }
 
+fn collect_occupancies_sequential(table: &ForwardTable, goal: Position) -> Vec<u64> {
+    match table.goal_match() {
+        GoalMatch::Exact => table
+            .boundary_layer()
+            .iter()
+            .enumerate()
+            .flat_map(|(side_index, boards)| {
+                let side_to_move = if side_index == 0 {
+                    Color::Black
+                } else {
+                    Color::White
+                };
+                boards
+                    .iter()
+                    .filter_map(move |&board| exact_occupancy(board, side_to_move, goal))
+            })
+            .collect(),
+        GoalMatch::EquivalenceClass => table.boundary_layer()[0]
+            .iter()
+            .flat_map(|&board| equivalence_occupancies(board, goal))
+            .collect(),
+    }
+}
+
+fn collect_occupancies_parallel(table: &ForwardTable, goal: Position) -> Vec<u64> {
+    match table.goal_match() {
+        GoalMatch::Exact => table
+            .boundary_layer()
+            .par_iter()
+            .enumerate()
+            .flat_map(|(side_index, boards)| {
+                let side_to_move = if side_index == 0 {
+                    Color::Black
+                } else {
+                    Color::White
+                };
+                boards
+                    .par_iter()
+                    .filter_map(move |&board| exact_occupancy(board, side_to_move, goal))
+            })
+            .collect(),
+        GoalMatch::EquivalenceClass => table.boundary_layer()[0]
+            .par_iter()
+            .flat_map_iter(|&board| equivalence_occupancies(board, goal))
+            .collect(),
+    }
+}
+
+fn exact_occupancy(board: Board, side_to_move: Color, goal: Position) -> Option<u64> {
+    let position = Position {
+        board,
+        side_to_move,
+    };
+    // Apply the goal-specific immutable-color condition before dropping colors.
+    compatible(position, goal, GoalMatch::Exact).then_some(board.player | board.opponent)
+}
+
+fn equivalence_occupancies(board: Board, goal: Position) -> impl Iterator<Item = u64> {
+    let position = Position {
+        board,
+        side_to_move: Color::Black,
+    };
+    let occupied = board.player | board.opponent;
+    let target_occupied = goal.board.player | goal.board.opponent;
+    BoardSymmetry::ALL.into_iter().filter_map(move |symmetry| {
+        let image_occupied = symmetry.apply_bits(occupied);
+        if image_occupied & target_occupied != image_occupied {
+            return None;
+        }
+        compatible(
+            symmetry.apply_position(position),
+            goal,
+            GoalMatch::EquivalenceClass,
+        )
+        .then_some(image_occupied)
+    })
+}
+
+impl ForwardOccupancyCache {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Mutex::new(vec![None; CACHE_SIZE]),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ForwardOccupancyIndex, OccupancyTree, TREE_THRESHOLD};
+    use super::{ForwardOccupancyCache, ForwardOccupancyIndex, OccupancyTree, TREE_THRESHOLD};
     use crate::filters::occupancy::check_occupancy;
-    use crate::othello::{Board, Color, Position, CENTER_MASK};
+    use crate::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
+    use crate::record::{replay, GoalMatch, PlyAction};
     use crate::search::core::predecessors;
-    use crate::search::forward::ForwardTable;
+    use crate::search::forward::{compatible, ForwardTable};
     use rand::{Rng, SeedableRng};
     use std::collections::HashSet;
 
@@ -212,6 +324,56 @@ mod tests {
             .copied()
             .filter(|mask| mask & occupied == *mask)
             .reduce(|a, b| a & b)
+    }
+
+    fn linear_frontier_occupancies(table: &ForwardTable, goal: Position) -> Vec<u64> {
+        let mut occupancies: Vec<_> = match table.goal_match() {
+            GoalMatch::Exact => table
+                .boundary()
+                .filter(|&position| compatible(position, goal, GoalMatch::Exact))
+                .map(occupied)
+                .collect(),
+            GoalMatch::EquivalenceClass => table
+                .boundary()
+                .flat_map(|position| {
+                    BoardSymmetry::ALL
+                        .into_iter()
+                        .map(move |symmetry| symmetry.apply_position(position))
+                })
+                .filter(|&position| compatible(position, goal, GoalMatch::EquivalenceClass))
+                .map(occupied)
+                .collect(),
+        };
+        occupancies.sort_unstable();
+        occupancies.dedup();
+        occupancies
+    }
+
+    #[test]
+    fn sequential_and_parallel_frontier_occupancies_match_linear_scans() {
+        let goal = ForwardTable::new(9, None)
+            .unwrap()
+            .positions()
+            .find(|position| position.board.popcount() == 9)
+            .unwrap();
+        let exact = ForwardTable::new(8, None).unwrap();
+        let equivalence = ForwardTable::for_equivalence(8, goal).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(3)
+            .build()
+            .unwrap();
+
+        for table in [&exact, &equivalence] {
+            let expected = linear_frontier_occupancies(table, goal);
+            let boundary_len = table.boundary_layer().iter().map(Vec::len).sum::<usize>();
+            assert!(boundary_len > 0);
+            let sequential = ForwardOccupancyIndex::new_with_limit(table, goal, boundary_len);
+            let parallel = pool
+                .install(|| ForwardOccupancyIndex::new_with_limit(table, goal, boundary_len - 1));
+            assert!(!expected.is_empty());
+            assert_eq!(sequential.occupancies, expected);
+            assert_eq!(parallel.occupancies, expected);
+        }
     }
 
     #[test]
@@ -262,6 +424,34 @@ mod tests {
                 direct_intersection(&masks, u64::MAX)
             );
         }
+    }
+
+    #[test]
+    fn occupancy_caches_are_independent_of_the_shared_index() {
+        let index = ForwardOccupancyIndex::from_occupancies(vec![CENTER_MASK]);
+        let first = ForwardOccupancyCache::new();
+        let second = ForwardOccupancyCache::new();
+
+        assert_eq!(
+            index.required_squares_cached(&first, CENTER_MASK),
+            Some(CENTER_MASK)
+        );
+        assert!(first
+            .entries
+            .lock()
+            .expect("frontier cache mutex poisoned")
+            .iter()
+            .any(Option::is_some));
+        assert!(second
+            .entries
+            .lock()
+            .expect("frontier cache mutex poisoned")
+            .iter()
+            .all(Option::is_none));
+        assert_eq!(
+            index.required_squares_cached(&second, CENTER_MASK),
+            Some(CENTER_MASK)
+        );
     }
 
     #[test]
@@ -447,5 +637,18 @@ mod tests {
         let index = ForwardOccupancyIndex::new(&boundary, goal);
         assert!(index.occupancies.is_empty());
         assert_eq!(index.required_squares(mask), None);
+    }
+
+    #[test]
+    fn equivalence_frontier_retains_the_relative_five_disc_ancestor() {
+        let trace = replay(
+            Position::initial(),
+            &[PlyAction::Play(19), PlyAction::Play(18)],
+        )
+        .unwrap();
+        let table = ForwardTable::for_equivalence(5, trace[2]).unwrap();
+        let index = ForwardOccupancyIndex::new(&table, trace[2]);
+
+        assert_eq!(index.occupancies, vec![occupied(trace[1])]);
     }
 }

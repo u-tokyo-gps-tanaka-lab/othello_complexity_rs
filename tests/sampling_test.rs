@@ -5,10 +5,11 @@ mod support;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{
-    create_output_dir, fixed_discs_class_population, fixed_discs_population, generate,
-    is_representative, position_from_rank, rank_of_position, read_sample_dir,
-    representative_candidates, sample_fixed_discs, select_representative, Population,
-    CLASS_POPULATION_SIZE, POPULATION_SIZE,
+    artifact, create_output_dir, ensure_distinct_files, fixed_discs_class_population,
+    fixed_discs_population, for_each_relative_board, generate, is_representative,
+    position_from_rank, rank_of_position, read_sample_dir, representative_candidates,
+    sample_fixed_discs, select_representative, sha256, Population, CLASS_POPULATION_SIZE,
+    POPULATION_SIZE,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -482,5 +483,65 @@ fn create_output_dir_removes_sampling_record_and_preserves_other_files() {
     );
     assert_eq!(fs::read(directory.join("keep.txt")).unwrap(), b"keep");
     assert!(read_sample_dir(&directory).is_err());
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn relative_boards_are_streamed_with_stable_line_numbers_and_digest() {
+    let directory = std::env::temp_dir().join(format!(
+        "othello-relative-board-stream-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join("boards.txt");
+    let boards = [Board::initial(), Board::new(CENTER_MASK, 0)];
+    let bytes = format!("{}\r\n{}", boards[0].to_string(), boards[1].to_string()).into_bytes();
+    fs::write(&path, &bytes).unwrap();
+
+    let mut observed = Vec::new();
+    let count = for_each_relative_board(&path, |line_number, board| {
+        observed.push((line_number, board));
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(count, 2);
+    assert_eq!(observed, vec![(1, boards[0]), (2, boards[1])]);
+    let expected_digest = sha256(&bytes);
+    assert_eq!(
+        artifact(&path).unwrap()["sha256"].as_str(),
+        Some(expected_digest.as_str())
+    );
+
+    fs::write(&path, format!("{}\ninvalid", boards[0].to_string())).unwrap();
+    let error = for_each_relative_board(&path, |_, _| Ok(())).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("line 2"));
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn input_cannot_alias_an_output_through_a_path_or_hard_link() {
+    let directory = std::env::temp_dir().join(format!(
+        "othello-same-conversion-file-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let input = directory.join("input.txt");
+    let hard_link = directory.join("hard-link.txt");
+    let distinct = directory.join("distinct.txt");
+    let not_yet_existing = directory.join("not-yet-existing.txt");
+    fs::write(&input, Board::initial().to_string()).unwrap();
+    fs::hard_link(&input, &hard_link).unwrap();
+    fs::write(&distinct, Board::initial().to_string()).unwrap();
+
+    for output in [&input, &hard_link] {
+        let error = ensure_distinct_files(&input, &[output]).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+    ensure_distinct_files(&input, &[&distinct]).unwrap();
+    ensure_distinct_files(&input, &[&not_yet_existing]).unwrap();
     fs::remove_dir_all(directory).unwrap();
 }

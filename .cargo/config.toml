@@ -1,2 +1,11 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
+
+[env]
+# Cargo applies these to `cargo run` and `cargo test`, not to binaries started directly.
+# mimalloc otherwise holds freed memory for 1000 ms, which raises the peak RSS of
+# large tables and the filters by about 1.5x.
+MIMALLOC_PURGE_DELAY = "0"
+# Transparent huge pages make small mimalloc regions occupy 2 MiB of memory. Disabling
+# them lowers the peak RSS but can slow large tables and the in-memory BFS by 10-20%.
+MIMALLOC_ALLOW_THP = "0"

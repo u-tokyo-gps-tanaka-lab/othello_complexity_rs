@@ -2,24 +2,30 @@
 
 use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
 use crate::othello::{get_last_moves, Position};
-use crate::search::{forward::ForwardTable, frontier::ForwardOccupancyIndex};
+use crate::search::{
+    forward::ForwardTable,
+    frontier::{ForwardOccupancyCache, ForwardOccupancyIndex},
+};
 
 /// Per-query caches and necessary conditions. A candidate mask constrains only
 /// placements: even `Some(0)` must retain a legal reverse pass. `None` proves
 /// that the position itself cannot connect to the requested forward frontier.
-pub(crate) struct ReverseConstraints {
-    frontier: ForwardOccupancyIndex,
+pub(crate) struct ReverseConstraints<'a> {
+    frontier: &'a ForwardOccupancyIndex,
+    frontier_cache: ForwardOccupancyCache,
     placement: Option<PlacementFilter>,
 }
 
-impl ReverseConstraints {
-    pub(crate) fn new(table: &ForwardTable, goal: Position) -> Self {
+impl<'a> ReverseConstraints<'a> {
+    pub(crate) fn new(table: &ForwardTable, frontier: &'a ForwardOccupancyIndex) -> Self {
         // The occupancy and seg3 proofs start from the standard opening, not
         // from an arbitrary user-provided position. The exact frontier test
         // remains valid for either kind of start.
-        let placement = (table.start() == Position::initial()).then(PlacementFilter::new);
+        let placement = (table.start() == Position::initial())
+            .then(|| PlacementFilter::new(table.goal_match()));
         Self {
-            frontier: ForwardOccupancyIndex::new(table, goal),
+            frontier,
+            frontier_cache: ForwardOccupancyCache::new(),
             placement,
         }
     }
@@ -27,7 +33,9 @@ impl ReverseConstraints {
     /// Call only above the meeting boundary, after checking table membership.
     pub(crate) fn candidates(&self, position: Position) -> Option<u64> {
         let occupied = position.board.player | position.board.opponent;
-        let required = self.frontier.required_squares(occupied)?;
+        let required = self
+            .frontier
+            .required_squares_cached(&self.frontier_cache, occupied)?;
         let candidates = match &self.placement {
             Some(filter) => {
                 // Impossible edge patterns are proved from the standard
@@ -54,6 +62,7 @@ mod tests {
         core::{successors, SearchOutcome},
         dfs::retrospective_search,
         forward::ForwardTable,
+        frontier::ForwardOccupancyIndex,
         parallel_dfs::retrospective_search_parallel,
         parallel_gbfs::parallel_retrospective_greedy_best_first_search,
         transposition::Btable,
@@ -62,9 +71,14 @@ mod tests {
     fn assert_all_engines_reach(start: Position, goal: Position, required_pass: bool) {
         let table = ForwardTable::from_start(start, start.board.popcount(), None).unwrap();
         let mut visited = Btable::new(10_000, 256);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
         let outcomes = [
             retrospective_search(goal, &table, &mut visited, usize::MAX).unwrap(),
-            retrospective_search_parallel(goal, &table, usize::MAX, 10_000, 2).unwrap(),
+            pool.install(|| retrospective_search_parallel(goal, &table, usize::MAX, 10_000))
+                .unwrap(),
             parallel_retrospective_greedy_best_first_search(goal, &table, usize::MAX, false, 2)
                 .unwrap(),
             parallel_retrospective_greedy_best_first_search(goal, &table, usize::MAX, true, 2)
@@ -92,7 +106,8 @@ mod tests {
         };
         let goal = successors(start)[0].0;
         let table = ForwardTable::from_start(start, 4, None).unwrap();
-        let constraints = ReverseConstraints::new(&table, goal);
+        let frontier = ForwardOccupancyIndex::new(&table, goal);
+        let constraints = ReverseConstraints::new(&table, &frontier);
         assert!(constraints.placement.is_none());
         assert_all_engines_reach(start, goal, false);
     }
@@ -140,8 +155,9 @@ mod tests {
             0,
         );
         let table = ForwardTable::from_start(start, 62, Some(trace[3])).unwrap();
+        let frontier = ForwardOccupancyIndex::new(&table, trace[3]);
         assert_eq!(
-            ReverseConstraints::new(&table, trace[3]).candidates(trace[2]),
+            ReverseConstraints::new(&table, &frontier).candidates(trace[2]),
             Some(0),
         );
         assert_all_engines_reach(start, trace[3], true);
