@@ -66,7 +66,7 @@ impl Filter {
                     "the possible flips cannot explain the final colours",
                 ))
             }
-            Self::Lp => linear_programming::check_lp(board.player, board.opponent, false, false),
+            Self::Lp => linear_programming::check_lp(board.player, board.opponent, false),
         }
     }
 }

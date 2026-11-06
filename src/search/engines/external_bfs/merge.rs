@@ -1,3 +1,5 @@
+//! Sorted-run output and merging for external breadth-first search.
+
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::io;
@@ -6,6 +8,22 @@ use std::path::{Path, PathBuf};
 use super::io::{PositionReader, PositionWriter};
 use crate::othello::Position;
 use serde_json::Value;
+
+pub(super) fn write_run(
+    path: &Path,
+    context: &Value,
+    depth: usize,
+    mut positions: Vec<Position>,
+) -> io::Result<()> {
+    positions.sort_unstable();
+    positions.dedup();
+    let mut writer = PositionWriter::create(path, context, depth)?;
+    for position in positions {
+        writer.push(&position)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
 
 /// Merge sorted runs by the full position, retaining one record for each.
 pub(super) fn merge_sorted_bins(

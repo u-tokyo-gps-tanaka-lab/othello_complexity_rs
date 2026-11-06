@@ -1,4 +1,4 @@
-use crate::filters::occupancy::{occupancy_order, occupancy_order_cached};
+use crate::filters::occupancy::occupancy_order;
 use crate::filters::FilterResult;
 use crate::othello::{validate_board, Board, Direction, CENTER_MASK};
 use highs::{HighsModelStatus, RowProblem, Sense};
@@ -171,12 +171,7 @@ fn classify_highs_status(status: HighsModelStatus) -> io::Result<FilterResult> {
 ///
 /// 確定した実行不能性だけで棄却し、時間上限などの未確定には理由を付ける。
 /// モデルの構築や求解の失敗は、到達不能判定に変換せずエラーとして返す。
-pub fn check_lp(
-    player: u64,
-    opponent: u64,
-    by_ip_solver: bool,
-    use_occupancy_cache: bool,
-) -> io::Result<FilterResult> {
+pub fn check_lp(player: u64, opponent: u64, by_ip_solver: bool) -> io::Result<FilterResult> {
     validate_board(&Board::new(player, opponent)).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -184,11 +179,7 @@ pub fn check_lp(
         )
     })?;
     let occupied = player | opponent;
-    let order: [u64; 64] = if use_occupancy_cache {
-        occupancy_order_cached(occupied)
-    } else {
-        occupancy_order(occupied)
-    };
+    let order: [u64; 64] = occupancy_order(occupied);
     let mut vm = VarMaker::new();
     let mut constraints = vec![];
     // First[sq][col] : sqにcolの石を置いたかを表す論理変数
@@ -353,40 +344,31 @@ pub fn check_lp(
 mod tests {
     use super::*;
 
-    fn assert_rejected_in_both_solver_modes(board: Board) {
+    fn assert_rejected_in_both_solver_modes(name: &str, board: Board) {
         for by_ip_solver in [false, true] {
-            let result = check_lp(board.player, board.opponent, by_ip_solver, false).unwrap();
+            let result = check_lp(board.player, board.opponent, by_ip_solver).unwrap();
             assert!(
                 matches!(&result, FilterResult::Rejected { .. }),
-                "expected rejection for {board:?} with by_ip_solver={by_ip_solver}, got {result:?}"
+                "case={name}, board={board:?}, by_ip_solver={by_ip_solver}, result={result:?}"
             );
         }
     }
 
     #[test]
-    fn merged_constraint_merges_repeated_columns_and_exact_cancellation() {
-        let row = merged_constraint(
-            [(7, 1.0), (3, 2.0), (7, 3.0), (3, -2.0)],
-            CstrSense::Eq,
-            5.0,
-        );
-        assert_eq!(row.cols, vec![7]);
-        assert_eq!(row.vals, vec![4.0]);
-        assert!(matches!(row.sense, CstrSense::Eq));
-        assert_eq!(row.rhs, 5.0);
-    }
-
-    #[test]
-    fn rejects_four_monochrome_centres_in_both_solver_modes() {
-        // Adjacent centre aliases require both a - b = 1 and b - a = 1.
-        assert_rejected_in_both_solver_modes(Board::new(CENTER_MASK, 0));
-    }
-
-    #[test]
-    fn rejects_an_isolated_corner_in_both_solver_modes() {
-        // Empty C4 rows force both corner first variables to zero, contradicting C1.
+    fn inconsistent_fixed_boards_are_rejected_in_both_solver_modes() {
         let initial = Board::initial();
-        assert_rejected_in_both_solver_modes(Board::new(initial.player | 1, initial.opponent));
+        let cases = [
+            // Adjacent centre aliases require both a - b = 1 and b - a = 1.
+            ("four monochrome centres", Board::new(CENTER_MASK, 0)),
+            // Empty C4 rows force both corner first variables to zero, contradicting C1.
+            (
+                "isolated corner",
+                Board::new(initial.player | 1, initial.opponent),
+            ),
+        ];
+        for (name, board) in cases {
+            assert_rejected_in_both_solver_modes(name, board);
+        }
     }
 
     #[test]

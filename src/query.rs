@@ -179,3 +179,100 @@ pub fn solve_query(
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    enum Expected {
+        Category(TriCategory),
+        Error,
+        ReachableAfterUnknown,
+    }
+
+    // The reflected initial position has four representatives under the
+    // stabilizer of the fixed standard initial position.
+    fn aggregate(
+        mut results: Vec<Result<ExactOutcome, String>>,
+    ) -> Result<Option<GoalClassification>, String> {
+        results.reverse();
+        solve_query(
+            Position::initial(),
+            BoardSymmetry::MirrorHorizontal.apply_position(Position::initial()),
+            1,
+            GoalMatch::EquivalenceClass,
+            |_, _| results.pop().expect("candidate count").map(Some),
+        )
+    }
+
+    #[test]
+    fn candidate_aggregation_preserves_unknown_errors_and_verified_witnesses() {
+        let cases = [
+            (
+                "all-unreachable",
+                vec![
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                ],
+                Expected::Category(TriCategory::Ng),
+            ),
+            (
+                "unknown-first",
+                vec![
+                    Ok(ExactOutcome::Unknown),
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                ],
+                Expected::Category(TriCategory::Unknown),
+            ),
+            (
+                "unknown-second",
+                vec![
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unknown),
+                    Ok(ExactOutcome::Unreachable),
+                    Ok(ExactOutcome::Unreachable),
+                ],
+                Expected::Category(TriCategory::Unknown),
+            ),
+            (
+                "solver-error",
+                vec![Ok(ExactOutcome::Unknown), Err("solver failure".to_owned())],
+                Expected::Error,
+            ),
+            (
+                "reachable-after-unknown",
+                vec![
+                    Ok(ExactOutcome::Unknown),
+                    Ok(ExactOutcome::Reachable(Vec::new())),
+                ],
+                Expected::ReachableAfterUnknown,
+            ),
+        ];
+
+        for (name, results, expected) in cases {
+            match expected {
+                Expected::Category(category) => assert_eq!(
+                    aggregate(results).unwrap().unwrap().category(),
+                    category,
+                    "{name}"
+                ),
+                Expected::Error => assert!(aggregate(results).is_err(), "{name}"),
+                Expected::ReachableAfterUnknown => {
+                    let outcome = aggregate(results).unwrap().unwrap();
+                    assert_eq!(outcome.category(), TriCategory::Ok, "{name}");
+                    let record = outcome.record().unwrap();
+                    assert_ne!(record.transform, PositionTransform::IDENTITY, "{name}");
+                    assert_eq!(
+                        record.verify().unwrap(),
+                        vec![Position::initial()],
+                        "{name}"
+                    );
+                }
+            }
+        }
+    }
+}

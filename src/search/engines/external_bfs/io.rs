@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::config::Cfg;
+use super::ExternalBfs;
 use crate::io::format_position;
 use crate::othello::{validate_board, Board, Color, Position};
 use crate::record::GoalMatch;
@@ -19,8 +19,13 @@ use crate::record::GoalMatch;
 pub(super) const MAGIC: &[u8; 8] = b"OTHRBF03";
 const RECORD_SIZE: u64 = 17;
 
-pub(super) fn identity(cfg: &Cfg, goal: Position, goal_match: GoalMatch, parallel: bool) -> Value {
-    json!({"format": "absolute-reverse-bfs-v5", "goal": format_position(goal),
+pub(super) fn identity(
+    cfg: &ExternalBfs,
+    goal: Position,
+    goal_match: GoalMatch,
+    parallel: bool,
+) -> Value {
+    json!({"goal": format_position(goal),
         "goal_match": goal_match.as_str(),
         "discs": cfg.discs, "block_size": cfg.block_size,
         "jobs": cfg.jobs, "parallel": parallel})
@@ -268,7 +273,7 @@ pub(super) fn save_json(path: &Path, value: &Value) -> io::Result<()> {
     sync_parent(path)
 }
 
-pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
+pub(super) fn sync_parent(path: &Path) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -289,38 +294,11 @@ fn invalid_json(error: serde_json::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::fs::OpenOptions;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     use serde_json::json;
 
     use super::*;
-    use crate::search::core::successors;
-
-    static DIRECTORY_INDEX: AtomicU64 = AtomicU64::new(0);
-
-    struct TestDirectory(std::path::PathBuf);
-
-    impl TestDirectory {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "othello-external-io-{name}-{}-{}",
-                std::process::id(),
-                DIRECTORY_INDEX.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-
-        fn join(&self, name: &str) -> std::path::PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
+    use crate::search::{moves::successors, test_support::TemporaryDirectory};
 
     fn five_disc_positions() -> Vec<Position> {
         let mut positions: Vec<_> = successors(Position::initial())
@@ -343,7 +321,7 @@ mod tests {
 
     #[test]
     fn fixed_records_have_exact_length_and_binary_search_matches_linear_scan() {
-        let directory = TestDirectory::new("binary-search");
+        let directory = TemporaryDirectory::new("binary-search");
         let path = directory.join("layer.bin");
         let context = json!({"query": "binary-search"});
         let candidates = five_disc_positions();
@@ -371,7 +349,7 @@ mod tests {
 
     #[test]
     fn binary_search_handles_an_empty_file_and_rejects_a_truncated_record() {
-        let directory = TestDirectory::new("empty-and-truncated");
+        let directory = TemporaryDirectory::new("empty-and-truncated");
         let context = json!({"query": "empty-and-truncated"});
         let candidates = five_disc_positions();
         let empty_path = directory.join("empty.bin");
@@ -394,7 +372,7 @@ mod tests {
 
     #[test]
     fn writer_rejects_duplicate_and_descending_positions() {
-        let directory = TestDirectory::new("writer-order");
+        let directory = TemporaryDirectory::new("writer-order");
         let context = json!({"query": "writer-order"});
         let candidates = five_disc_positions();
 
@@ -413,7 +391,7 @@ mod tests {
 
     #[test]
     fn reader_checks_the_stone_layer_and_decoded_position_order() {
-        let directory = TestDirectory::new("reader-validation");
+        let directory = TemporaryDirectory::new("reader-validation");
         let context = json!({"query": "reader-validation"});
         let candidates = five_disc_positions();
 

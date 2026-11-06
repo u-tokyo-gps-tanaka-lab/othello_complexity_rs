@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position};
 use othello_complexity_rs::record::PlyAction;
-use othello_complexity_rs::search::core::successors;
+use othello_complexity_rs::search::moves::successors;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Disc {

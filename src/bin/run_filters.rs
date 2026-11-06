@@ -207,7 +207,7 @@ fn main() {
         Command::Con(opts) => run_filter(&opts, Filter::Con),
         Command::Edge(opts) => run_filter(&opts, Filter::Edge),
         Command::Lp(opts) if opts.ip => run_check(&opts.common, "ip", |board| {
-            check_lp(board.player, board.opponent, true, false)
+            check_lp(board.player, board.opponent, true)
         }),
         Command::Lp(opts) => run_filter(&opts.common, Filter::Lp),
         Command::Occupancy(opts) => run_filter(&opts, Filter::Occupancy),

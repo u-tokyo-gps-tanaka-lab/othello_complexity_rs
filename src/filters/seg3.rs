@@ -298,7 +298,7 @@ mod tests {
     use super::*;
     use crate::othello::{flip, Position};
     use crate::record::PlyAction;
-    use crate::search::core::successors;
+    use crate::search::moves::successors;
     use rand::{Rng, SeedableRng};
 
     #[test]

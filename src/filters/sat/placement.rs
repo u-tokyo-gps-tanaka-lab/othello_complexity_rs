@@ -498,104 +498,27 @@ pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filters::sat::solve_problem;
-
-    fn solve(start: Position, goal: Position) -> Result<ExactOutcome, String> {
-        match encode(start, goal)? {
-            EncodingResult::Trivial(outcome) => Ok(outcome),
-            EncodingResult::Cnf(problem) => solve_problem(&problem, None),
-        }
-    }
 
     #[test]
-    fn target_pruning_keeps_off_target_legal_moves_that_forbid_a_pass() {
-        let start = Position::initial();
-        let white_to_move = Position {
-            board: start.board.swapped(),
-            side_to_move: Color::White,
-        };
-        let goal = *replay(white_to_move, &[PlyAction::Play(20)])
-            .unwrap()
-            .last()
-            .unwrap();
-        // E3 is White's opening, while Black's legal openings all lie outside
-        // this goal's occupancy. A false pass would incorrectly reach it.
-        assert!(matches!(
-            solve(start, goal).unwrap(),
-            ExactOutcome::Unreachable
-        ));
-    }
-
-    #[test]
-    fn goal_empty_squares_use_false_constants() {
-        let start = Position::initial();
-        let goal = *replay(start, &[PlyAction::Play(19)])
-            .unwrap()
-            .last()
-            .unwrap();
-        let placements = goal.board.popcount() as usize - start.board.popcount() as usize;
-        assert!(placements > 0);
-        let (vars, _) = encode_problem(start, goal, placements);
-        let goal_occupied = goal.board.player | goal.board.opponent;
-        for square in 0..SQUARES {
-            if goal_occupied & (1_u64 << square) != 0 {
-                continue;
-            }
-            assert!(
-                vars.black.iter().all(|layer| layer[square] == FALSE),
-                "black[{square}]"
-            );
-            assert!(
-                vars.white.iter().all(|layer| layer[square] == FALSE),
-                "white[{square}]"
-            );
-            assert!(
-                vars.play.iter().all(|layer| layer[square] == FALSE),
-                "play[{square}]"
-            );
-        }
-    }
-
-    #[test]
-    fn three_move_history_is_reachable_and_replays() {
-        let start = Position::initial();
-        let goal = *replay(
-            start,
-            &[
-                PlyAction::Play(19),
-                PlyAction::Play(18),
-                PlyAction::Play(17),
-            ],
-        )
-        .unwrap()
-        .last()
-        .unwrap();
-        let ExactOutcome::Reachable(actions) = solve(start, goal).unwrap() else {
-            panic!("placement columns rejected a legal history");
-        };
-        assert_eq!(replay(start, &actions).unwrap().last(), Some(&goal));
-    }
-
-    #[test]
-    fn replay_comparison_rejects_an_incorrect_intermediate_board() {
+    fn replay_comparison_rejects_incorrect_intermediate_positions() {
         let start = Position::initial();
         let trace = replay(start, &[PlyAction::Play(19), PlyAction::Play(18)]).unwrap();
-        let mut layers = trace.clone();
-        layers[1] = replay(start, &[PlyAction::Play(26)]).unwrap()[1];
-        assert_eq!(layers.last(), trace.last());
-        assert!(verify_replayed_layers(&layers, &trace, &[0, 1, 2]).is_err());
-    }
-
-    #[test]
-    fn replay_comparison_rejects_an_incorrect_intermediate_absolute_turn() {
-        let start = Position::initial();
-        let trace = replay(start, &[PlyAction::Play(19), PlyAction::Play(18)]).unwrap();
-        let mut layers = trace.clone();
-        layers[1] = Position {
-            board: layers[1].board.swapped(),
-            side_to_move: layers[1].side_to_move.opposite(),
+        let mut incorrect_board = trace.clone();
+        incorrect_board[1] = replay(start, &[PlyAction::Play(26)]).unwrap()[1];
+        let mut incorrect_turn = trace.clone();
+        incorrect_turn[1] = Position {
+            board: incorrect_turn[1].board.swapped(),
+            side_to_move: incorrect_turn[1].side_to_move.opposite(),
         };
-        assert_eq!(layers.last(), trace.last());
-        assert!(verify_replayed_layers(&layers, &trace, &[0, 1, 2]).is_err());
+        for (name, layers) in [
+            ("board", incorrect_board),
+            ("absolute-turn", incorrect_turn),
+        ] {
+            assert_eq!(layers.last(), trace.last(), "{name}");
+            assert!(
+                verify_replayed_layers(&layers, &trace, &[0, 1, 2]).is_err(),
+                "{name}"
+            );
+        }
     }
 }

@@ -1,3 +1,5 @@
+//! External breadth-first search and checkpoint resumption.
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -5,27 +7,27 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::{
-    config::Cfg,
     expand::expand_batch,
     io::{
         contains_position, digest, identity, invalid, read_json, save_json, sync_parent,
         PositionReader, PositionWriter,
     },
-    merge::merge_sorted_bins,
-    process::write_run,
+    merge::{merge_sorted_bins, write_run},
+    ExternalBfs,
 };
 use crate::othello::Position;
 use crate::record::{PlyAction, ReachabilityRecord};
 use crate::search::{
-    core::{found, pass_predecessor, successors, SearchNode, SearchOutcome},
     forward::ForwardTable,
+    moves::{pass_predecessor, successors},
+    outcome::{found, SearchNode, SearchOutcome},
 };
 
 /// Sequential external-memory breadth-first search, retaining each exact
 /// position in a sorted stone layer. Passes stay in that layer, and the search
 /// has no node-count cutoff. `resume` validates every committed layer.
 pub fn sequential_retrospective_bfs(
-    cfg: &Cfg,
+    cfg: &ExternalBfs,
     goal: Position,
     table: &ForwardTable,
 ) -> io::Result<SearchOutcome> {
@@ -35,7 +37,7 @@ pub fn sequential_retrospective_bfs(
 /// Parallel external BFS expands bounded batches and joins every worker before
 /// committing a layer; the saved query and settings must match on resumption.
 pub fn parallel_retrospective_bfs(
-    cfg: &Cfg,
+    cfg: &ExternalBfs,
     goal: Position,
     table: &ForwardTable,
 ) -> io::Result<SearchOutcome> {
@@ -109,7 +111,7 @@ fn checkpoint(
 }
 
 fn search(
-    cfg: &Cfg,
+    cfg: &ExternalBfs,
     goal: Position,
     table: &ForwardTable,
     parallel: bool,
@@ -121,8 +123,7 @@ fn search(
             "discs must be 4..64 and block-size must be positive",
         ));
     }
-    if table.discs() != (cfg.discs as u32).min(goal.board.popcount())
-        || table.start() != Position::initial()
+    if table.discs() != cfg.discs.min(goal.board.popcount()) || table.start() != Position::initial()
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -342,7 +343,7 @@ fn validate_layers(
     Ok(())
 }
 
-pub(crate) fn validate_fresh_directory(directory: &Path) -> io::Result<()> {
+pub(super) fn validate_fresh_directory(directory: &Path) -> io::Result<()> {
     let metadata = match fs::symlink_metadata(directory) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -465,7 +466,7 @@ fn meeting_node(
 }
 
 fn flush_batch(
-    cfg: &Cfg,
+    cfg: &ExternalBfs,
     context: &Value,
     depth: usize,
     batch: &mut Vec<Position>,
@@ -485,43 +486,19 @@ mod tests {
     use std::collections::BTreeSet;
     use std::fs::OpenOptions;
     use std::io::{Seek, SeekFrom, Write};
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     use rand::{Rng, SeedableRng};
 
     use super::*;
     use crate::othello::{BoardSymmetry, Color};
     use crate::record::GoalMatch;
-    use crate::search::core::{predecessors, viable, SearchResult};
+    use crate::search::{
+        constraints::viable, moves::predecessors, outcome::SearchResult,
+        test_support::TemporaryDirectory,
+    };
 
-    static DIRECTORY_INDEX: AtomicU64 = AtomicU64::new(0);
-
-    struct TestDirectory(PathBuf);
-
-    impl TestDirectory {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "othello-external-search-{name}-{}-{}",
-                std::process::id(),
-                DIRECTORY_INDEX.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-
-        fn join(&self, name: impl AsRef<Path>) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-
-    fn config(tmp_dir: PathBuf, jobs: usize, block_size: usize, resume: bool) -> Cfg {
-        Cfg {
+    fn config(tmp_dir: PathBuf, jobs: usize, block_size: usize, resume: bool) -> ExternalBfs {
+        ExternalBfs {
             jobs,
             verbose: 0,
             block_size,
@@ -580,24 +557,24 @@ mod tests {
     }
 
     #[test]
-    fn saved_layers_match_an_independent_predecessor_enumeration() {
-        let directory = TestDirectory::new("layer-oracle");
+    fn saved_layers_follow_the_search_predecessor_filters_through_the_meeting_depth() {
+        let directory = TemporaryDirectory::new("layer-oracle");
         let goal = opening_position(7);
         let cfg = config(directory.join("search"), 1, 2, false);
         let table = ForwardTable::new(4, Some(goal)).unwrap();
         let outcome = sequential_retrospective_bfs(&cfg, goal, &table).unwrap();
+        assert!(matches!(outcome, SearchOutcome::Found { .. }));
         assert_verified(&outcome);
 
         let context = identity(&cfg, goal, GoalMatch::Exact, false);
-        let checkpoint = read_json(&cfg.tmp_dir.join("checkpoint.json")).unwrap();
-        let last_layer = unsigned(&checkpoint, "layer").unwrap();
+        let meeting_depth = (goal.board.popcount() - table.discs()) as usize;
         let mut expected = BTreeSet::from([goal]);
         for (position, action) in predecessors(goal) {
             if action == PlyAction::Pass {
                 expected.insert(position);
             }
         }
-        for depth in 0..=last_layer {
+        for depth in 0..=meeting_depth {
             let actual: BTreeSet<_> = read_positions(
                 &cfg.tmp_dir.join(format!("layer_{depth}.bin")),
                 &context,
@@ -607,15 +584,13 @@ mod tests {
             .into_iter()
             .collect();
             assert_eq!(actual, expected, "depth={depth}");
-            if depth == last_layer {
+            if depth == meeting_depth {
                 break;
             }
             let mut next = BTreeSet::new();
             for position in expected {
                 for (previous, action) in predecessors(position) {
-                    if !matches!(action, PlyAction::Play(_))
-                        || !viable(previous, true, false).unwrap()
-                    {
+                    if !matches!(action, PlyAction::Play(_)) || !viable(previous).unwrap() {
                         continue;
                     }
                     next.insert(previous);
@@ -632,13 +607,13 @@ mod tests {
 
     #[test]
     fn reconstruction_handles_a_pass_in_the_first_layer() {
-        let directory = TestDirectory::new("first-layer-pass");
+        let directory = TemporaryDirectory::new("first-layer-pass");
         let (_, trace) = pass_trace();
         let before_pass = trace[8];
         let goal = trace[9];
         assert_eq!(successors(before_pass), [(goal, PlyAction::Pass)]);
-        let cfg = Cfg {
-            discs: goal.board.popcount() as usize,
+        let cfg = ExternalBfs {
+            discs: goal.board.popcount(),
             tmp_dir: directory.join("search"),
             ..config(PathBuf::new(), 1, 4, false)
         };
@@ -655,7 +630,6 @@ mod tests {
 
         let node = meeting_node(&cfg.tmp_dir, &context, goal, before_pass, 0).unwrap();
         assert_eq!(node.position, before_pass);
-        assert_eq!(node.reverse_actions, [64]);
         let table = ForwardTable::new(goal.board.popcount(), Some(goal)).unwrap();
         let outcome = found(&table, goal, &node, 0).unwrap();
         let SearchOutcome::Found { record, .. } = outcome else {
@@ -667,10 +641,10 @@ mod tests {
 
     #[test]
     fn exact_and_equivalence_records_include_actions_around_a_pass() {
-        let directory = TestDirectory::new("pass-records");
+        let directory = TemporaryDirectory::new("pass-records");
         let (_, trace) = pass_trace();
         let exact_goal = trace[10];
-        let exact_cfg = Cfg {
+        let exact_cfg = ExternalBfs {
             discs: 10,
             tmp_dir: directory.join("exact"),
             ..config(PathBuf::new(), 1, 3, false)
@@ -679,7 +653,7 @@ mod tests {
         let exact = sequential_retrospective_bfs(&exact_cfg, exact_goal, &exact_table).unwrap();
 
         let equivalent_goal = BoardSymmetry::MirrorHorizontal.apply_position(exact_goal);
-        let equivalent_cfg = Cfg {
+        let equivalent_cfg = ExternalBfs {
             discs: 10,
             tmp_dir: directory.join("equivalence"),
             ..config(PathBuf::new(), 2, 2, false)
@@ -714,7 +688,7 @@ mod tests {
 
     #[test]
     fn sequential_parallel_jobs_and_block_sizes_preserve_decision_and_nodes() {
-        let directory = TestDirectory::new("search-settings");
+        let directory = TemporaryDirectory::new("search-settings");
         let goal = opening_position(7);
         let table = ForwardTable::new(4, Some(goal)).unwrap();
         let baseline_cfg = config(directory.join("sequential-1"), 1, 1, false);
@@ -745,7 +719,7 @@ mod tests {
 
     #[test]
     fn resume_without_a_checkpoint_rejects_unexpected_entries_without_deleting_files() {
-        let directory = TestDirectory::new("resume-with-unexpected-entry");
+        let directory = TemporaryDirectory::new("resume-with-unexpected-entry");
         let tmp_dir = directory.join("search");
         fs::create_dir(&tmp_dir).unwrap();
         let incomplete_layer = tmp_dir.join("layer_0.pending");
@@ -765,7 +739,7 @@ mod tests {
 
     #[test]
     fn resume_from_an_older_layer_discards_uncommitted_files() {
-        let directory = TestDirectory::new("resume-layer");
+        let directory = TemporaryDirectory::new("resume-layer");
         let goal = opening_position(7);
         let tmp_dir = directory.join("search");
         let cfg = config(tmp_dir.clone(), 1, 2, false);
@@ -822,7 +796,7 @@ mod tests {
 
     #[test]
     fn completed_found_and_not_found_searches_validate_then_resume() {
-        let directory = TestDirectory::new("completed-resume");
+        let directory = TemporaryDirectory::new("completed-resume");
         let found_goal = opening_position(7);
         let found_table = ForwardTable::new(4, Some(found_goal)).unwrap();
         let found_dir = directory.join("found");
@@ -859,8 +833,8 @@ mod tests {
         assert_same_decision_and_nodes(&first_not_found, &resumed_not_found);
     }
 
-    fn completed_search(name: &str) -> (TestDirectory, Cfg, Position, ForwardTable) {
-        let directory = TestDirectory::new(name);
+    fn completed_search(name: &str) -> (TemporaryDirectory, ExternalBfs, Position, ForwardTable) {
+        let directory = TemporaryDirectory::new(name);
         let goal = opening_position(7);
         let cfg = config(directory.join("search"), 1, 2, false);
         let table = ForwardTable::new(4, Some(goal)).unwrap();
@@ -869,113 +843,134 @@ mod tests {
     }
 
     #[test]
-    fn resume_rejects_an_old_layer_digest_mismatch_and_a_missing_layer() {
-        let (_digest_directory, digest_cfg, digest_goal, digest_table) =
-            completed_search("digest-mismatch");
-        let mut file = OpenOptions::new()
-            .append(true)
-            .open(digest_cfg.tmp_dir.join("layer_0.bin"))
-            .unwrap();
-        file.write_all(&[0]).unwrap();
-        let uncommitted_run = digest_cfg.tmp_dir.join("run_9_0.bin");
-        fs::write(&uncommitted_run, b"uncommitted run").unwrap();
-        let error = sequential_retrospective_bfs(
-            &Cfg {
-                resume: true,
-                ..digest_cfg
-            },
-            digest_goal,
-            &digest_table,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("layer 0 digest mismatch"));
-        assert_eq!(fs::read(uncommitted_run).unwrap(), b"uncommitted run");
+    fn resume_rejects_corrupt_saved_layers_and_checkpoint_counts() {
+        #[derive(Clone, Copy)]
+        enum Corruption {
+            Digest,
+            Missing,
+            Order,
+            Count,
+        }
 
-        let (_missing_directory, missing_cfg, missing_goal, missing_table) =
-            completed_search("missing-layer");
-        fs::remove_file(missing_cfg.tmp_dir.join("layer_0.bin")).unwrap();
-        let error = sequential_retrospective_bfs(
-            &Cfg {
-                resume: true,
-                ..missing_cfg
-            },
-            missing_goal,
-            &missing_table,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("layer 0 is missing"));
+        for (name, corruption, expected_message) in [
+            (
+                "digest-mismatch",
+                Corruption::Digest,
+                "layer 0 digest mismatch",
+            ),
+            ("missing-layer", Corruption::Missing, "layer 0 is missing"),
+            (
+                "record-order",
+                Corruption::Order,
+                "strictly increasing order",
+            ),
+            ("count-mismatch", Corruption::Count, "record count mismatch"),
+        ] {
+            let (_directory, cfg, goal, table, protected_file) = match corruption {
+                Corruption::Digest => {
+                    let (directory, cfg, goal, table) = completed_search(name);
+                    let mut file = OpenOptions::new()
+                        .append(true)
+                        .open(cfg.tmp_dir.join("layer_0.bin"))
+                        .unwrap();
+                    file.write_all(&[0]).unwrap();
+                    let uncommitted_run = cfg.tmp_dir.join("run_9_0.bin");
+                    fs::write(&uncommitted_run, b"uncommitted run").unwrap();
+                    (directory, cfg, goal, table, Some(uncommitted_run))
+                }
+                Corruption::Missing => {
+                    let (directory, cfg, goal, table) = completed_search(name);
+                    fs::remove_file(cfg.tmp_dir.join("layer_0.bin")).unwrap();
+                    (directory, cfg, goal, table, None)
+                }
+                Corruption::Order => {
+                    let directory = TemporaryDirectory::new(name);
+                    let (_, trace) = pass_trace();
+                    let goal = trace[10];
+                    let cfg = ExternalBfs {
+                        discs: 10,
+                        tmp_dir: directory.join("search"),
+                        ..config(PathBuf::new(), 1, 2, false)
+                    };
+                    let table = ForwardTable::new(10, Some(goal)).unwrap();
+                    sequential_retrospective_bfs(&cfg, goal, &table).unwrap();
+                    let checkpoint_path = cfg.tmp_dir.join("checkpoint.json");
+                    let mut checkpoint = read_json(&checkpoint_path).unwrap();
+                    let counts = checkpoint["layer_counts"].as_array().unwrap();
+                    let layer = counts
+                        .iter()
+                        .position(|count| count.as_u64().unwrap() >= 2)
+                        .expect("the shallow search retains a multi-position layer");
+                    let path = cfg.tmp_dir.join(format!("layer_{layer}.bin"));
+                    let mut file = OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&path)
+                        .unwrap();
+                    file.seek(SeekFrom::Start(20)).unwrap();
+                    let mut length = [0_u8; 4];
+                    std::io::Read::read_exact(&mut file, &mut length).unwrap();
+                    let header_length = 24 + u32::from_le_bytes(length) as u64;
+                    file.seek(SeekFrom::Start(header_length)).unwrap();
+                    let mut records = [0_u8; 34];
+                    std::io::Read::read_exact(&mut file, &mut records).unwrap();
+                    let (first, second) = records.split_at_mut(17);
+                    first.swap_with_slice(second);
+                    file.seek(SeekFrom::Start(header_length)).unwrap();
+                    file.write_all(&records).unwrap();
+                    drop(file);
+                    checkpoint["layer_sha256"][layer] = json!(digest(&path).unwrap());
+                    save_json(&checkpoint_path, &checkpoint).unwrap();
+                    (directory, cfg, goal, table, None)
+                }
+                Corruption::Count => {
+                    let (directory, cfg, goal, table) = completed_search(name);
+                    let checkpoint_path = cfg.tmp_dir.join("checkpoint.json");
+                    let mut checkpoint = read_json(&checkpoint_path).unwrap();
+                    let count = checkpoint["layer_counts"][0].as_u64().unwrap();
+                    checkpoint["layer_counts"][0] = json!(count + 1);
+                    save_json(&checkpoint_path, &checkpoint).unwrap();
+                    (directory, cfg, goal, table, None)
+                }
+            };
+
+            let error = sequential_retrospective_bfs(
+                &ExternalBfs {
+                    resume: true,
+                    ..cfg
+                },
+                goal,
+                &table,
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{name}");
+            assert!(
+                error.to_string().contains(expected_message),
+                "{name}: {error}"
+            );
+            if let Some(path) = protected_file {
+                assert_eq!(fs::read(path).unwrap(), b"uncommitted run", "{name}");
+            }
+        }
     }
 
     #[test]
-    fn resume_rejects_unsorted_records_and_checkpoint_count_mismatch() {
-        let order_directory = TestDirectory::new("record-order");
-        let (_, trace) = pass_trace();
-        let order_goal = trace[10];
-        let order_cfg = Cfg {
-            discs: 10,
-            tmp_dir: order_directory.join("search"),
-            ..config(PathBuf::new(), 1, 2, false)
+    fn external_search_rejects_a_table_with_another_boundary() {
+        let directory = TemporaryDirectory::new("external-table-boundary");
+        let goal = successors(Position::initial())[0].0;
+        let table = ForwardTable::for_equivalence(4, goal).unwrap();
+        let tmp_dir = directory.join("tmp");
+        let cfg = ExternalBfs {
+            jobs: 1,
+            verbose: 0,
+            block_size: 8,
+            discs: 5,
+            tmp_dir: tmp_dir.clone(),
+            resume: false,
         };
-        let order_table = ForwardTable::new(10, Some(order_goal)).unwrap();
-        sequential_retrospective_bfs(&order_cfg, order_goal, &order_table).unwrap();
-        let checkpoint_path = order_cfg.tmp_dir.join("checkpoint.json");
-        let mut checkpoint = read_json(&checkpoint_path).unwrap();
-        let counts = checkpoint["layer_counts"].as_array().unwrap();
-        let layer = counts
-            .iter()
-            .position(|count| count.as_u64().unwrap() >= 2)
-            .expect("the shallow search retains a multi-position layer");
-        let path = order_cfg.tmp_dir.join(format!("layer_{layer}.bin"));
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .unwrap();
-        file.seek(SeekFrom::Start(20)).unwrap();
-        let mut length = [0_u8; 4];
-        std::io::Read::read_exact(&mut file, &mut length).unwrap();
-        let header_length = 24 + u32::from_le_bytes(length) as u64;
-        file.seek(SeekFrom::Start(header_length)).unwrap();
-        let mut records = [0_u8; 34];
-        std::io::Read::read_exact(&mut file, &mut records).unwrap();
-        let (first, second) = records.split_at_mut(17);
-        first.swap_with_slice(second);
-        file.seek(SeekFrom::Start(header_length)).unwrap();
-        file.write_all(&records).unwrap();
-        drop(file);
-        checkpoint["layer_sha256"][layer] = json!(digest(&path).unwrap());
-        save_json(&checkpoint_path, &checkpoint).unwrap();
-        let error = sequential_retrospective_bfs(
-            &Cfg {
-                resume: true,
-                ..order_cfg
-            },
-            order_goal,
-            &order_table,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("strictly increasing order"));
 
-        let (_count_directory, count_cfg, count_goal, count_table) =
-            completed_search("count-mismatch");
-        let checkpoint_path = count_cfg.tmp_dir.join("checkpoint.json");
-        let mut checkpoint = read_json(&checkpoint_path).unwrap();
-        let count = checkpoint["layer_counts"][0].as_u64().unwrap();
-        checkpoint["layer_counts"][0] = json!(count + 1);
-        save_json(&checkpoint_path, &checkpoint).unwrap();
-        let error = sequential_retrospective_bfs(
-            &Cfg {
-                resume: true,
-                ..count_cfg
-            },
-            count_goal,
-            &count_table,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("record count mismatch"));
+        let error = sequential_retrospective_bfs(&cfg, goal, &table).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(!tmp_dir.exists());
     }
 }

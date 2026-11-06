@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::filters::sat::{
-    run_with_options, validate_options, ReverseBfs, RunOptions, SatPortfolio,
-};
+use crate::filters::sat::{run_with_options, validate_options, RunOptions, SatPortfolio};
 use crate::filters::{Filter, FilterResult};
 use crate::interval::{self, Interval};
 use crate::io::{format_position, parse_file_to_positions};
@@ -18,9 +16,7 @@ use crate::othello::Position;
 use crate::query::GoalClassification;
 use crate::record::{GoalMatch, ReachabilityRecord};
 use crate::sampling::{self, read_sample_dir, Population, Sample};
-use crate::search::run::{run_strategy, Strategy};
-
-const SUMMARY_FORMAT: u32 = 1;
+use crate::search::{run_strategy, Strategy};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -38,7 +34,6 @@ pub struct SatStage {
     pub seeds: usize,
     pub parallel_goals: usize,
     pub timeout: Option<Duration>,
-    pub reverse_bfs: Option<ReverseBfs>,
 }
 
 pub struct Pipeline {
@@ -82,7 +77,6 @@ impl Stage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Summary {
-    format: u32,
     sample: SampleRecord,
     #[serde(skip_serializing_if = "Option::is_none")]
     branched_from: Option<BranchedFrom>,
@@ -261,7 +255,6 @@ fn initialize_run(
             )?;
             let sample = read_sample_dir(&out_dir.join("sample"))?;
             let summary = Summary {
-                format: SUMMARY_FORMAT,
                 sample: sample_record(SampleSource::Generated(spec.clone()), &sample)?,
                 branched_from: None,
                 alpha,
@@ -276,7 +269,6 @@ fn initialize_run(
             let sample = read_sample_dir(&directory)?;
             validate_stages(stages, population_goal_match(sample.population))?;
             let summary = Summary {
-                format: SUMMARY_FORMAT,
                 sample: sample_record(SampleSource::Directory(directory), &sample)?,
                 branched_from: None,
                 alpha,
@@ -323,7 +315,6 @@ fn initialize_branch(
         )?;
     }
     let summary = Summary {
-        format: SUMMARY_FORMAT,
         sample: source_summary.sample,
         branched_from: Some(BranchedFrom {
             run: source_path.to_owned(),
@@ -672,7 +663,6 @@ fn sat_options(stage: &SatStage, mode: GoalMatch, goals: Vec<Position>) -> RunOp
         cnf_dump_dir: None,
         cnf_dump_only: false,
         sat_timeout_per_instance: stage.timeout,
-        reverse_bfs: stage.reverse_bfs,
     }
 }
 
@@ -1161,14 +1151,6 @@ fn read_optional_summary(path: &Path) -> io::Result<Option<Summary>> {
         Ok(file) => {
             let summary: Summary = serde_json::from_reader(file)
                 .map_err(|error| invalid(format!("invalid {}: {error}", path.display())))?;
-            if summary.format != SUMMARY_FORMAT {
-                return Err(invalid(format!(
-                    "unsupported {} format {}; expected {}",
-                    path.display(),
-                    summary.format,
-                    SUMMARY_FORMAT
-                )));
-            }
             Ok(Some(summary))
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),

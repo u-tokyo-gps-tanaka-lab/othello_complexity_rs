@@ -139,20 +139,6 @@ mod tests {
     use othello_complexity_rs::othello::{Board, BoardSymmetry, Color};
 
     #[test]
-    fn empty_record_preserves_the_absolute_turn() {
-        let start = Position::initial();
-        assert_eq!(
-            verify_single(start, start, "", GoalMatch::Exact).unwrap(),
-            PositionTransform::IDENTITY
-        );
-        let different_turn = Position {
-            side_to_move: Color::White,
-            ..start
-        };
-        assert!(verify_single(start, different_turn, "", GoalMatch::Exact).is_err());
-    }
-
-    #[test]
     fn equivalence_query_reports_a_transform_mapping_the_requested_goal_to_the_endpoint() {
         let start = Position::initial();
         let goal = BoardSymmetry::ALL
@@ -166,36 +152,110 @@ mod tests {
     }
 
     #[test]
-    fn a_legal_pass_must_be_explicit_and_change_the_absolute_turn() {
-        let start =
+    fn empty_pass_and_terminal_records_preserve_absolute_turn_rules() {
+        let initial = Position::initial();
+        let different_initial_turn = Position {
+            side_to_move: Color::White,
+            ..initial
+        };
+        let pass_start =
             parse_position("OXX-OOOOOXXXXXXOOXOOOXXOOOXOXOXXOXOXOOXXOOOXXXOXOOXOOOXXOOOOOOXX w")
                 .unwrap();
-        let goal = Position {
-            board: start.board.swapped(),
+        let pass_goal = Position {
+            board: pass_start.board.swapped(),
             side_to_move: Color::Black,
         };
-        assert!(verify_single(start, goal, "ps", GoalMatch::Exact).is_ok());
-        assert!(verify_single(start, goal, "", GoalMatch::Exact).is_err());
-        assert!(verify_single(start, goal, "ps ps", GoalMatch::Exact).is_err());
-        assert!(verify_single(
-            start,
-            Position {
-                side_to_move: Color::White,
-                ..goal
-            },
-            "ps",
-            GoalMatch::Exact
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn terminal_positions_allow_empty_records_but_no_passes() {
-        let start = Position {
+        let wrong_pass_turn = Position {
+            side_to_move: Color::White,
+            ..pass_goal
+        };
+        let terminal = Position {
             board: Board::new(u64::MAX, 0),
             side_to_move: Color::Black,
         };
-        assert!(verify_single(start, start, "", GoalMatch::Exact).is_ok());
-        assert!(verify_single(start, start, "ps", GoalMatch::EquivalenceClass).is_err());
+        for (case, start, goal, actions, goal_match, succeeds, expected_transform) in [
+            (
+                "empty record",
+                initial,
+                initial,
+                "",
+                GoalMatch::Exact,
+                true,
+                Some(PositionTransform::IDENTITY),
+            ),
+            (
+                "empty record with a different turn",
+                initial,
+                different_initial_turn,
+                "",
+                GoalMatch::Exact,
+                false,
+                None,
+            ),
+            (
+                "explicit legal pass",
+                pass_start,
+                pass_goal,
+                "ps",
+                GoalMatch::Exact,
+                true,
+                None,
+            ),
+            (
+                "missing legal pass",
+                pass_start,
+                pass_goal,
+                "",
+                GoalMatch::Exact,
+                false,
+                None,
+            ),
+            (
+                "extra pass",
+                pass_start,
+                pass_goal,
+                "ps ps",
+                GoalMatch::Exact,
+                false,
+                None,
+            ),
+            (
+                "pass with an unchanged turn",
+                pass_start,
+                wrong_pass_turn,
+                "ps",
+                GoalMatch::Exact,
+                false,
+                None,
+            ),
+            (
+                "empty terminal record",
+                terminal,
+                terminal,
+                "",
+                GoalMatch::Exact,
+                true,
+                None,
+            ),
+            (
+                "terminal pass",
+                terminal,
+                terminal,
+                "ps",
+                GoalMatch::EquivalenceClass,
+                false,
+                None,
+            ),
+        ] {
+            let result = verify_single(start, goal, actions, goal_match);
+            if succeeds {
+                let transform = result.unwrap_or_else(|error| panic!("{case}: {error}"));
+                if let Some(expected) = expected_transform {
+                    assert_eq!(transform, expected, "{case}");
+                }
+            } else {
+                assert!(result.is_err(), "{case}");
+            }
+        }
     }
 }

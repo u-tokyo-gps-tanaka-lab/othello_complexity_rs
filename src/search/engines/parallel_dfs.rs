@@ -1,19 +1,19 @@
+//! Parallel depth-first reverse search.
+
 use std::io;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
 
-use ordered_float::OrderedFloat;
-
+use super::dfs::order_children;
 use crate::othello::Position;
 use crate::record::PlyAction;
 use crate::search::{
     constraints::ReverseConstraints,
-    core::{append_placement_predecessors, found, pass_predecessor, SearchNode, SearchOutcome},
-    forward::ForwardTable,
-    frontier::ForwardOccupancyIndex,
-    move_ordering::h_function,
+    forward::{frontier::ForwardOccupancyIndex, ForwardTable},
+    moves::{append_placement_predecessors, pass_predecessor},
+    outcome::{found, SearchNode, SearchOutcome},
     transposition::ConcurrentVisited,
 };
 
@@ -32,11 +32,6 @@ struct Context<'a, 'b> {
     nodes: AtomicUsize,
     limited: AtomicBool,
     stopped: AtomicBool,
-}
-
-fn order_children(children: &mut [(Position, PlyAction)]) {
-    // Stable sorting preserves the established generation order on score ties.
-    children.sort_by_cached_key(|(position, _)| OrderedFloat(h_function(&position.board)));
 }
 
 fn meeting_node<'a>(position: Position, mut path: Option<&'a PathLink<'a>>) -> SearchNode {

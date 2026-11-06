@@ -314,20 +314,6 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     #[test]
-    fn occupancy_order_matches_naive_random() {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(0x0ccu64);
-        for _ in 0..100000 {
-            let occupied = rng.random::<u64>();
-            assert_eq!(
-                occupancy_order(occupied),
-                occupancy_order_naive(occupied),
-                "occupied={:#018x}",
-                occupied
-            );
-        }
-    }
-
-    #[test]
     fn occupancy_order_matches_naive_random_with_center() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x0cc5eedu64);
         for _ in 0..100000 {

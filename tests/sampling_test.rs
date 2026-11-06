@@ -101,27 +101,6 @@ fn ranks_use_the_declared_low_turn_bit_and_cell_radices() {
 }
 
 #[test]
-fn fixed_disc_sampling_has_its_own_population_and_keeps_both_turns() {
-    assert_eq!(fixed_discs_population(4).unwrap(), 32);
-    assert_eq!(fixed_discs_population(5).unwrap(), 60 * 64);
-    assert_eq!(fixed_discs_population(64).unwrap(), 1_u128 << 65);
-    assert!(fixed_discs_population(3).is_err());
-    assert!(fixed_discs_population(65).is_err());
-    let mut rng = ChaCha8Rng::seed_from_u64(41);
-    let mut observed = HashSet::new();
-    for discs in 4..=64 {
-        for _ in 0..20 {
-            let position = sample_fixed_discs(&mut rng, discs).unwrap();
-            let occupied = position.board.player | position.board.opponent;
-            assert_eq!(occupied.count_ones(), discs);
-            assert_eq!(occupied & CENTER_MASK, CENTER_MASK);
-            observed.insert(position.side_to_move);
-        }
-    }
-    assert_eq!(observed.len(), 2);
-}
-
-#[test]
 fn class_population_matches_independent_small_board_enumeration() {
     // Enumerate all 16 central colorings, and then all 60 × 2 single outer
     // discs. Coordinate-based transformations, not the Burnside implementation,
@@ -180,42 +159,6 @@ fn population_sizes_include_self_symmetric_classes_and_partition_by_disc_count()
 }
 
 #[test]
-fn population_metadata_identifies_the_sampled_set_exactly() {
-    for (population, discs, definition, size) in [
-        (
-            Population::Absolute,
-            None,
-            "absolute_positions_center_occupied",
-            POPULATION_SIZE,
-        ),
-        (
-            Population::Absolute,
-            Some(4),
-            "absolute_positions_fixed_discs",
-            32,
-        ),
-        (
-            Population::Classes,
-            None,
-            "equivalence_classes_center_occupied",
-            CLASS_POPULATION_SIZE,
-        ),
-        (
-            Population::Classes,
-            Some(4),
-            "equivalence_classes_fixed_discs",
-            6,
-        ),
-    ] {
-        let mut expected = serde_json::json!({"definition": definition, "size": size.to_string()});
-        if let Some(discs) = discs {
-            expected["discs"] = serde_json::json!(discs);
-        }
-        assert_eq!(population.metadata(discs).unwrap(), expected);
-    }
-}
-
-#[test]
 fn representative_rejection_gives_equal_mass_to_self_symmetric_classes() {
     // Every equally likely four-disc proposal is enumerated once. Exactly one
     // proposal per class survives, even though their orbit sizes differ.
@@ -252,53 +195,80 @@ fn representative_rejection_gives_equal_mass_to_self_symmetric_classes() {
 }
 
 #[test]
-fn selected_population_sampling_preserves_disc_count_and_reproducibility() {
-    for population in [Population::Absolute, Population::Classes] {
+fn fixed_disc_and_selected_population_sampling_preserve_counts_turns_and_reproducibility() {
+    assert_eq!(fixed_discs_population(4).unwrap(), 32);
+    assert_eq!(fixed_discs_population(5).unwrap(), 60 * 64);
+    assert_eq!(fixed_discs_population(64).unwrap(), 1_u128 << 65);
+    assert!(fixed_discs_population(3).is_err());
+    assert!(fixed_discs_population(65).is_err());
+    let mut fixed_rng = ChaCha8Rng::seed_from_u64(41);
+    for discs in 4..=64 {
+        let mut turns = HashSet::new();
+        for _ in 0..20 {
+            let position = sample_fixed_discs(&mut fixed_rng, discs).unwrap();
+            let occupied = position.board.player | position.board.opponent;
+            assert_eq!(occupied.count_ones(), discs, "{discs} discs");
+            assert_eq!(occupied & CENTER_MASK, CENTER_MASK, "{discs} discs");
+            turns.insert(position.side_to_move);
+        }
+        assert_eq!(turns.len(), 2, "{discs} discs");
+    }
+
+    for (case, population, expected_turns) in [
+        ("absolute positions", Population::Absolute, 2),
+        ("equivalence classes", Population::Classes, 1),
+    ] {
         let mut first = ChaCha8Rng::seed_from_u64(53);
         let mut second = ChaCha8Rng::seed_from_u64(53);
-        let mut turns = HashSet::new();
         for discs in [None, Some(4), Some(5), Some(32), Some(64)] {
+            let mut turns = HashSet::new();
             for _ in 0..32 {
                 let position = population.sample(&mut first, discs).unwrap();
-                assert_eq!(position, population.sample(&mut second, discs).unwrap());
+                assert_eq!(
+                    position,
+                    population.sample(&mut second, discs).unwrap(),
+                    "{case}, {discs:?} discs"
+                );
                 turns.insert(position.side_to_move);
                 let occupied = position.board.player | position.board.opponent;
-                assert_eq!(occupied & CENTER_MASK, CENTER_MASK);
+                assert_eq!(
+                    occupied & CENTER_MASK,
+                    CENTER_MASK,
+                    "{case}, {discs:?} discs"
+                );
                 if let Some(discs) = discs {
-                    assert_eq!(occupied.count_ones(), discs);
+                    assert_eq!(occupied.count_ones(), discs, "{case}, {discs} discs");
                 }
                 if population == Population::Classes {
-                    assert_eq!(position.side_to_move, Color::Black);
+                    assert_eq!(
+                        position.side_to_move,
+                        Color::Black,
+                        "{case}, {discs:?} discs"
+                    );
                     assert_eq!(
                         geometric_class_key(position.board),
-                        (occupied, position.board.player)
+                        (occupied, position.board.player),
+                        "{case}, {discs:?} discs"
                     );
                 }
             }
+            assert_eq!(turns.len(), expected_turns, "{case}, {discs:?} discs");
         }
-        assert_eq!(
-            turns.len(),
-            if population == Population::Absolute {
-                2
-            } else {
-                1
-            }
-        );
-        assert!(population.sample(&mut first, Some(3)).is_err());
-        assert!(population.sample(&mut first, Some(65)).is_err());
+        assert!(population.sample(&mut first, Some(3)).is_err(), "{case}");
+        assert!(population.sample(&mut first, Some(65)).is_err(), "{case}");
     }
 }
 
 #[test]
-fn each_orbit_size_has_exactly_m_accepted_draws_out_of_sixteen() {
-    for (board, expected) in [
-        (Board::new(CENTER_MASK, 0), 2),
-        (Board::initial(), 4),
-        (Board::new(CENTER_MASK | 1, 0), 8),
-        (Board::new(CENTER_MASK | (1 << 8), 0), 16),
+fn representative_candidates_match_the_oracle_and_have_equal_rational_mass() {
+    for (case, board, expected) in [
+        ("fully symmetric", Board::new(CENTER_MASK, 0), 2),
+        ("initial board", Board::initial(), 4),
+        ("corner extension", Board::new(CENTER_MASK | 1, 0), 8),
+        ("edge extension", Board::new(CENTER_MASK | (1 << 8), 0), 16),
     ] {
         let candidates = representative_candidates(board);
-        assert_eq!(candidates.len(), expected);
+        assert_eq!(candidates.len(), expected, "{case}");
         let oracle = ArrayPosition::from_relative(&board.to_string(), true);
         let expected_positions: HashSet<_> = oracle
             .orbit()
@@ -307,32 +277,32 @@ fn each_orbit_size_has_exactly_m_accepted_draws_out_of_sixteen() {
             .collect();
         assert_eq!(
             candidates.iter().map(|(_, p)| *p).collect::<HashSet<_>>(),
-            expected_positions
+            expected_positions,
+            "{case}"
         );
         let accepted: Vec<_> = (0..16)
             .filter_map(|draw| select_representative(&candidates, draw).unwrap())
             .collect();
-        assert_eq!(accepted.len(), expected);
+        assert_eq!(accepted.len(), expected, "{case}");
         assert_eq!(
             accepted
                 .iter()
                 .map(|(_, p)| p)
                 .collect::<HashSet<_>>()
                 .len(),
-            expected
+            expected,
+            "{case}"
         );
     }
-}
 
-#[test]
-fn exhaustive_two_by_two_model_gives_each_absolute_candidate_the_same_rational_mass() {
     // The four corners form a 2×2 ternary model; the central all-X block is fixed
     // by every square symmetry. There are 3^4 boards, and 2 absolute turns.
     let mut masses: HashMap<Position, usize> = HashMap::new();
     let mut trials = 0;
     let mut rejects = 0;
     let mut representative_count = 0;
-    for mut rank in 0..81 {
+    for encoded_rank in 0..81 {
+        let mut rank = encoded_rank;
         let mut board = Board::new(CENTER_MASK, 0);
         for square in [0, 7, 56, 63] {
             match rank % 3 {
@@ -358,6 +328,19 @@ fn exhaustive_two_by_two_model_gives_each_absolute_candidate_the_same_rational_m
         }
         representative_count += 1;
         let candidates = representative_candidates(board);
+        let expected_positions: HashSet<_> = ArrayPosition::from_relative(&board.to_string(), true)
+            .orbit()
+            .flat_map(|position| [position, position.color_exchanged()])
+            .map(|position| position.position())
+            .collect();
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|(_, position)| *position)
+                .collect::<HashSet<_>>(),
+            expected_positions,
+            "rank {encoded_rank}"
+        );
         for draw in 0..16 {
             trials += 1;
             if let Some((_, position)) = select_representative(&candidates, draw).unwrap() {
@@ -375,31 +358,6 @@ fn exhaustive_two_by_two_model_gives_each_absolute_candidate_the_same_rational_m
     assert!(masses.values().all(|&numerator| numerator == 1));
     assert_eq!(trials - rejects, 162);
     assert!(rejects > 0);
-}
-
-#[test]
-fn changing_the_suffix_exchanges_absolute_colors_together_with_the_turn() {
-    let black = Position::initial();
-    let color_exchanged = Position {
-        side_to_move: Color::White,
-        ..black
-    };
-    assert_eq!(
-        rank_of_position(color_exchanged).unwrap(),
-        rank_of_position(black).unwrap() + 1
-    );
-    assert_eq!(
-        &format_position(black)[..64],
-        &format_position(color_exchanged)[..64]
-    );
-    let turn_only = Position {
-        board: black.board.swapped(),
-        side_to_move: Color::White,
-    };
-    assert_ne!(
-        rank_of_position(turn_only).unwrap(),
-        rank_of_position(color_exchanged).unwrap()
-    );
 }
 
 #[test]

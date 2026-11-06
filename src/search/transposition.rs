@@ -7,9 +7,6 @@ use dashmap::DashSet;
 use crate::hash::CustomHash;
 use crate::othello::{Board, Color, Position};
 
-/// The key includes the relative board, its orientation and the absolute turn.
-pub type Visited = HashSet<Position, CustomHash>;
-
 /// An exact concurrent visited set with compact board keys per absolute turn.
 pub(crate) struct ConcurrentVisited {
     by_side: [DashSet<Board, CustomHash>; 2],
@@ -108,7 +105,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn concurrent_visited_distinguishes_the_same_board_by_turn() {
+    fn concurrent_visited_distinguishes_turns_and_rejects_duplicates() {
         let black = Position::initial();
         let white = Position {
             side_to_move: Color::White,
@@ -118,17 +115,10 @@ mod tests {
 
         assert!(visited.insert(black));
         assert!(visited.contains(&black));
+        assert!(!visited.insert(black));
         assert!(!visited.contains(&white));
         assert!(visited.insert(white));
         assert!(visited.contains(&white));
-    }
-
-    #[test]
-    fn concurrent_visited_rejects_a_duplicate_insert() {
-        let position = Position::initial();
-        let visited = ConcurrentVisited::default();
-
-        assert!(visited.insert(position));
-        assert!(!visited.insert(position));
+        assert!(!visited.insert(white));
     }
 }

@@ -3,9 +3,6 @@ name = "othello_complexity_rs"
 version = "1.0.0"
 edition = "2021"
 
-[workspace]
-members = ["experiments"]
-
 [dependencies]
 proconio = "0.4.5"
 ac-library-rs = "0.1.1"
@@ -34,18 +31,6 @@ foldhash = "0.2.0"
 ahash = "0.8.12"
 mimalloc = "0.1.52"
 same-file = "1"
-
-[[bin]]
-name = "reverse_search"
-path = "src/bin/reverse_search.rs"
-
-[[bin]]
-name = "run_filters"
-path = "src/bin/run_filters.rs"
-
-[[bin]]
-name = "verify_record"
-path = "src/bin/verify_record.rs"
 
 [profile.dev]
 panic = "unwind"

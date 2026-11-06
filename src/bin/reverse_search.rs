@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use othello_complexity_rs::io::{parse_file_to_positions, reject_estimate_output_dir};
 use othello_complexity_rs::record::GoalMatch;
-use othello_complexity_rs::search::run::{run_strategy, ExternalBfs, Strategy};
+use othello_complexity_rs::search::{engines::external_bfs::ExternalBfs, run_strategy, Strategy};
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ enum Command {
     DfsPar(ParallelOpts),
     /// Parallel greedy best-first search.
     #[command(name = "gbfs-parallel")]
-    GbfsPar(GbfsOpts),
+    GbfsPar(GoalParallelOpts),
     /// External-memory breadth-first search.
     #[command(name = "bfs-external")]
     ExternalBfs(BfsArgs),
@@ -37,8 +37,7 @@ enum Command {
     #[command(name = "bfs-external-parallel")]
     ExternalBfsPar(BfsArgs),
     /// Parallel in-memory breadth-first search.
-    #[command(name = "bfs-inmemory-parallel")]
-    InmemoryBfsPar(InmemoryBfsOpts),
+    Bfs(GoalParallelOpts),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -53,7 +52,7 @@ struct BasicOpts {
     /// Forward-search boundary, including passes and terminals at this count.
     #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
     discs: u32,
-    /// Query limit: DFS counts visits and GBFS counts registered positions. It applies per exact candidate or per equivalence input position.
+    /// Query limit: DFS counts visits; BFS and GBFS count registered positions. It applies per exact candidate or per equivalence input position.
     #[arg(long, env = "MAX_NODES", default_value_t = 1_000_000)]
     max_nodes: usize,
 }
@@ -71,7 +70,7 @@ struct ParallelOpts {
 }
 
 #[derive(Args, Debug)]
-struct GbfsOpts {
+struct GoalParallelOpts {
     #[command(flatten)]
     basic: BasicOpts,
     #[arg(long)]
@@ -82,30 +81,6 @@ struct GbfsOpts {
     /// Positions searched concurrently.
     #[arg(long, default_value = "1")]
     parallel_goals: NonZeroUsize,
-}
-
-#[derive(Args, Debug)]
-struct InmemoryBfsOpts {
-    /// File of 64-character relative boards followed by a required b/w turn.
-    input: PathBuf,
-    #[arg(short, long, default_value = "result")]
-    out_dir: PathBuf,
-    /// Mode: exact or equivalence (geometry and color/turn exchange).
-    #[arg(long)]
-    mode: GoalMatch,
-    /// Forward-search boundary, including passes and terminals at this count.
-    #[arg(short = 'd', long, env = "DISCS", default_value_t = 10, value_parser = clap::value_parser!(u32).range(4..=64))]
-    discs: u32,
-    /// Maximum positions held in the current and next layers, per exact candidate or equivalence input position. This does not bound all retained layers together.
-    #[arg(long, default_value_t = usize::MAX)]
-    max_nodes: usize,
-    #[arg(long)]
-    use_lp: bool,
-    #[arg(long)]
-    use_occupancy_cache: bool,
-    /// Worker threads; zero selects available parallelism, capped at 64.
-    #[arg(long, default_value_t = 0)]
-    threads: usize,
 }
 
 #[derive(Args, Debug)]
@@ -190,15 +165,20 @@ fn into_strategy(cli: Cli) -> (Strategy, PathBuf, PathBuf, GoalMatch) {
         Command::ExternalBfsPar(opts) => {
             into_external_strategy(opts, Strategy::BfsExternalParallel)
         }
-        Command::InmemoryBfsPar(opts) => {
-            let strategy = Strategy::BfsInmemoryParallel {
-                discs: opts.discs,
-                max_nodes: opts.max_nodes,
+        Command::Bfs(opts) => {
+            let strategy = Strategy::Bfs {
+                discs: opts.basic.discs,
+                max_nodes: opts.basic.max_nodes,
                 use_lp: opts.use_lp,
-                use_occupancy_cache: opts.use_occupancy_cache,
                 threads: opts.threads,
+                parallel_goals: opts.parallel_goals.get(),
             };
-            (strategy, opts.input, opts.out_dir, opts.mode)
+            (
+                strategy,
+                opts.basic.input,
+                opts.basic.out_dir,
+                opts.basic.mode,
+            )
         }
     }
 }

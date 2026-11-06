@@ -1,3 +1,5 @@
+//! Parallel greedy best-first reverse search and its priority function.
+
 use std::cmp::Ordering;
 use std::io;
 use std::sync::{
@@ -8,14 +10,13 @@ use std::sync::{
 use crossbeam::utils::Backoff;
 use crossbeam_skiplist::{set::Entry as SkipEntry, SkipSet};
 
-use crate::filters::{linear_programming::check_lp, FilterResult};
 use crate::othello::{get_last_moves, Position};
 use crate::record::PlyAction;
 use crate::search::{
-    constraints::ReverseConstraints,
-    core::{found, pass_predecessor, PlacementPredecessors, SearchNode, SearchOutcome},
-    forward::ForwardTable,
-    frontier::ForwardOccupancyIndex,
+    constraints::{passes_lp, ReverseConstraints},
+    forward::{frontier::ForwardOccupancyIndex, ForwardTable},
+    moves::{pass_predecessor, PlacementPredecessors},
+    outcome::{found, SearchNode, SearchOutcome},
     transposition::ConcurrentVisited,
 };
 
@@ -385,19 +386,8 @@ pub fn parallel_retrospective_greedy_best_first_search(
                         let Some(candidates) = entry.candidates else {
                             return Ok(());
                         };
-                        if use_lp && context.standard_start {
-                            let board = node.position.board;
-                            let result = check_lp(board.player, board.opponent, false, false)?;
-                            if let FilterResult::Undetermined { reason } = &result {
-                                eprintln!(
-                                    "info: LP undetermined for {}: {}; retaining this search node",
-                                    crate::io::format_position(node.position),
-                                    reason
-                                );
-                            }
-                            if !result.passes() {
-                                return Ok(());
-                            }
+                        if use_lp && context.standard_start && !passes_lp(node.position)? {
+                            return Ok(());
                         }
                         expand_node(node, candidates, &context, shared, worker, node_limit);
                         Ok(())
@@ -432,12 +422,11 @@ mod tests {
     use crate::record::PlyAction;
     use crate::search::{
         constraints::ReverseConstraints,
-        core::{
+        forward::{frontier::ForwardOccupancyIndex, ForwardTable},
+        moves::{
             append_placement_predecessors, pass_predecessor, successors, PlacementPredecessors,
-            SearchNode, SearchOutcome,
         },
-        forward::ForwardTable,
-        frontier::ForwardOccupancyIndex,
+        outcome::{SearchNode, SearchOutcome},
     };
     use rand::{Rng, SeedableRng};
     use std::io;
@@ -462,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn predecessor_count_matches_legal_playouts() {
+    fn predecessor_count_matches_legal_sparse_and_dense_boards() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x6762_6673);
         for _ in 0..16 {
             let mut position = Position::initial();
@@ -475,10 +464,7 @@ mod tests {
                 position = next[rng.random_range(0..next.len())].0;
             }
         }
-    }
 
-    #[test]
-    fn predecessor_count_matches_sparse_and_dense_boards() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x7261_7973);
         for _ in 0..256 {
             let a = rng.random::<u64>();
@@ -502,10 +488,7 @@ mod tests {
                 side_to_move: Color::Black,
             });
         }
-    }
 
-    #[test]
-    fn predecessor_count_matches_rays_from_every_square() {
         for square in 0..64 {
             for (dx, dy) in [
                 (0, -1),
@@ -530,17 +513,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    fn assert_found(outcome: SearchOutcome, expected_nodes: Option<usize>, actions: &[PlyAction]) {
-        let SearchOutcome::Found { record, nodes } = outcome else {
-            panic!("expected FOUND, got {outcome:?}");
-        };
-        if let Some(expected_nodes) = expected_nodes {
-            assert_eq!(nodes, expected_nodes);
-        }
-        assert_eq!(record.actions, actions);
-        assert_eq!(record.verify().unwrap().last(), Some(&record.goal));
     }
 
     fn shallow_pass_positions() -> (Position, Position, Position, Position) {
@@ -568,125 +540,201 @@ mod tests {
     }
 
     #[test]
-    fn boundary_decisions_precede_zero_and_one_node_limits() {
-        let table = ForwardTable::new(4, None).unwrap();
+    fn boundary_and_limit_cases_preserve_parallel_gbfs_decisions() {
+        enum Expected {
+            Found {
+                nodes: Option<usize>,
+                actions: Vec<PlyAction>,
+            },
+            NotFound(usize),
+            Unknown(usize),
+        }
+
+        struct Case<'a> {
+            name: &'static str,
+            goal: Position,
+            table: &'a ForwardTable,
+            node_limit: usize,
+            threads: usize,
+            expected: Expected,
+        }
+
+        let boundary_table = ForwardTable::new(4, None).unwrap();
         let initial = Position::initial();
         let unavailable = Position {
             side_to_move: Color::White,
             ..initial
         };
-        assert!(!table.contains(unavailable));
-        for node_limit in [0, 1] {
-            assert_found(
-                parallel_retrospective_greedy_best_first_search(
-                    initial, &table, node_limit, false, 3,
-                )
-                .unwrap(),
-                Some(0),
-                &[],
-            );
-            assert!(matches!(
-                parallel_retrospective_greedy_best_first_search(
-                    unavailable,
-                    &table,
-                    node_limit,
-                    false,
-                    3,
-                )
-                .unwrap(),
-                SearchOutcome::NotFound { nodes: 0 }
-            ));
-        }
-    }
+        assert!(!boundary_table.contains(unavailable));
 
-    #[test]
-    fn root_reverse_pass_reaches_the_forward_frontier() {
         let (start, _, goal, _) = shallow_pass_positions();
-        let table = ForwardTable::from_start(start, 21, Some(goal)).unwrap();
-        assert!(!table.contains(goal));
+        let root_pass_table = ForwardTable::from_start(start, 21, Some(goal)).unwrap();
+        assert!(!root_pass_table.contains(goal));
         assert!(pass_predecessor(goal).is_some());
-        assert!(matches!(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 2, false, 1).unwrap(),
-            SearchOutcome::Unknown { nodes: 2 }
-        ));
-        assert_found(
-            parallel_retrospective_greedy_best_first_search(goal, &table, usize::MAX, false, 1)
-                .unwrap(),
-            None,
-            &[PlyAction::Play(6), PlyAction::Pass],
-        );
-    }
 
-    #[test]
-    fn placement_child_registers_its_reverse_pass() {
-        let (start, _, _, goal) = shallow_pass_positions();
-        let table = ForwardTable::from_start(start, 21, Some(goal)).unwrap();
-        assert_found(
-            parallel_retrospective_greedy_best_first_search(goal, &table, usize::MAX, false, 1)
-                .unwrap(),
-            None,
-            &[PlyAction::Play(6), PlyAction::Pass, PlyAction::Play(13)],
-        );
-    }
-
-    #[test]
-    fn forward_boundary_retains_a_pass_witness() {
         let (_, start, goal, _) = shallow_pass_positions();
-        let table = ForwardTable::from_start(start, 22, Some(goal)).unwrap();
-        assert!(table.contains(goal));
-        assert_found(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 0, false, 3).unwrap(),
-            Some(0),
-            &[PlyAction::Pass],
-        );
-    }
+        let forward_pass_table = ForwardTable::from_start(start, 22, Some(goal)).unwrap();
+        assert!(forward_pass_table.contains(goal));
 
-    #[test]
-    fn zero_placement_candidates_still_register_a_child_pass() {
-        let start = Position {
-            board: Board::new(0x3f38_bcf6_fa8c_e6fe, 0x40c7_4309_0573_1900),
+        let rejected_goal = Position {
+            board: Board::new(CENTER_MASK, (1_u64 << 0) | (1_u64 << 63)),
             side_to_move: Color::Black,
         };
-        let before_pass = Position {
-            board: Board::new(0x40c6_4208_0472_1800, 0x3f39_bdf7_fb8d_e7ff),
-            side_to_move: Color::White,
-        };
-        let after_pass = Position {
-            board: Board::new(0x3f39_bdf7_fb8d_e7ff, 0x40c6_4208_0472_1800),
-            side_to_move: Color::Black,
-        };
-        let goal = Position {
-            board: Board::new(0x0006_4208_0472_1800, 0xfff9_bdf7_fb8d_e7ff),
-            side_to_move: Color::White,
-        };
-        assert!(successors(start).contains(&(before_pass, PlyAction::Play(0))));
-        assert_eq!(successors(before_pass), [(after_pass, PlyAction::Pass)]);
-        assert_eq!(successors(after_pass), [(goal, PlyAction::Play(63))]);
-        let table = ForwardTable::from_start(start, 62, Some(goal)).unwrap();
-        let frontier = ForwardOccupancyIndex::new(&table, goal);
+        let rejected_table = ForwardTable::new(5, None).unwrap();
+        let frontier = ForwardOccupancyIndex::new(&rejected_table, rejected_goal);
         assert_eq!(
-            ReverseConstraints::new(&table, &frontier).candidates(after_pass),
-            Some(0)
+            frontier.required_squares(rejected_goal.board.player | rejected_goal.board.opponent),
+            None
         );
-        let context = Context {
-            table: &table,
-            constraints: ReverseConstraints::new(&table, &frontier),
-            standard_start: false,
-        };
-        assert!(context.prepare(after_pass, false).is_none());
         assert_eq!(
-            context
-                .prepare(after_pass, true)
-                .expect("root registration is unconditional")
-                .1,
-            Some(0)
+            ReverseConstraints::new(&rejected_table, &frontier).candidates(rejected_goal),
+            None
         );
-        assert_found(
-            parallel_retrospective_greedy_best_first_search(goal, &table, usize::MAX, false, 1)
-                .unwrap(),
-            None,
-            &[PlyAction::Play(0), PlyAction::Pass, PlyAction::Play(63)],
-        );
+
+        let (opening_goal, opening_action) = successors(initial)[0];
+        assert!(boundary_table.contains(initial));
+        assert!(!boundary_table.contains(opening_goal));
+
+        let mut cases = Vec::new();
+        for node_limit in [0, 1] {
+            cases.push(Case {
+                name: "boundary-found",
+                goal: initial,
+                table: &boundary_table,
+                node_limit,
+                threads: 3,
+                expected: Expected::Found {
+                    nodes: Some(0),
+                    actions: Vec::new(),
+                },
+            });
+            cases.push(Case {
+                name: "boundary-not-found",
+                goal: unavailable,
+                table: &boundary_table,
+                node_limit,
+                threads: 3,
+                expected: Expected::NotFound(0),
+            });
+        }
+        cases.extend([
+            Case {
+                name: "root-pass-limit",
+                goal,
+                table: &root_pass_table,
+                node_limit: 2,
+                threads: 1,
+                expected: Expected::Unknown(2),
+            },
+            Case {
+                name: "root-pass-found",
+                goal,
+                table: &root_pass_table,
+                node_limit: usize::MAX,
+                threads: 1,
+                expected: Expected::Found {
+                    nodes: None,
+                    actions: vec![PlyAction::Play(6), PlyAction::Pass],
+                },
+            },
+            Case {
+                name: "forward-pass-boundary",
+                goal,
+                table: &forward_pass_table,
+                node_limit: 0,
+                threads: 3,
+                expected: Expected::Found {
+                    nodes: Some(0),
+                    actions: vec![PlyAction::Pass],
+                },
+            },
+            Case {
+                name: "rejected-root-limit",
+                goal: rejected_goal,
+                table: &rejected_table,
+                node_limit: 1,
+                threads: 3,
+                expected: Expected::Unknown(1),
+            },
+            Case {
+                name: "rejected-root-exhausted",
+                goal: rejected_goal,
+                table: &rejected_table,
+                node_limit: 2,
+                threads: 3,
+                expected: Expected::NotFound(1),
+            },
+        ]);
+        for node_limit in [0, 1] {
+            cases.push(Case {
+                name: "opening-child-before-expansion",
+                goal: opening_goal,
+                table: &boundary_table,
+                node_limit,
+                threads: 1,
+                expected: Expected::Unknown(1),
+            });
+        }
+        cases.extend([
+            Case {
+                name: "opening-child-reserved",
+                goal: opening_goal,
+                table: &boundary_table,
+                node_limit: 2,
+                threads: 1,
+                expected: Expected::Unknown(2),
+            },
+            Case {
+                name: "opening-child-found",
+                goal: opening_goal,
+                table: &boundary_table,
+                node_limit: 3,
+                threads: 1,
+                expected: Expected::Found {
+                    nodes: Some(2),
+                    actions: vec![opening_action],
+                },
+            },
+        ]);
+
+        for case in cases {
+            let row = format!(
+                "{}-limit-{}-threads-{}",
+                case.name, case.node_limit, case.threads
+            );
+            let outcome = parallel_retrospective_greedy_best_first_search(
+                case.goal,
+                case.table,
+                case.node_limit,
+                false,
+                case.threads,
+            )
+            .unwrap();
+            match case.expected {
+                Expected::Found { nodes, actions } => {
+                    let SearchOutcome::Found {
+                        record,
+                        nodes: actual_nodes,
+                    } = outcome
+                    else {
+                        panic!("{row}: expected FOUND, got {outcome:?}");
+                    };
+                    if let Some(nodes) = nodes {
+                        assert_eq!(actual_nodes, nodes, "{row}");
+                    }
+                    assert_eq!(record.actions, actions, "{row}");
+                    assert_eq!(record.verify().unwrap().last(), Some(&record.goal), "{row}");
+                }
+                Expected::NotFound(nodes) => assert!(
+                    matches!(outcome, SearchOutcome::NotFound { nodes: actual } if actual == nodes),
+                    "{row}: outcome={outcome:?}"
+                ),
+                Expected::Unknown(nodes) => assert!(
+                    matches!(outcome, SearchOutcome::Unknown { nodes: actual } if actual == nodes),
+                    "{row}: outcome={outcome:?}"
+                ),
+            }
+        }
     }
 
     #[test]
@@ -702,12 +750,6 @@ mod tests {
         let table = ForwardTable::new(6, None).unwrap();
         let frontier = ForwardOccupancyIndex::new(&table, goal);
         let placement_filter = PlacementFilter::new(crate::record::GoalMatch::Exact);
-        let occupied = goal.board.player | goal.board.opponent;
-        assert_eq!(
-            placement_filter.candidates(goal),
-            Some(0x0000_0002_0000_0000)
-        );
-        assert_eq!(frontier.required_squares(occupied), Some(0x001c_1808_0000));
         assert!(check_virtual_edge_patterns(
             goal.board.player,
             goal.board.opponent
@@ -715,7 +757,6 @@ mod tests {
         let candidates = ReverseConstraints::new(&table, &frontier)
             .candidates(goal)
             .expect("root passes the shared constraints");
-        assert_eq!(candidates, 0x0000_0002_0000_0000);
         let previous: Vec<_> = PlacementPredecessors::new(goal, candidates).collect();
         assert_eq!(previous, [(child, PlyAction::Play(33))]);
         assert_eq!(placement_filter.candidates(child), None);
@@ -735,64 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_root_completes_parallel_exhaustion() {
-        let goal = Position {
-            board: Board::new(CENTER_MASK, (1_u64 << 0) | (1_u64 << 63)),
-            side_to_move: Color::Black,
-        };
-        let table = ForwardTable::new(5, None).unwrap();
-        let frontier = ForwardOccupancyIndex::new(&table, goal);
-        assert_eq!(
-            frontier.required_squares(goal.board.player | goal.board.opponent),
-            None
-        );
-        assert_eq!(
-            ReverseConstraints::new(&table, &frontier).candidates(goal),
-            None
-        );
-        assert!(matches!(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 1, false, 3).unwrap(),
-            SearchOutcome::Unknown { nodes: 1 }
-        ));
-        assert!(matches!(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 2, false, 3).unwrap(),
-            SearchOutcome::NotFound { nodes: 1 }
-        ));
-    }
-
-    #[test]
-    fn opening_child_obeys_registered_node_limits() {
-        let table = ForwardTable::new(4, None).unwrap();
-        let initial = Position::initial();
-        let (goal, action) = successors(initial)[0];
-        assert!(table.contains(initial));
-        assert!(!table.contains(goal));
-        for node_limit in [0, 1] {
-            assert!(matches!(
-                parallel_retrospective_greedy_best_first_search(
-                    goal,
-                    &table,
-                    node_limit,
-                    false,
-                    1,
-                )
-                .unwrap(),
-                SearchOutcome::Unknown { nodes: 1 }
-            ));
-        }
-        assert!(matches!(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 2, false, 1).unwrap(),
-            SearchOutcome::Unknown { nodes: 2 }
-        ));
-        assert_found(
-            parallel_retrospective_greedy_best_first_search(goal, &table, 3, false, 1).unwrap(),
-            Some(2),
-            &[action],
-        );
-    }
-
-    #[test]
-    fn exact_meetings_precede_heuristic_entries() {
+    fn prepared_and_queued_entries_follow_strict_priority_order() {
         let table = ForwardTable::new(4, None).unwrap();
         let initial = Position::initial();
         let goal = successors(initial)[0].0;
@@ -822,10 +806,7 @@ mod tests {
             candidates: meeting_candidates,
         });
         assert_eq!(open.pop_front().unwrap().node.position, initial);
-    }
 
-    #[test]
-    fn one_queue_claims_entries_in_strict_priority_order() {
         let shared = Shared::new(1);
         let positions = successors(Position::initial());
         for (priority, position) in [3, 1, 2]

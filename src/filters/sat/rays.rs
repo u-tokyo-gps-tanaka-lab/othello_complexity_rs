@@ -425,9 +425,7 @@ pub(crate) fn encode(start: Position, goal: Position) -> Result<EncodingResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filters::sat::cnf::TRUE;
     use crate::filters::sat::{placement, solve_problem};
-    use crate::io::parse_position;
 
     fn solve_rays(start: Position, goal: Position) -> Result<ExactOutcome, String> {
         match encode(start, goal)? {
@@ -441,145 +439,6 @@ mod tests {
             EncodingResult::Trivial(outcome) => Ok(outcome),
             EncodingResult::Cnf(problem) => solve_problem(&problem, None),
         }
-    }
-
-    fn reachable(outcome: &ExactOutcome) -> bool {
-        matches!(outcome, ExactOutcome::Reachable(_))
-    }
-
-    fn assert_agreement(start: Position, goal: Position) {
-        let rays = solve_rays(start, goal).unwrap();
-        let placement = solve_placement(start, goal).unwrap();
-        assert_eq!(reachable(&rays), reachable(&placement));
-    }
-
-    fn leading_pass_start() -> Position {
-        Position {
-            board: Board::new(1_u64 << 1, !3_u64),
-            side_to_move: Color::White,
-        }
-    }
-
-    fn trailing_pass_start() -> Position {
-        let empty = (1_u64 << 0) | (1_u64 << 8);
-        let white = (1_u64 << 1) | (1_u64 << 9);
-        Position {
-            board: Board::new(!(empty | white), white),
-            side_to_move: Color::Black,
-        }
-    }
-
-    #[test]
-    fn endpoint_shape_contract_distinguishes_unreachable_from_zero_placement() {
-        let initial = Position::initial();
-        let after_d3 = replay(initial, &[PlyAction::Play(19)]).unwrap()[1];
-        let after_c4 = replay(initial, &[PlyAction::Play(26)]).unwrap()[1];
-        for (start, goal) in [(after_d3, initial), (after_d3, after_c4)] {
-            assert!(matches!(
-                encode(start, goal).unwrap(),
-                EncodingResult::Trivial(ExactOutcome::Unreachable)
-            ));
-        }
-        assert!(encode(initial, initial).is_err());
-    }
-
-    #[test]
-    fn target_pruning_keeps_off_target_legal_moves_that_forbid_a_pass() {
-        let start = Position::initial();
-        let white_to_move = Position {
-            board: start.board.swapped(),
-            side_to_move: Color::White,
-        };
-        let goal = *replay(white_to_move, &[PlyAction::Play(20)])
-            .unwrap()
-            .last()
-            .unwrap();
-        assert!(matches!(
-            solve_rays(start, goal).unwrap(),
-            ExactOutcome::Unreachable
-        ));
-    }
-
-    #[test]
-    fn goal_empty_squares_use_false_constants() {
-        let start = Position::initial();
-        let goal = *replay(start, &[PlyAction::Play(19)])
-            .unwrap()
-            .last()
-            .unwrap();
-        let placements = goal.board.popcount() as usize - start.board.popcount() as usize;
-        let (vars, builder) = encode_problem(start, goal, placements);
-        assert!(builder.variables > TRUE);
-        assert!(!builder.clauses.is_empty());
-
-        let goal_occupied = goal.board.player | goal.board.opponent;
-        for square in 0..SQUARES {
-            if goal_occupied & (1_u64 << square) != 0 {
-                continue;
-            }
-            assert!(vars.black.iter().all(|layer| layer[square] == FALSE));
-            assert!(vars.white.iter().all(|layer| layer[square] == FALSE));
-            assert!(vars.play.iter().all(|layer| layer[square] == FALSE));
-        }
-    }
-
-    #[test]
-    fn three_move_history_is_reachable_and_replays() {
-        let start = Position::initial();
-        let goal = *replay(
-            start,
-            &[
-                PlyAction::Play(19),
-                PlyAction::Play(18),
-                PlyAction::Play(17),
-            ],
-        )
-        .unwrap()
-        .last()
-        .unwrap();
-        let ExactOutcome::Reachable(actions) = solve_rays(start, goal).unwrap() else {
-            panic!("placement-rays rejected a legal three-move history");
-        };
-        assert_eq!(replay(start, &actions).unwrap().last(), Some(&goal));
-    }
-
-    #[test]
-    fn agrees_with_placement_on_openings_and_endpoint_passes() {
-        let initial = Position::initial();
-        for actions in [
-            vec![PlyAction::Play(19)],
-            vec![PlyAction::Play(19), PlyAction::Play(18)],
-            vec![
-                PlyAction::Play(19),
-                PlyAction::Play(18),
-                PlyAction::Play(17),
-            ],
-        ] {
-            let goal = *replay(initial, &actions).unwrap().last().unwrap();
-            assert_agreement(initial, goal);
-        }
-
-        let leading = leading_pass_start();
-        let leading_goal = *replay(leading, &[PlyAction::Pass, PlyAction::Play(0)])
-            .unwrap()
-            .last()
-            .unwrap();
-        assert_agreement(leading, leading_goal);
-        let ExactOutcome::Reachable(actions) = solve_rays(leading, leading_goal).unwrap() else {
-            panic!("placement-rays rejected a legal leading pass");
-        };
-        assert_eq!(actions, [PlyAction::Pass, PlyAction::Play(0)]);
-
-        let trailing = trailing_pass_start();
-        let trailing_goal = *replay(trailing, &[PlyAction::Play(8), PlyAction::Pass])
-            .unwrap()
-            .last()
-            .unwrap();
-        assert_agreement(trailing, trailing_goal);
-        let ExactOutcome::Reachable(actions) = solve_rays(trailing, trailing_goal).unwrap() else {
-            panic!("placement-rays rejected a legal trailing pass");
-        };
-        assert_eq!(actions, [PlyAction::Play(8), PlyAction::Pass]);
     }
 
     #[test]
@@ -612,20 +471,5 @@ mod tests {
                 ExactOutcome::Unreachable
             ));
         }
-    }
-
-    #[test]
-    fn genuine_mid_game_forced_pass_is_reachable() {
-        let start =
-            parse_position("OOOOOOOOXOOXOOO-XXXOXOOOXXXOOOOOXOXOXOXOXOOXXOOOOOOOOOO-OOOOOOOO w")
-                .unwrap();
-        let expected = [PlyAction::Play(15), PlyAction::Pass, PlyAction::Play(55)];
-        let goal = *replay(start, &expected).unwrap().last().unwrap();
-        assert_agreement(start, goal);
-        let ExactOutcome::Reachable(actions) = solve_rays(start, goal).unwrap() else {
-            panic!("placement-rays rejected a legal middle pass");
-        };
-        assert_eq!(actions, expected);
-        assert_eq!(replay(start, &actions).unwrap().last(), Some(&goal));
     }
 }

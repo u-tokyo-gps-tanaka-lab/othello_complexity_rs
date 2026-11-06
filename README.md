@@ -20,7 +20,7 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
 
 ### 判定パイプラインと判定結果
 
-抽出した局面は、計算コストの低い手法から順に3ステージのパイプラインで判定します。前のステージで決着がつかなかった局面だけを次のステージへ渡します。
+抽出した局面は、計算コストの低い手法から順に4ステージのパイプラインで判定します。前のステージで決着がつかなかった局面だけを次のステージへ渡します。
 
 ```text
 [抽出した標本]
@@ -31,12 +31,17 @@ Codes and raw results of the paper "Estimation of the number of legal positions 
    │
    │ すべてのフィルタを通過した局面
    ▼
-2. SAT による判定 (Pipeline::sat / sat_reachability)
-   └─ 初期局面からの着手列が存在するかを SAT ソルバ（および前処理の幅優先逆探索）で調べる。
+2. 幅優先逆探索による判定 (Pipeline::reverse_search / reverse_search)
+   └─ 目標局面から幅優先で逆探索し、合流、探索の完了、登録局面数の上限到達のいずれかまで調べる。
+   │
+   │ 登録局面数の上限に達した局面 (UNKNOWN)
+   ▼
+3. SAT による判定 (Pipeline::sat / sat_reachability)
+   └─ 初期局面からの着手列が存在するかを SAT ソルバで調べる。
    │
    │ 時間制限などで決着がつかなかった局面 (UNKNOWN)
    ▼
-3. 逆探索による判定 (Pipeline::reverse_search / reverse_search)
+4. 逆探索による判定 (Pipeline::reverse_search / reverse_search)
    └─ 目標局面から後向きにグラフ探索を行い、初期局面側から生成した局面と合流するか調べる。
    │
    ▼
@@ -93,9 +98,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use othello_complexity_rs::estimate::{Pipeline, SampleSpec, SatStage};
-use othello_complexity_rs::filters::sat::{ReverseBfs, SatEncoding};
+use othello_complexity_rs::filters::sat::{SatEncoding, SatPortfolio};
 use othello_complexity_rs::sampling::Population;
-use othello_complexity_rs::search::run::Strategy;
+use othello_complexity_rs::search::Strategy;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = Pipeline::sample(SampleSpec {
@@ -105,21 +110,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed: 20261022,
     })
     .filters()
-    .sat(SatStage {
-        encodings: SatEncoding::Ply.into(),
-        seeds: 1,
-        parallel_goals: 2,
-        timeout: Some(Duration::from_secs(10)),
-        reverse_bfs: Some(ReverseBfs {
-            discs: 10,
-            state_budget: 1_000_000,
-        }),
+    .reverse_search(Strategy::Bfs {
+        discs: 10,
+        max_nodes: 4_000_000,
+        use_lp: false,
+        threads: 1,
+        parallel_goals: 20,
     })
-    .reverse_search(Strategy::DfsParallel {
-        discs: 8,
-        max_nodes: 10_000,
-        table_size: 100_000,
-        threads: 2,
+    .sat(SatStage {
+        encodings: SatPortfolio::new(vec![
+            SatEncoding::NoPassWitness,
+            SatEncoding::PlacementRays,
+        ])?,
+        seeds: 1,
+        parallel_goals: 10,
+        timeout: Some(Duration::from_secs(120)),
+    })
+    .reverse_search(Strategy::GbfsParallel {
+        discs: 10,
+        max_nodes: 10_000_000,
+        use_lp: false,
+        threads: 1,
+        parallel_goals: 20,
     })
     .run(Path::new("out/estimate"), 0.005)?;
     println!("{}", report.interval);
@@ -127,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-この例は次のコマンドで実行できます（実際の実験プログラムは、後述の「実験プログラムの置き場所」のとおり `experiments/` に置きます）。
+この例は次のコマンドで実行できます（実際の実験プログラムは、後述の「実験プログラムの置き場所」のとおり `src/bin/` に置きます）。
 
 ```sh
 cargo run --release --example estimate
@@ -185,13 +197,12 @@ cargo run --release --example estimate
 | `seeds` | 1つの符号化方式につき、乱数シードを変えてソルバを実行する回数。 |
 | `parallel_goals` | 同時に判定する局面数。 |
 | `timeout` | 候補局面1つあたりの SAT ソルバの制限時間。ポートフォリオの全ワーカーが CNF を Kissat に読み込んだ時点から測る。`None` なら制限時間を設けない。`equivalence` モードでは、標準の開始局面を固定する対称変換で候補をまとめるため、1つの入力局面につき最大4通りの対称局面を個別に解く。したがって、1局面あたりの合計時間は指定値を超えることがある。 |
-| `reverse_bfs` | SAT 実行前の幅優先逆探索の設定。`None` なら実行しない。後述の「SAT 実行前の幅優先逆探索」を参照。 |
 
 #### `reverse_search(Strategy::..)` の設定項目
 
 逆探索の方式は `Strategy` の7つの列挙子から選びます。列挙子とフィールドは、単体コマンド `reverse_search` のサブコマンドおよびオプションに対応します（例: `Strategy::DfsParallel` は `dfs-parallel` に対応）。
 
-`Strategy::GbfsParallel` では、`threads` が1局面の探索に使うワーカースレッド数、`parallel_goals` が同時に探索する局面数です。単体コマンドの対応するオプションは `--threads` と `--parallel-goals` であり、どちらも既定値は1です。`parallel_goals` を2以上にする場合は、`threads` に1以上を指定し、両者の積を64以下にしてください。
+`Strategy::Bfs` と `Strategy::GbfsParallel` では、`threads` が1局面の探索に使うワーカースレッド数、`parallel_goals` が同時に探索する局面数です。単体コマンドの対応するオプションは `--threads` と `--parallel-goals` であり、どちらも既定値は1です。`parallel_goals` を2以上にする場合は、`threads` に1以上を指定し、両者の積を64以下にしてください。
 
 `gbfs-parallel` の概算メモリ使用量は「`parallel_goals` × 1局面のピーク」です。探索上限が大きい場合は、1ノードあたり約90 Bが目安となります。多数の局面を処理するときは、`threads` を小さくし、利用可能な計算資源とメモリの範囲で `parallel_goals` を大きくする方が、単位時間あたりに処理できる局面数を増やしやすくなります。
 
@@ -203,12 +214,13 @@ cargo run --release --example estimate
 out/estimate/
 ├── sample/                 Pipeline::sample で抽出した標本
 ├── 01-filters/             con_OK.txt、con_NG.txt、…、lp_OK.txt、lp_NG.txt
-├── 02-sat/                 sat_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
-├── 03-reverse-search/      reverse_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
+├── 02-reverse-search/      reverse_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
+├── 03-sat/                 sat_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
+├── 04-reverse-search/      reverse_equivalence_OK.txt、_NG.txt、_UNKNOWN.txt、_records.csv
 └── summary.json            推計全体の設定と各ステージの結果記録
 ```
 
-- 各ステージのディレクトリ（`01-filters/` など）: 宣言順の2桁の番号とステージ種別をつないだ名前になります。SAT ステージと、`parallel_goals` が2以上の `gbfs-parallel` では、判定が完了した局面から順にファイルへ追記されるため、出力行の並び順は入力順とは一致しません。
+- 各ステージのディレクトリ（`01-filters/` など）: 宣言順の2桁の番号とステージ種別をつないだ名前になります。SAT ステージと、`parallel_goals` が2以上の `bfs` または `gbfs-parallel` では、判定が完了した局面から順にファイルへ追記されるため、出力行の並び順は入力順とは一致しません。
 - `_records.csv`: `OK`（到達可能）と判定された局面への到達手順（棋譜）が記録されます。完了順で出力される場合は、CSV の行番号ではなく `input_index` で入力局面に対応付けます。棋譜は後述の `verify_record` コマンドで独立に検証できます。
 - `summary.json`: 標本の情報、有意水準（`alpha`）、および各ステージの設定値・完了状態・判定件数・そのステージ終了時点での信頼区間が記録されます。ステージが1つ完了するたびに更新されるため、実行が途中で止まっても完了したステージまでの結果が残ります。
 
@@ -254,10 +266,10 @@ Expected |R| interval: [0.000000e+0, 6.628144e+26]
 
 既存の推計結果の途中までを引き継ぎ、後続ステージの設定を変えた別パターンの推計を行うには `Pipeline::from_run(&Path, k)` を使います。指定した出力ディレクトリの標本と完了済みの先頭 `k` ステージを新しい出力ディレクトリへコピーした上で、続くステージを実行します。
 
-以下の例は、`out/estimate` の第2ステージ（SAT）までの結果を引き継ぎ、逆探索の方式と上限を変えた推計を `out/estimate-gbfs` で実行します。
+以下の例は、`out/estimate` の第3ステージ（SAT）までの結果を引き継ぎ、逆探索の方式と上限を変えた推計を `out/estimate-gbfs` で実行します。
 
 ```rust
-Pipeline::from_run(Path::new("out/estimate"), 2)
+Pipeline::from_run(Path::new("out/estimate"), 3)
     .reverse_search(Strategy::GbfsParallel {
         discs: 10,
         max_nodes: 10_000_000,
@@ -270,21 +282,20 @@ Pipeline::from_run(Path::new("out/estimate"), 2)
 
 引き継ぎ元のディレクトリ（`out/estimate`）は変更されません。また、必要なファイルは新しい出力先へコピーされるため、分岐後は元のディレクトリがなくても単独で再開できます。
 
-### 7. 実験プログラムの置き場所 (`experiments/`)
+### 7. 実験プログラムの置き場所 (`src/bin/`)
 
-本番の推計は、ワークスペース内の実験用クレート `experiments/` に、1実験あたり1バイナリ（`experiments/src/bin/<名前>.rs`）として作成します。たとえば `experiments/src/bin/20261029-1m.rs` は、同値類を100万件抽出して `result/20261029-1m` に結果を出力する実験プログラムです。
+本番の推計は、1実験あたり1バイナリとして `src/bin/<名前>.rs` に作成します。たとえば `src/bin/20261029-1m.rs` は、同値類を100万件抽出して `result/20261029-1m` に結果を出力する実験プログラムです。
 
-リポジトリのルートから以下のコマンドで実行できます。
+`src/bin/` の直下に置いた `.rs` ファイルは Cargo が自動でバイナリとして登録するので、`Cargo.toml` を編集する必要はありません。サブディレクトリに置くと登録されないので、必ず直下に置いてください。リポジトリのルートから以下のコマンドで実行できます。
 
 ```sh
-cargo run --release -p experiments --bin <名前>
+cargo run --release --bin <名前>
 ```
 
 運用上の注意点:
 
-- ルートで実行する `cargo build` や `cargo test` は `experiments` クレートを対象に含みません。実験プログラムも含めてビルドする場合は `cargo build --release --workspace` を実行してください。
 - 推計が完了したら、再現性を保つために実験プログラム（`.rs` ファイル）を出力ディレクトリと一緒に保存してください。
-- 過去の実験は保存したプログラムと当時のライブラリから再現できるため、仕様変更でコンパイルが通らなくなった古い実験プログラムは `experiments/src/bin/` から削除して構いません。ただし、`experiments/src/bin/` が空になると Cargo がワークスペースを読み込めなくなるため、常に1つ以上のプログラムを残してください。
+- 実験プログラムは、`cargo build` や `cargo test` のたびにほかのコードと一緒にコンパイルされます。ライブラリの仕様変更で古い実験プログラムのコンパイルが通らなくなったら、その時点で修正するか削除してください。過去の実験は、保存したプログラムと当時のライブラリから再現できます。
 
 
 ## SAT 判定の詳細仕様
@@ -315,24 +326,23 @@ cargo run --release -p experiments --bin <名前>
 
 オセロでは一度置かれた石が盤面から取り除かれないため、目標局面で空いているマスは途中のどの時点でも空いています。すべての方式でこの性質を利用し、空きマスへの着石や反転を表す変数・節を省略して論理式を小さくしています（ただし、パスできるかどうかの判定にはそのマスへ打てるかの情報が必要なため、合法手判定の変数・節は残しています）。
 
-### SAT 実行前の幅優先逆探索
+### 幅優先逆探索
 
-推計の `sat` ステージと単体コマンド `sat_reachability` では、SAT ソルバを呼び出す前の前処理として、目標局面から幅優先の逆探索を行います。初期局面から前向きに生成した局面表（前向き局面表）と合流するかを調べることで、浅い手数で決着がつく局面を高速に処理します。
+`Strategy::Bfs` は、目標局面から石数ごとに幅優先で逆探索し、初期局面側から生成した前向き局面表との合流を調べます。
+前向き局面表に合流した場合は `OK` となり、復元した棋譜を合法手規則で再生検証します。
+先行局面を列挙し尽くした場合は `NG`、登録局面数が `max_nodes` を超えた場合は `UNKNOWN` となります。
 
-- 前向き局面表に合流した場合: 即座に `OK`（到達可能）と確定します。得られた棋譜は、SAT の解と同様に合法手規則で再生検証されます。
-- 先行局面をすべて列挙しても合流できなかった場合: 即座に `NG`（到達不能）と確定します。
-- 登録局面数が上限に達した場合: 未決着として後続の SAT ソルバへ渡します。
+`discs` は前向き局面表の石数、`max_nodes` は1回の探索で登録する局面数の上限です。
+`use_lp` は線形計画法による枝刈りの有無を指定し、標準の初期局面から探索するときだけ適用されます。
+`threads` は1局面の層を処理するスレッド数、`parallel_goals` は同時に探索する局面数です。
 
-設定項目は以下の2つです。推計では `SatStage` の `reverse_bfs` に `Some(ReverseBfs { discs, state_budget })` を指定し、`sat_reachability` ではオプションで指定します。
-
-| `ReverseBfs` のフィールド | `sat_reachability` のオプション | 意味 |
-|---|---|---|
-| `state_budget` | `--bfs-nodes`（既定値: `1000000`） | 候補局面1つあたりの逆探索で登録する局面数の上限。 |
-| `discs` | `--bfs-discs`（既定値: `10`） | 合流先として使う前向き局面表の石数（4〜64）。 |
-
-幅優先逆探索を無効にする場合は、推計では `reverse_bfs: None`、単体コマンドでは `--bfs-nodes 0` を指定します。
-
-> 注意: 幅優先逆探索は到達不能（`NG`）を確定させることがあるため、到達不能を証明できる方式（`ply` や `placement-rays` など）が符号化方式に1つ以上含まれている場合しか使えません。`nopass-witness` を単独で指定する場合は、必ず幅優先逆探索を無効にしてください。有効のままだとエラーで終了します。
+`summary.json` の `nodes` には、そのステージへ入力されたすべての局面について、`OK`、`NG`、`UNKNOWN` のいずれであっても値が入力順に格納されます。
+`nodes[i]` の添字 `i` は0から始まり、その値は入力順で `i + 1` 番目の局面に対応します。
+フィルタの直後に実行するステージでは、入力は `01-filters/lp_OK.txt` の局面であり、そのファイルの順序が入力順になります。
+この入力には重複する局面がありません。
+`parallel_goals` が2以上の場合、ステージの `_OK.txt`、`_NG.txt`、`_UNKNOWN.txt` は判定の完了順に出力されるため、これらの行番号を `nodes` の添字として使うことはできません。
+探索を尽くして `NG` となった局面では、対応する `nodes` がその局面を `NG` にできる最小の `max_nodes` です。
+ある上限で `NG` となる局面数を求めるときは、そのステージの `_NG.txt` に記載された局面だけを入力順の位置へ対応付け、`nodes` がその上限以下である局面を数えます。
 
 ### 応用例: `nopass-witness` を使った2段階の SAT 判定
 
@@ -347,7 +357,6 @@ Pipeline::sample(spec)
         seeds: 1,
         parallel_goals: 2,
         timeout: Some(Duration::from_secs(1)),
-        reverse_bfs: None, // nopass-witness 単独では幅優先逆探索を使えない
     })
     // 第2ステージ: 残った局面を完全な方式で判定する
     .sat(SatStage {
@@ -355,7 +364,6 @@ Pipeline::sample(spec)
         seeds: 1,
         parallel_goals: 2,
         timeout: Some(Duration::from_secs(10)),
-        reverse_bfs: Some(ReverseBfs { discs: 10, state_budget: 1_000_000 }),
     })
     .run(Path::new("out/estimate"), 0.005)?;
 ```
@@ -404,11 +412,11 @@ cargo run --release --bin verify_record -- \
 
 局面ファイルに対して逆探索を実行します。次の例では、4局面を同時に処理し、各局面の探索に1スレッドを使います。
 
-`--max-nodes` は、`exact` では完全一致の候補ごとに、`equivalence` では入力局面ごとに適用されます。DFS では訪問した局面数、GBFS では登録した局面数を制限します。メモリ内 BFS では、現在の層と次の層に同時に保持する局面数を制限し、保持する全層の合計は制限しません。
+`--max-nodes` は、`exact` では完全一致の候補ごとに、`equivalence` では入力局面ごとに適用されます。DFS では訪問した局面数、BFS と GBFS では登録した局面数を制限します。
 
 ```sh
 cargo run --release --bin reverse_search -- gbfs-parallel \
-  out/estimate/02-sat/sat_equivalence_UNKNOWN.txt \
+  out/estimate/03-sat/sat_equivalence_UNKNOWN.txt \
   --mode equivalence \
   --discs 8 --max-nodes 10000 --threads 1 --parallel-goals 4 \
   --out-dir out/reverse_search

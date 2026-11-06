@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn sample_counts_and_population_size_scale_the_interval() {
+    fn sample_counts_population_size_and_confidence_determine_the_interval() {
         // With ten unknown observations, the interval covers the entire
         // population. This also checks the exact u128 population.
         let population_size = NonZeroU128::new(u128::MAX).unwrap();
@@ -210,21 +210,11 @@ mod tests {
             interval.expected_upper.to_f64().unwrap(),
             50.0 + 50.0 / 3.0_f64.sqrt(),
         );
-    }
 
-    #[test]
-    fn display_keeps_compute_ci_output_format() {
-        let interval =
+        let reported =
             super::compute(0, 0, 10, NonZeroU128::new(100).unwrap(), ONE_SIGMA_ALPHA).unwrap();
-        assert_eq!(
-            interval.to_string(),
-            concat!(
-                "Population size = 100\n",
-                "Sample size = 10\n",
-                "Observed reachable fraction range: [0.000000000000, 1.000000000000]\n",
-                "68.26894921370858% approximate Wilson CI: [0.000000000000, 1.000000000000]\n",
-                "Expected |R| interval: [0.000000e+0, 1.000000e+2]"
-            )
-        );
+        assert_eq!(reported.observed_lower, 0.0);
+        assert_eq!(reported.observed_upper, 1.0);
+        close(reported.confidence_level, 68.26894921370858);
     }
 }

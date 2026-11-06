@@ -155,12 +155,6 @@ impl ClauseBuilder {
         self.clauses.push(vars.to_vec());
     }
 
-    /// 丁度1つが真 (Exactly-One)
-    pub fn exactly_one(&mut self, vars: &[i32]) {
-        self.at_least_one(vars);
-        self.at_most_one(vars);
-    }
-
     /// 含意: a → b
     /// ¬a ∨ b
     pub fn implies(&mut self, a: i32, b: i32) {
@@ -685,60 +679,54 @@ mod tests {
     }
 
     #[test]
-    fn test_at_most_one() {
-        let mut builder = ClauseBuilder::new();
-        builder.at_most_one(&[1, 2, 3]);
-        // C(3,2) = 3 pairs: (1,2), (1,3), (2,3)
-        assert_eq!(builder.clauses().len(), 3);
-        assert!(builder.clauses().contains(&vec![-2, -1]));
-        assert!(builder.clauses().contains(&vec![-3, -1]));
-        assert!(builder.clauses().contains(&vec![-3, -2]));
-    }
+    fn constraint_helpers_emit_expected_clauses() {
+        enum Constraint {
+            AtMostOne,
+            AtLeastOne,
+            Implies,
+            ImpliesAll,
+            Antisymmetry,
+            Transitivity,
+        }
 
-    #[test]
-    fn test_at_least_one() {
-        let mut builder = ClauseBuilder::new();
-        builder.at_least_one(&[1, 2, 3]);
-        assert_eq!(builder.clauses().len(), 1);
-        assert_eq!(builder.clauses()[0], vec![1, 2, 3]);
-    }
+        let cases = [
+            (
+                "at-most-one",
+                Constraint::AtMostOne,
+                vec![vec![-2, -1], vec![-3, -1], vec![-3, -2]],
+            ),
+            ("at-least-one", Constraint::AtLeastOne, vec![vec![1, 2, 3]]),
+            ("implies", Constraint::Implies, vec![vec![-1, 2]]),
+            ("implies-all", Constraint::ImpliesAll, vec![vec![-1, -2, 3]]),
+            ("antisymmetry", Constraint::Antisymmetry, vec![vec![-1, -2]]),
+            (
+                "transitivity",
+                Constraint::Transitivity,
+                vec![vec![-1, -2, 3]],
+            ),
+        ];
 
-    #[test]
-    fn test_exactly_one() {
-        let mut builder = ClauseBuilder::new();
-        builder.exactly_one(&[1, 2, 3]);
-        // 1 at-least-one + 3 at-most-one = 4 clauses
-        assert_eq!(builder.clauses().len(), 4);
-    }
-
-    #[test]
-    fn test_implies() {
-        let mut builder = ClauseBuilder::new();
-        builder.implies(1, 2);
-        assert_eq!(builder.clauses(), &vec![vec![-1, 2]]);
-    }
-
-    #[test]
-    fn test_implies_all() {
-        let mut builder = ClauseBuilder::new();
-        builder.implies_all(&[1, 2], 3);
-        // (a1 and a2) -> b  ===  -a1 or -a2 or b
-        assert_eq!(builder.clauses(), &vec![vec![-1, -2, 3]]);
-    }
-
-    #[test]
-    fn test_add_antisymmetry() {
-        let mut builder = ClauseBuilder::new();
-        builder.add_antisymmetry(1, 2);
-        assert_eq!(builder.clauses(), &vec![vec![-1, -2]]);
-    }
-
-    #[test]
-    fn test_add_transitivity() {
-        let mut builder = ClauseBuilder::new();
-        builder.add_transitivity(1, 2, 3);
-        // (a<b and b<c) -> a<c  ===  -ab or -bc or ac
-        assert_eq!(builder.clauses(), &vec![vec![-1, -2, 3]]);
+        for (name, constraint, mut expected) in cases {
+            let mut builder = ClauseBuilder::new();
+            match constraint {
+                Constraint::AtMostOne => builder.at_most_one(&[1, 2, 3]),
+                Constraint::AtLeastOne => builder.at_least_one(&[1, 2, 3]),
+                Constraint::Implies => builder.implies(1, 2),
+                Constraint::ImpliesAll => builder.implies_all(&[1, 2], 3),
+                Constraint::Antisymmetry => builder.add_antisymmetry(1, 2),
+                Constraint::Transitivity => builder.add_transitivity(1, 2, 3),
+            }
+            let mut actual = builder.clauses().to_vec();
+            for clause in &mut actual {
+                clause.sort_unstable();
+            }
+            for clause in &mut expected {
+                clause.sort_unstable();
+            }
+            actual.sort_unstable();
+            expected.sort_unstable();
+            assert_eq!(actual, expected, "{name}");
+        }
     }
 
     #[test]
@@ -756,42 +744,19 @@ mod tests {
     }
 
     #[test]
-    fn test_board_info_initial() {
-        // 初期盤面: 中央4マスのみ
+    fn board_info_validates_initial_layout_and_final_colors() {
         let player = 0x0000000810000000u64; // d4, e5
         let opponent = 0x0000001008000000u64; // e4, d5
         let info = BoardInfo::new(player, opponent).unwrap();
         assert_eq!(info.center_squares.len(), 4);
         assert_eq!(info.outer_squares.len(), 0);
         assert_eq!(info.all_squares.len(), 4);
-    }
-
-    #[test]
-    fn test_board_info_validation() {
-        // 重複チェック
-        let overlapping = BoardInfo::new(0x1, 0x1);
-        assert!(overlapping.is_err());
-
-        // 中央が埋まっていない
-        let no_center = BoardInfo::new(0x1, 0x2);
-        assert!(no_center.is_err());
-    }
-
-    #[test]
-    fn test_board_info_final_color() {
-        let player = 0x0000000810000000u64;
-        let opponent = 0x0000001008000000u64;
-        let info = BoardInfo::new(player, opponent).unwrap();
-
-        // player = 0x0000000810000000 = sq 28 (e4) と sq 35 (d5)
-        // opponent = 0x0000001008000000 = sq 27 (d4) と sq 36 (e5)
-
-        // sq=28 (e4) はplayerの石
         assert_eq!(info.final_color(28), 0);
         assert!(info.is_player(28));
-
-        // sq=27 (d4) はopponentの石
         assert_eq!(info.final_color(27), 1);
         assert!(!info.is_player(27));
+
+        assert!(BoardInfo::new(0x1, 0x1).is_err());
+        assert!(BoardInfo::new(0x1, 0x2).is_err());
     }
 }

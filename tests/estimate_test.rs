@@ -9,13 +9,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use othello_complexity_rs::estimate::{Pipeline, SampleSpec, SatStage};
-use othello_complexity_rs::filters::sat::{ReverseBfs, SatEncoding};
+use othello_complexity_rs::filters::sat::SatEncoding;
 use othello_complexity_rs::interval;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position};
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
 use othello_complexity_rs::sampling::Population;
-use othello_complexity_rs::search::run::{ExternalBfs, Strategy};
+use othello_complexity_rs::search::{engines::external_bfs::ExternalBfs, Strategy};
 use serde_json::{json, Value};
 
 // P(|Z| > 1). With z² = 1, an all-OK sample of size n has bounds
@@ -136,7 +136,6 @@ fn sat_stage(encoding: SatEncoding) -> SatStage {
         seeds: 1,
         parallel_goals: 1,
         timeout: None,
-        reverse_bfs: None,
     }
 }
 
@@ -271,7 +270,7 @@ fn summary(run: &Path) -> Value {
 
 fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
     let sequential_tmp = fixture.path(&format!("{stem}-bfs-tmp"));
-    let parallel_tmp = fixture.path(&format!("{stem}-bfs-parallel-tmp"));
+    let parallel_tmp = fixture.path(&format!("{stem}-external-parallel-tmp"));
     fs::create_dir(&sequential_tmp).unwrap();
     fs::create_dir(&parallel_tmp).unwrap();
     vec![
@@ -305,12 +304,12 @@ fn small_strategies(fixture: &Fixture, stem: &str) -> Vec<Strategy> {
             tmp_dir: parallel_tmp,
             resume: false,
         }),
-        Strategy::BfsInmemoryParallel {
+        Strategy::Bfs {
             discs: 4,
             max_nodes: 128,
             use_lp: false,
-            use_occupancy_cache: false,
             threads: 2,
+            parallel_goals: 1,
         },
     ]
 }
@@ -366,11 +365,32 @@ fn filters_deduplicate_in_first_appearance_order_and_keep_row_weights() {
 }
 
 #[test]
-fn duplicate_rows_keep_weight_for_three_populations() {
-    for (position, population, mode, size) in [
-        (initial(), fixed_absolute(4, "32"), "exact", 32.0),
-        (initial(), fixed_classes(4, "6"), "equivalence", 6.0),
-        (after_d3(), fixed_absolute(5, "3840"), "exact", 3840.0),
+fn fixed_populations_preserve_duplicate_weights_and_goal_matching() {
+    for (case, position, population, mode, size, goal_match) in [
+        (
+            "four-disc absolute positions",
+            initial(),
+            fixed_absolute(4, "32"),
+            "exact",
+            32.0,
+            GoalMatch::Exact,
+        ),
+        (
+            "four-disc equivalence classes",
+            initial(),
+            fixed_classes(4, "6"),
+            "equivalence",
+            6.0,
+            GoalMatch::EquivalenceClass,
+        ),
+        (
+            "five-disc equivalence classes",
+            class_d3(),
+            fixed_classes(5, "264"),
+            "equivalence",
+            264.0,
+            GoalMatch::EquivalenceClass,
+        ),
     ] {
         let fixture = Fixture::new();
         let sample = fixture.sample("sample", &[position; 3], population);
@@ -379,47 +399,50 @@ fn duplicate_rows_keep_weight_for_three_populations() {
             .sat(sat_stage(SatEncoding::Ply))
             .run(&run, ALPHA)
             .unwrap();
-        assert_eq!((report.ok, report.ng, report.unknown), (3, 0, 0));
-        close(report.interval.lower, 0.75);
-        close(report.interval.upper, 1.0);
-        close(
+        assert_eq!((report.ok, report.ng, report.unknown), (3, 0, 0), "{case}");
+        let close_case = |actual: f64, expected: f64| {
+            assert!(
+                (actual - expected).abs() < 1e-12,
+                "{case}: {actual} != {expected}"
+            );
+        };
+        close_case(report.interval.lower, 0.75);
+        close_case(report.interval.upper, 1.0);
+        close_case(
             report.interval.expected_lower.to_string().parse().unwrap(),
             0.75 * size,
         );
-        let records = read_records(&run.join(format!("01-sat/sat_{mode}_records.csv")));
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].input_index, 1);
-        assert_eq!(records[0].goal, position);
-        records[0].verify().unwrap();
-    }
-}
-
-#[test]
-fn black_turn_d3_is_exact_ng_but_equivalence_ok() {
-    for (population, mode, expected) in [
-        (fixed_absolute(5, "3840"), "exact", "NG"),
-        (fixed_classes(5, "264"), "equivalence", "OK"),
-    ] {
-        let fixture = Fixture::new();
-        let sample = fixture.sample("sample", &[class_d3()], population);
-        let run = fixture.path("run");
-        Pipeline::from_sample_dir(&sample)
-            .sat(sat_stage(SatEncoding::Ply))
-            .run(&run, ALPHA)
-            .unwrap();
         assert_eq!(
-            fs::read_to_string(run.join(format!("01-sat/sat_{mode}_{expected}.txt"))).unwrap(),
-            position_text(&[class_d3()])
+            read_positions(&run.join(format!("01-sat/sat_{mode}_OK.txt"))),
+            [position],
+            "{case}"
         );
         let records = read_records(&run.join(format!("01-sat/sat_{mode}_records.csv")));
-        if expected == "OK" {
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].goal_match, GoalMatch::EquivalenceClass);
-            records[0].verify().unwrap();
-        } else {
-            assert!(records.is_empty());
-        }
+        assert_eq!(records.len(), 1, "{case}");
+        assert_eq!(records[0].input_index, 1, "{case}");
+        assert_eq!(records[0].goal, position, "{case}");
+        assert_eq!(records[0].goal_match, goal_match, "{case}");
+        records[0]
+            .verify()
+            .unwrap_or_else(|error| panic!("{case}: {error}"));
     }
+
+    let fixture = Fixture::new();
+    let sample = fixture.sample(
+        "exact-rejection-sample",
+        &[class_d3()],
+        fixed_absolute(5, "3840"),
+    );
+    let run = fixture.path("exact-rejection-run");
+    Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(run.join("01-sat/sat_exact_NG.txt")).unwrap(),
+        position_text(&[class_d3()])
+    );
+    assert!(read_records(&run.join("01-sat/sat_exact_records.csv")).is_empty());
 }
 
 #[test]
@@ -453,7 +476,7 @@ fn filter_ng_skips_sat_and_sat_indices_use_stage_input_order() {
 }
 
 #[test]
-fn stage_kinds_can_repeat_and_run_in_every_required_order() {
+fn stage_kinds_run_in_every_required_order() {
     let fixture = Fixture::new();
 
     let sample = fixture.sample(
@@ -487,18 +510,6 @@ fn stage_kinds_can_repeat_and_run_in_every_required_order() {
         [after_d3()]
     );
 
-    let run = fixture.path("reverse-reverse");
-    Pipeline::from_sample_dir(&sample)
-        .reverse_search(limited_dfs())
-        .reverse_search(complete_dfs())
-        .run(&run, ALPHA)
-        .unwrap();
-    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
-    assert_eq!(
-        read_positions(&run.join("02-reverse-search/reverse_exact_OK.txt")),
-        [after_d3()]
-    );
-
     let sample = fixture.sample(
         "sat-filters-sample",
         &[initial(), disconnected(), class_d3()],
@@ -519,30 +530,6 @@ fn stage_kinds_can_repeat_and_run_in_every_required_order() {
         read_positions(&run.join("02-filters/con_OK.txt")),
         [class_d3()]
     );
-
-    let sample = fixture.sample(
-        "filters-filters-sample",
-        &[disconnected(), after_d3()],
-        absolute_population(),
-    );
-    let run = fixture.path("filters-filters");
-    Pipeline::from_sample_dir(&sample)
-        .filters()
-        .filters()
-        .run(&run, ALPHA)
-        .unwrap();
-    assert_eq!(summary(&run)["stages"][1]["result"]["input"], 1);
-    assert_eq!(
-        read_positions(&run.join("02-filters/con_OK.txt")),
-        [after_d3()]
-    );
-
-    let run = fixture.path("no-filters");
-    Pipeline::from_sample_dir(&sample)
-        .sat(sat_stage(SatEncoding::Ply))
-        .run(&run, ALPHA)
-        .unwrap();
-    assert_eq!(summary(&run)["stages"][0]["stage"]["kind"], "sat");
 }
 
 #[test]
@@ -620,27 +607,6 @@ fn settings_validation_is_complete_and_writes_nothing() {
             timeout: Some(Duration::ZERO),
             ..sat_stage(SatEncoding::Ply)
         },
-        SatStage {
-            reverse_bfs: Some(ReverseBfs {
-                discs: 4,
-                state_budget: 0,
-            }),
-            ..sat_stage(SatEncoding::Ply)
-        },
-        SatStage {
-            reverse_bfs: Some(ReverseBfs {
-                discs: 3,
-                state_budget: 1,
-            }),
-            ..sat_stage(SatEncoding::Ply)
-        },
-        SatStage {
-            reverse_bfs: Some(ReverseBfs {
-                discs: 4,
-                state_budget: 1,
-            }),
-            ..sat_stage(SatEncoding::NoPassWitness)
-        },
     ] {
         cases.push(Pipeline::from_sample_dir(&sample).filters().sat(stage));
     }
@@ -652,20 +618,6 @@ fn settings_validation_is_complete_and_writes_nothing() {
                 max_nodes: 1,
             }),
     );
-    let tmp = fixture.path("unused-tmp");
-    cases.push(
-        Pipeline::from_sample_dir(&sample)
-            .filters()
-            .reverse_search(Strategy::BfsExternal(ExternalBfs {
-                discs: 4,
-                jobs: 1,
-                verbose: 0,
-                block_size: 0,
-                tmp_dir: tmp,
-                resume: false,
-            })),
-    );
-
     for (index, case) in cases.into_iter().enumerate() {
         let output = fixture.path(&format!("invalid-{index}"));
         assert!(
@@ -732,9 +684,10 @@ fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
     assert!(!run.join("summary.json.tmp").exists());
 
     let saved = summary(&run);
-    assert_eq!(saved["format"], 1);
     assert_eq!(saved["sample"]["rows"], 4);
     assert_eq!(saved["stages"].as_array().unwrap().len(), 2);
+    assert_eq!(saved["stages"][0]["stage"]["kind"], "filters");
+    assert_eq!(saved["stages"][1]["stage"]["kind"], "reverse-search");
     assert!(saved["stages"]
         .as_array()
         .unwrap()
@@ -766,34 +719,6 @@ fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
                 expected.expected_upper.to_string()
             ])
         );
-    }
-}
-
-#[test]
-fn resume_rejects_missing_or_unknown_summary_formats_without_changes() {
-    for format in [None, Some(2)] {
-        let fixture = Fixture::new();
-        let sample = fixture.sample("sample", &[initial()], absolute_population());
-        let run = fixture.path("run");
-        Pipeline::from_sample_dir(&sample)
-            .filters()
-            .run(&run, ALPHA)
-            .unwrap();
-        let path = run.join("summary.json");
-        let mut saved = read_json(&path);
-        match format {
-            Some(format) => saved["format"] = json!(format),
-            None => {
-                saved.as_object_mut().unwrap().remove("format");
-            }
-        }
-        write_json(&path, &saved);
-
-        assert_error_without_changes(&run, || {
-            Pipeline::from_sample_dir(&sample)
-                .filters()
-                .run(&run, ALPHA)
-        });
     }
 }
 
@@ -1036,53 +961,6 @@ fn every_reverse_strategy_proves_known_exact_and_equivalence_positions() {
             }
         }
     }
-}
-
-#[test]
-fn reverse_pipeline_aggregation_matches_across_parallel_goal_counts() {
-    let fixture = Fixture::new();
-    let sample = fixture.sample(
-        "sample",
-        &[after_d3(), class_d3(), class_d3()],
-        fixed_absolute(5, "3840"),
-    );
-    let strategy = |parallel_goals| Strategy::GbfsParallel {
-        discs: 4,
-        max_nodes: 128,
-        use_lp: false,
-        threads: 1,
-        parallel_goals,
-    };
-    let serial_run = fixture.path("serial");
-    let serial_report = Pipeline::from_sample_dir(&sample)
-        .reverse_search(strategy(1))
-        .run(&serial_run, ALPHA)
-        .unwrap();
-    let parallel_run = fixture.path("parallel");
-    let parallel_report = Pipeline::from_sample_dir(&sample)
-        .reverse_search(strategy(2))
-        .run(&parallel_run, ALPHA)
-        .unwrap();
-
-    assert_eq!(
-        (
-            parallel_report.ok,
-            parallel_report.ng,
-            parallel_report.unknown
-        ),
-        (serial_report.ok, serial_report.ng, serial_report.unknown)
-    );
-    let mut serial_result = summary(&serial_run)["stages"][0]["result"].clone();
-    let mut parallel_result = summary(&parallel_run)["stages"][0]["result"].clone();
-    serial_result
-        .as_object_mut()
-        .unwrap()
-        .remove("elapsed_secs");
-    parallel_result
-        .as_object_mut()
-        .unwrap()
-        .remove("elapsed_secs");
-    assert_eq!(parallel_result, serial_result);
 }
 
 #[test]

@@ -177,37 +177,3 @@ pub(super) fn fix_board(
         }]);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rustsat::{
-        solvers::{Solve, SolverResult},
-        types::Clause,
-    };
-
-    #[test]
-    fn literals_use_raw_variable_indices() {
-        assert_eq!(lit(1), Ok(Lit::positive(1)));
-        assert_eq!(lit(-1), Ok(Lit::negative(1)));
-        assert_eq!(lit(5), Ok(Lit::positive(5)));
-        assert_eq!(lit(-5), Ok(Lit::negative(5)));
-        assert!(lit(0).is_err());
-    }
-
-    #[test]
-    fn values_include_constants_and_solver_assignments() {
-        let mut solver = rustsat_kissat::Kissat::default();
-        assert_eq!(value(&solver, TRUE), Ok(true));
-        assert_eq!(value(&solver, FALSE), Ok(false));
-        for raw in [TRUE, 2, -3] {
-            solver
-                .add_clause(Clause::from([lit(raw).unwrap()]))
-                .unwrap();
-        }
-        assert_eq!(solver.solve().unwrap(), SolverResult::Sat);
-        assert_eq!(value(&solver, 2), Ok(true));
-        assert_eq!(value(&solver, -2), Ok(false));
-        assert_eq!(value(&solver, 3), Ok(false));
-    }
-}

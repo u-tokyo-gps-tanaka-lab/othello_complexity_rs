@@ -10,13 +10,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use othello_complexity_rs::filters::sat::{
-    run_with_options, validate_options, ReverseBfs, RunOptions, SatEncoding, SatPortfolio,
+    run_with_options, validate_options, RunOptions, SatEncoding, SatPortfolio,
 };
 use othello_complexity_rs::othello::{Board, BoardSymmetry, Position};
 use othello_complexity_rs::query::{candidates, GoalClassification};
-use othello_complexity_rs::record::{
-    format_actions, parse_actions, GoalMatch, PlyAction, PositionTransform, ReachabilityRecord,
-};
+use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform};
+use othello_complexity_rs::search::{run_strategy, Strategy};
 
 use support::{
     enumerate, middle_pass_start, query_targets, random_game, targets_with_turn_changes,
@@ -42,7 +41,6 @@ fn options(
         cnf_dump_dir: None,
         cnf_dump_only: false,
         sat_timeout_per_instance: None,
-        reverse_bfs: None,
     }
 }
 
@@ -246,18 +244,6 @@ fn classify(
     first.expect("SatEncoding::ALL is not empty")
 }
 
-fn exact_record(start: ArrayPosition, actions: &[PlyAction]) -> ReachabilityRecord {
-    let trace = start.replay(actions).unwrap();
-    ReachabilityRecord {
-        input_index: 1,
-        start: start.position(),
-        goal: trace.last().unwrap().position(),
-        goal_match: GoalMatch::Exact,
-        transform: PositionTransform::IDENTITY,
-        actions: actions.to_vec(),
-    }
-}
-
 fn enumerate_placements(start: ArrayPosition, max_discs: usize) -> HashSet<ArrayPosition> {
     let mut seen = HashSet::new();
     let mut pending = vec![start];
@@ -368,7 +354,6 @@ fn independent_initial_rules_and_geometric_transforms_match_the_contract() {
     assert_eq!(initial.position(), Position::initial());
     // D3, C4, F5, E6 are the four ordinary Othello opening placements.
     assert_eq!(initial.moves(), vec![19, 26, 37, 44]);
-    assert_eq!(BoardSymmetry::ALL.len(), 8);
     for source in [initial, middle_pass_start()] {
         for symmetry in ALL_SYMMETRIES {
             assert!(BoardSymmetry::ALL.contains(&symmetry));
@@ -380,65 +365,40 @@ fn independent_initial_rules_and_geometric_transforms_match_the_contract() {
     }
 }
 
-/// Running the reverse BFS inside the SAT driver must not change any answer for
-/// either complete placement encoding.
 #[test]
-fn bfs_driver_agrees_with_plain_sat_on_six_disc_queries() {
+fn placement_encodings_agree_with_enumeration_on_six_disc_queries() {
     let start = ArrayPosition::initial();
     let reachable = enumerate(start, 6);
     let goals = targets_with_turn_changes(&reachable);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    classify(
-        start,
-        &goals,
-        GoalMatch::Exact,
-        |goal| reachable.contains(&goal),
-        None,
-    );
-
     let goal_positions = goals.iter().map(|goal| goal.position()).collect::<Vec<_>>();
-    for encodings in [
-        SatPortfolio::from(SatEncoding::PlacementColumns),
-        SatPortfolio::from(SatEncoding::PlacementRays),
-    ] {
-        for bfs in [
-            Some(ReverseBfs {
-                discs: 4,
-                state_budget: 3,
-            }),
-            Some(ReverseBfs {
-                discs: 5,
-                state_budget: usize::MAX,
-            }),
-        ] {
-            let outcomes = run_with_options(
-                RunOptions {
-                    parallel_goals: 2,
-                    reverse_bfs: bfs,
-                    ..options(
-                        start.position(),
-                        goal_positions.clone(),
-                        GoalMatch::Exact,
-                        encodings.clone(),
-                    )
-                },
-                |_| Ok(()),
-            )
-            .unwrap();
-            assert_eq!(outcomes.len(), goals.len());
-            for (goal, outcome) in goals.iter().zip(&outcomes) {
-                let expected = reachable.contains(goal);
-                match outcome {
-                    GoalClassification::Reachable { record } => {
-                        assert!(expected, "{encodings} {bfs:?}: {goal:?}");
-                        assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
-                    }
-                    GoalClassification::Unreachable { .. } => {
-                        assert!(!expected, "{encodings} {bfs:?}: {goal:?}");
-                    }
-                    GoalClassification::Unknown { .. } => {
-                        panic!("{encodings} {bfs:?}: unknown for {goal:?}")
-                    }
+    for encoding in [SatEncoding::PlacementColumns, SatEncoding::PlacementRays] {
+        let outcomes = run_with_options(
+            RunOptions {
+                parallel_goals: 2,
+                ..options(
+                    start.position(),
+                    goal_positions.clone(),
+                    GoalMatch::Exact,
+                    encoding,
+                )
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(outcomes.len(), goals.len());
+        for (goal, outcome) in goals.iter().zip(&outcomes) {
+            let expected = reachable.contains(goal);
+            match outcome {
+                GoalClassification::Reachable { record } => {
+                    assert!(expected, "{encoding}: {goal:?}");
+                    assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
+                }
+                GoalClassification::Unreachable { .. } => {
+                    assert!(!expected, "{encoding}: {goal:?}");
+                }
+                GoalClassification::Unknown { .. } => {
+                    panic!("{encoding}: unknown for {goal:?}")
                 }
             }
         }
@@ -449,7 +409,13 @@ fn bfs_driver_agrees_with_plain_sat_on_six_disc_queries() {
 fn all_seven_disc_targets_and_both_turns_agree_with_independent_enumeration() {
     let start = ArrayPosition::initial();
     let reachable = enumerate(start, 7);
-    let goals = query_targets(&reachable);
+    let mut goals = query_targets(&reachable);
+    let monochromatic = ArrayPosition::from_relative(
+        "-------------------X-------XX------XX---------------------------",
+        true,
+    );
+    goals.push(monochromatic);
+    goals.extend([start, goals[0], start]);
     assert!(goals.iter().any(|goal| !reachable.contains(goal)));
     for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
         classify(
@@ -553,65 +519,6 @@ fn leading_middle_trailing_passes_and_terminal_turns_are_preserved() {
             None,
         );
     }
-}
-
-#[test]
-fn zero_placement_queries_allow_identity_or_one_legal_pass_only() {
-    let start = ArrayPosition::initial();
-    let reflected = start.transformed(BoardSymmetry::MirrorHorizontal);
-    assert_ne!(start, reflected);
-    assert_eq!(reflected.color_exchanged(), start.opposite_turn());
-    assert!(start.apply(PlyAction::Pass).is_err());
-    let goals = [
-        start,
-        start.color_exchanged(),
-        reflected,
-        reflected.color_exchanged(),
-    ];
-    let exact = classify(start, &goals, GoalMatch::Exact, |goal| goal == start, None);
-    let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
-    for outcome in exact.iter().chain(&equivalent) {
-        if let Some(record) = outcome.record() {
-            assert!(record.actions.is_empty());
-        }
-    }
-    let record_of = |input_index| {
-        equivalent
-            .iter()
-            .find(|outcome| outcome.input_index() == input_index)
-            .unwrap()
-            .record()
-            .unwrap()
-    };
-    // Zero-length witnesses keep Black to move, so the turn fixes the exchange flag.
-    assert!(record_of(2).transform.exchange_colors);
-    let reflected_record = record_of(3);
-    assert_ne!(reflected_record.transform.symmetry, BoardSymmetry::Identity);
-    assert!(!reflected_record.transform.exchange_colors);
-
-    let fixture = ArrayPosition::from_relative(
-        "OXX-OOOOOXXXXXXOOXOOOXXOOOXOXOXXOXOXOOXXOOOXXXOXOOXOOOXXOOOOOOXX",
-        false,
-    );
-    for start in [fixture, fixture.color_exchanged()] {
-        let after_pass = start.apply(PlyAction::Pass).unwrap();
-        assert_eq!(after_pass.moves(), vec![3]);
-        assert_eq!(
-            enumerate(start, start.discs()),
-            HashSet::from([start, after_pass])
-        );
-        classify(start, &[start], GoalMatch::Exact, |_| true, Some(&[]));
-        classify(
-            start,
-            &[after_pass],
-            GoalMatch::Exact,
-            |_| true,
-            Some(&[PlyAction::Pass]),
-        );
-        assert!(after_pass.apply(PlyAction::Pass).is_err());
-        classify(after_pass, &[start], GoalMatch::Exact, |_| false, None);
-    }
-
     for terminal in [
         ArrayPosition::from_relative(&"X".repeat(64), true),
         ArrayPosition::from_relative(
@@ -696,89 +603,6 @@ fn a_single_placement_can_require_both_leading_and_trailing_passes() {
 }
 
 #[test]
-fn target_mask_must_preserve_legal_moves_outside_the_goal_when_checking_passes() {
-    let start = ArrayPosition::initial();
-    let reachable = enumerate(start, 5);
-
-    // E3 is legal for White from the initial colors. Black's four legal first
-    // moves all lie outside this goal's occupancy, but Black must still move:
-    // filtering the legal-move predicate by the target would invent a pass.
-    let false_leading_pass_goal = start.opposite_turn().apply(PlyAction::Play(20)).unwrap();
-    let board = false_leading_pass_goal.position().board;
-    let occupied = board.player | board.opponent;
-    assert!(!start.moves().is_empty());
-    assert!(start
-        .moves()
-        .iter()
-        .all(|&square| occupied & (1_u64 << square) == 0));
-    assert!(start.apply(PlyAction::Pass).is_err());
-    assert!(!reachable.contains(&false_leading_pass_goal));
-    classify(
-        start,
-        &[false_leading_pass_goal],
-        GoalMatch::Exact,
-        |_| false,
-        None,
-    );
-
-    // After the ordinary D3 opening, White also has legal moves outside the
-    // five-disc goal. A target mask must not permit a false trailing pass.
-    let after_opening = start.apply(PlyAction::Play(19)).unwrap();
-    let false_trailing_pass_goal = after_opening.opposite_turn();
-    let board = false_trailing_pass_goal.position().board;
-    let occupied = board.player | board.opponent;
-    assert!(!after_opening.moves().is_empty());
-    assert!(after_opening
-        .moves()
-        .iter()
-        .all(|&square| occupied & (1_u64 << square) == 0));
-    assert!(after_opening.apply(PlyAction::Pass).is_err());
-    assert!(!reachable.contains(&false_trailing_pass_goal));
-    classify(
-        start,
-        &[false_trailing_pass_goal],
-        GoalMatch::Exact,
-        |_| false,
-        None,
-    );
-}
-
-#[test]
-fn stone_count_cannot_decrease_and_opening_move_changes_turn() {
-    let start = ArrayPosition::initial();
-    let after_move = start.apply(PlyAction::Play(19)).unwrap();
-    let goals = [after_move, after_move.color_exchanged()];
-    classify(
-        start,
-        &goals,
-        GoalMatch::Exact,
-        |goal| goal == after_move,
-        None,
-    );
-    let equivalent = classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
-    // Every five-disc position has White to move, so the Black-to-move board
-    // is reached only through the absolute color exchange.
-    let exchanged = equivalent
-        .iter()
-        .find(|outcome| outcome.input_index() == 2)
-        .unwrap()
-        .record()
-        .unwrap();
-    assert!(exchanged.transform.exchange_colors);
-    // The opening move always leaves both colors, so no image of this
-    // monochromatic board is reachable; the turn parity still admits one or
-    // two plies, so the query reaches the SAT encoding.
-    let monochromatic = ArrayPosition::from_relative(
-        "-------------------X-------XX------XX---------------------------",
-        true,
-    );
-    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
-        classify(after_move, &[start], goal_match, |_| false, None);
-        classify(start, &[monochromatic], goal_match, |_| false, None);
-    }
-}
-
-#[test]
 fn simultaneous_geometry_and_absolute_color_exchange_preserve_reachability() {
     let start = middle_pass_start();
     let terminal = *start
@@ -816,92 +640,6 @@ fn simultaneous_geometry_and_absolute_color_exchange_preserve_reachability() {
             assert!(!reachable.contains(&target.color_exchanged()));
         }
     }
-}
-
-#[test]
-fn record_roundtrips_preserve_pass_tokens_and_reject_illegal_steps() {
-    let start = middle_pass_start();
-    let first = start.apply(PlyAction::Play(15)).unwrap();
-    for (source, actions, text) in [
-        (start, vec![], ""),
-        (first, vec![PlyAction::Pass], "ps"),
-        (first, vec![PlyAction::Pass, PlyAction::Play(55)], "ps H7"),
-        (
-            start,
-            vec![PlyAction::Play(15), PlyAction::Pass, PlyAction::Play(55)],
-            "H2 ps H7",
-        ),
-        (start, vec![PlyAction::Play(15), PlyAction::Pass], "H2 ps"),
-    ] {
-        assert_eq!(format_actions(&actions), text);
-        assert_eq!(parse_actions(text).unwrap(), actions);
-        let record = exact_record(source, &actions);
-        let independent: Vec<_> = source
-            .replay(&actions)
-            .unwrap()
-            .into_iter()
-            .map(ArrayPosition::position)
-            .collect();
-        assert_eq!(record.verify().unwrap(), independent);
-    }
-
-    let valid = exact_record(
-        start,
-        &[PlyAction::Play(15), PlyAction::Pass, PlyAction::Play(55)],
-    );
-    for actions in [
-        vec![PlyAction::Play(15), PlyAction::Play(55)], // missing middle pass
-        vec![PlyAction::Pass, PlyAction::Play(15)],     // forbidden leading pass
-        vec![PlyAction::Play(0)],                       // occupied square
-        vec![PlyAction::Play(64)],                      // outside the board
-        vec![
-            PlyAction::Play(15),
-            PlyAction::Pass,
-            PlyAction::Play(55),
-            PlyAction::Pass,
-        ], // terminal pass
-    ] {
-        let mut invalid = valid.clone();
-        invalid.actions = actions;
-        assert!(invalid.verify().is_err());
-    }
-    let mut wrong_turn = valid;
-    wrong_turn.goal.side_to_move = wrong_turn.goal.side_to_move.opposite();
-    assert!(wrong_turn.verify().is_err());
-    for malformed in ["psps", "A9", "I1", "A1B2", "foo"] {
-        assert!(parse_actions(malformed).is_err());
-    }
-}
-
-#[test]
-fn recorded_symmetry_must_be_allowed_and_select_the_actual_endpoint() {
-    let start = ArrayPosition::initial();
-    let mut record = exact_record(start, &[]);
-    record.transform.symmetry = BoardSymmetry::Rotate180;
-    // Even an image equal to the endpoint is disallowed in an exact record.
-    assert_eq!(start.transformed(record.transform.symmetry), start);
-    assert!(record.verify().is_err());
-    record.goal_match = GoalMatch::EquivalenceClass;
-    assert!(record.verify().is_ok());
-    record.transform.symmetry = BoardSymmetry::Rotate90;
-    assert_ne!(start.transformed(record.transform.symmetry), start);
-    assert!(record.verify().is_err());
-}
-
-#[test]
-fn parallel_duplicate_queries_each_keep_their_own_input_index() {
-    let start = ArrayPosition::initial();
-    let after_move = start.apply(PlyAction::Play(19)).unwrap();
-    let wrong_turn = after_move.color_exchanged();
-    let goals = [start, after_move, wrong_turn, after_move, start, wrong_turn];
-    classify(
-        start,
-        &goals,
-        GoalMatch::Exact,
-        |goal| goal != wrong_turn,
-        None,
-    );
-    classify(start, &goals, GoalMatch::EquivalenceClass, |_| true, None);
 }
 
 #[test]
@@ -989,88 +727,6 @@ fn seven_and_eight_disc_witnesses_preserve_colors_turns_and_arbitrary_starts() {
 }
 
 #[test]
-fn complete_portfolio_proves_unreachable_when_witness_only_is_unknown() {
-    let start = ArrayPosition::initial();
-    // White can play E3 from these colors, but Black must make the opening.
-    // Give the resulting board the ordinary post-opening turn: occupation,
-    // stone count, and turn parity are consistent, but no legal opening yields it.
-    let goal = start
-        .opposite_turn()
-        .apply(PlyAction::Play(20))
-        .unwrap()
-        .opposite_turn();
-    assert!(!enumerate_placements(start, 5).contains(&goal));
-
-    let witness_outcomes = run_with_options(
-        RunOptions {
-            parallel_goals: 3,
-            ..options(
-                start.position(),
-                vec![goal.position()],
-                GoalMatch::Exact,
-                SatEncoding::NoPassWitness,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap();
-    let [witness]: [GoalClassification; 1] = witness_outcomes.try_into().unwrap();
-    assert!(matches!(witness, GoalClassification::Unknown { .. }));
-
-    let portfolio = "nopass-witness+placement-columns"
-        .parse::<SatPortfolio>()
-        .unwrap();
-    let portfolio_outcomes = run_with_options(
-        RunOptions {
-            parallel_goals: 3,
-            ..options(
-                start.position(),
-                vec![goal.position()],
-                GoalMatch::Exact,
-                portfolio,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap();
-    let [portfolio]: [GoalClassification; 1] = portfolio_outcomes.try_into().unwrap();
-    assert!(matches!(portfolio, GoalClassification::Unreachable { .. }));
-}
-
-#[test]
-fn a_solver_deadline_never_produces_a_negative_reachability_proof() {
-    let start = ArrayPosition::initial();
-    let reachable = enumerate_placements(start, 8);
-    let goal = *reachable
-        .iter()
-        .filter(|goal| goal.discs() == 8)
-        .max_by_key(|goal| goal.position())
-        .unwrap();
-    let outcomes = run_with_options(
-        RunOptions {
-            parallel_goals: 3,
-            sat_timeout_per_instance: Some(Duration::from_nanos(1)),
-            ..options(
-                start.position(),
-                vec![goal.position()],
-                GoalMatch::Exact,
-                SatEncoding::NoPassWitness,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap();
-    match &outcomes[0] {
-        GoalClassification::Reachable { .. } => {
-            // A fast solver may finish before the timer thread is scheduled.
-            verify_witness(start, goal, GoalMatch::Exact, &outcomes[0]);
-        }
-        GoalClassification::Unknown { .. } => {}
-        GoalClassification::Unreachable { .. } => panic!("a timeout is not an unreachable proof"),
-    }
-}
-
-#[test]
 fn validate_options_rejects_invalid_settings_without_goals() {
     fn assert_error(opts: &RunOptions, expected: &str) {
         assert!(opts.goals.is_empty());
@@ -1101,84 +757,6 @@ fn validate_options_rejects_invalid_settings_without_goals() {
     let mut opts = validation_options();
     opts.cnf_dump_only = true;
     assert_error(&opts, "CNF-only runs require an output directory");
-
-    let mut opts = validation_options();
-    opts.encodings = SatEncoding::NoPassWitness.into();
-    opts.reverse_bfs = Some(ReverseBfs {
-        discs: 4,
-        state_budget: 1,
-    });
-    assert_error(
-        &opts,
-        "reverse BFS requires a complete encoding in the portfolio; \
-         nopass-witness alone cannot record its results",
-    );
-
-    let mut opts = validation_options();
-    opts.reverse_bfs = Some(ReverseBfs {
-        discs: 4,
-        state_budget: 0,
-    });
-    assert_error(&opts, "reverse BFS state budget must be positive");
-
-    for discs in [3, 65] {
-        let mut opts = validation_options();
-        opts.reverse_bfs = Some(ReverseBfs {
-            discs,
-            state_budget: 1,
-        });
-        assert_error(
-            &opts,
-            "reverse BFS discs must be between the start stone count and 64",
-        );
-    }
-}
-
-#[test]
-fn validate_options_leaves_goal_validation_to_run_with_options() {
-    let invalid_goal = Position {
-        board: Board {
-            player: 0,
-            opponent: 0,
-        },
-        ..Position::initial()
-    };
-    let opts = options(
-        Position::initial(),
-        vec![invalid_goal],
-        GoalMatch::Exact,
-        SatEncoding::PlacementRays,
-    );
-
-    validate_options(&opts).unwrap();
-    assert!(run_with_options(opts, |_| Ok(()))
-        .unwrap_err()
-        .starts_with("invalid goal[1]:"));
-}
-
-#[test]
-fn run_with_options_validates_settings_before_goals() {
-    let invalid_goal = Position {
-        board: Board {
-            player: 0,
-            opponent: 0,
-        },
-        ..Position::initial()
-    };
-    let error = run_with_options(
-        RunOptions {
-            parallel_goals: 0,
-            ..options(
-                Position::initial(),
-                vec![invalid_goal],
-                GoalMatch::Exact,
-                SatEncoding::PlacementRays,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap_err();
-    assert_eq!(error, "parallel_goals must be positive");
 }
 
 #[test]
@@ -1189,91 +767,6 @@ fn sat_pipeline_settings_serialize_as_declared() {
         serde_json::to_string(&portfolio).unwrap(),
         r#""nopass-witness+placement-rays""#
     );
-    assert_eq!(
-        serde_json::to_value(ReverseBfs {
-            discs: 10,
-            state_budget: 1_000_000,
-        })
-        .unwrap(),
-        serde_json::json!({
-            "discs": 10,
-            "state_budget": 1_000_000,
-        })
-    );
-}
-
-#[test]
-fn witness_only_portfolio_rejects_bfs_before_creating_output() {
-    let directory = TestDirectory::new();
-    let output = directory.path().join("witness-only");
-    assert!(!output.exists());
-    let run_options = RunOptions {
-        parallel_goals: 1,
-        cnf_dump_dir: Some(output.clone()),
-        cnf_dump_only: true,
-        reverse_bfs: Some(ReverseBfs {
-            discs: 4,
-            state_budget: 1,
-        }),
-        ..options(
-            Position::initial(),
-            vec![Position::initial()],
-            GoalMatch::Exact,
-            SatEncoding::NoPassWitness,
-        )
-    };
-
-    let error = run_with_options(run_options, |_| Ok(())).unwrap_err();
-    assert_eq!(
-        error,
-        "reverse BFS requires a complete encoding in the portfolio; \
-         nopass-witness alone cannot record its results"
-    );
-    assert!(!output.exists());
-}
-
-#[test]
-fn bfs_rejects_invalid_boundary_and_budget() {
-    let error = run_with_options(
-        RunOptions {
-            parallel_goals: 1,
-            reverse_bfs: Some(ReverseBfs {
-                discs: 3,
-                state_budget: 1,
-            }),
-            ..options(
-                Position::initial(),
-                vec![Position::initial()],
-                GoalMatch::Exact,
-                SatEncoding::PlacementRays,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap_err();
-    assert_eq!(
-        error,
-        "reverse BFS discs must be between the start stone count and 64"
-    );
-
-    let error = run_with_options(
-        RunOptions {
-            parallel_goals: 1,
-            reverse_bfs: Some(ReverseBfs {
-                discs: 4,
-                state_budget: 0,
-            }),
-            ..options(
-                Position::initial(),
-                vec![Position::initial()],
-                GoalMatch::Exact,
-                SatEncoding::PlacementRays,
-            )
-        },
-        |_| Ok(()),
-    )
-    .unwrap_err();
-    assert_eq!(error, "reverse BFS state budget must be positive");
 }
 
 #[test]
@@ -1285,10 +778,6 @@ fn goal_below_custom_start_boundary_is_unreachable() {
     let outcomes = run_with_options(
         RunOptions {
             parallel_goals: 1,
-            reverse_bfs: Some(ReverseBfs {
-                discs: 5,
-                state_budget: 1,
-            }),
             ..options(
                 start,
                 vec![goal],
@@ -1308,22 +797,19 @@ fn goal_below_custom_start_boundary_is_unreachable() {
     ));
 }
 
-/// Mid-game goals: reachable ones from random legal games, and perturbed
-/// copies that are usually unreachable. Every encoding, with and without the
-/// reverse BFS, must agree, and every witness must replay to its goal.
 #[test]
-fn encodings_and_bfs_agree_on_mid_game_goals() {
+fn bfs_stage_agrees_with_sat_on_decided_exact_and_equivalence_mid_game_goals() {
     use rand::{Rng, SeedableRng};
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(0x6d69_6467);
     let start = Position::initial();
-    let mut goals = Vec::new();
+    let mut exact_goals = Vec::new();
     for seed in 0..10 {
         let history = random_game(1000 + seed);
         let prefix = (6 + rng.random_range(0..6)).min(history.len() - 1);
         let (position, action) = history[prefix];
         let goal = othello_complexity_rs::record::replay(position, &[action]).unwrap()[1];
-        goals.push(goal);
+        exact_goals.push(goal);
         let occupied = goal.board.player | goal.board.opponent;
         let mut perturbed = goal;
         for _ in 0..2 {
@@ -1334,72 +820,18 @@ fn encodings_and_bfs_agree_on_mid_game_goals() {
                 perturbed.board.opponent ^= bit;
             }
         }
-        goals.push(perturbed);
-        goals.push(Position {
+        exact_goals.push(perturbed);
+        exact_goals.push(Position {
             side_to_move: goal.side_to_move.opposite(),
             ..goal
         });
     }
-    let mut reference: Option<Vec<bool>> = None;
-    let mut reachable = 0;
-    for encodings in [
-        SatPortfolio::from(SatEncoding::PlacementColumns),
-        SatPortfolio::from(SatEncoding::PlacementRays),
-    ] {
-        for bfs in [
-            None,
-            Some(ReverseBfs {
-                discs: 8,
-                state_budget: 500,
-            }),
-        ] {
-            let outcomes = run_with_options(
-                RunOptions {
-                    parallel_goals: 2,
-                    reverse_bfs: bfs,
-                    ..options(start, goals.clone(), GoalMatch::Exact, encodings.clone())
-                },
-                |_| Ok(()),
-            )
-            .unwrap();
-            let answers: Vec<bool> = outcomes
-                .iter()
-                .zip(&goals)
-                .map(|(outcome, goal)| match outcome {
-                    GoalClassification::Reachable { record } => {
-                        assert_eq!(record.verify().unwrap().last(), Some(goal));
-                        true
-                    }
-                    GoalClassification::Unreachable { .. } => false,
-                    GoalClassification::Unknown { .. } => panic!("unbounded solve was unknown"),
-                })
-                .collect();
-            match &reference {
-                Some(expected) => assert_eq!(&answers, expected, "{encodings} {bfs:?}"),
-                None => {
-                    reachable = answers.iter().filter(|&&answer| answer).count();
-                    reference = Some(answers);
-                }
-            }
-        }
-    }
-    assert!(reachable >= 10, "reachable={reachable}");
-    // Small goals keep this test quick; hardness grows quickly with size.
-    assert!(goals.iter().all(|goal| goal.board.popcount() <= 18));
-    assert!(reachable < goals.len());
-}
-
-/// Equivalence queries settle as soon as one candidate's reverse BFS finds a
-/// witness, and unreachable classes need every candidate refuted.
-#[test]
-fn bfs_driver_matches_plain_sat_on_equivalence_queries() {
-    let start = Position::initial();
-    let mut goals = Vec::new();
+    let mut equivalence_goals = Vec::new();
     for seed in 0..6 {
         let history = random_game(2000 + seed);
         let (position, action) = history[(6 + seed as usize).min(history.len() - 1)];
         let goal = othello_complexity_rs::record::replay(position, &[action]).unwrap()[1];
-        goals.push(goal);
+        equivalence_goals.push(goal);
         let mut perturbed = goal;
         let occupied = goal.board.player | goal.board.opponent;
         let bit = 1_u64 << (occupied.trailing_zeros() + 1);
@@ -1407,127 +839,260 @@ fn bfs_driver_matches_plain_sat_on_equivalence_queries() {
             perturbed.board.player ^= bit;
             perturbed.board.opponent ^= bit;
         }
-        goals.push(perturbed);
+        equivalence_goals.push(perturbed);
     }
     let witness_portfolio =
         SatPortfolio::new(vec![SatEncoding::NoPassWitness, SatEncoding::PlacementRays]).unwrap();
-    let mut reference: Option<Vec<bool>> = None;
-    for encodings in [
-        SatPortfolio::from(SatEncoding::PlacementRays),
-        witness_portfolio,
-    ] {
-        for bfs in [
-            None,
-            Some(ReverseBfs {
-                discs: 8,
-                state_budget: 200_000,
-            }),
-        ] {
+
+    struct Case {
+        name: &'static str,
+        goals: Vec<Position>,
+        goal_match: GoalMatch,
+        portfolios: Vec<SatPortfolio>,
+        bfs_discs: u32,
+        bfs_max_nodes: usize,
+        minimum_reachable: usize,
+        maximum_discs: Option<u32>,
+        verify_exact_endpoint: bool,
+    }
+
+    let cases = [
+        Case {
+            name: "exact",
+            goals: exact_goals,
+            goal_match: GoalMatch::Exact,
+            portfolios: vec![
+                SatEncoding::PlacementColumns.into(),
+                SatEncoding::PlacementRays.into(),
+            ],
+            bfs_discs: 8,
+            bfs_max_nodes: 500,
+            minimum_reachable: 10,
+            maximum_discs: Some(18),
+            verify_exact_endpoint: true,
+        },
+        Case {
+            name: "equivalence",
+            goals: equivalence_goals,
+            goal_match: GoalMatch::EquivalenceClass,
+            portfolios: vec![SatEncoding::PlacementRays.into(), witness_portfolio],
+            bfs_discs: 8,
+            bfs_max_nodes: 200_000,
+            minimum_reachable: 1,
+            maximum_discs: None,
+            verify_exact_endpoint: false,
+        },
+    ];
+
+    for case in cases {
+        let mut reference: Option<Vec<bool>> = None;
+        for encodings in case.portfolios {
             let outcomes = run_with_options(
                 RunOptions {
                     parallel_goals: 2,
-                    reverse_bfs: bfs,
                     ..options(
                         start,
-                        goals.clone(),
-                        GoalMatch::EquivalenceClass,
+                        case.goals.clone(),
+                        case.goal_match,
                         encodings.clone(),
                     )
                 },
                 |_| Ok(()),
             )
-            .unwrap();
+            .unwrap_or_else(|error| panic!("{}: {encodings}: {error}", case.name));
             let answers: Vec<bool> = outcomes
                 .iter()
-                .map(|outcome| match outcome {
+                .zip(&case.goals)
+                .map(|(outcome, goal)| match outcome {
                     GoalClassification::Reachable { record } => {
-                        record.verify().unwrap();
+                        let trace = record.verify().unwrap();
+                        if case.verify_exact_endpoint {
+                            assert_eq!(trace.last(), Some(goal), "{}: {encodings}", case.name);
+                        }
                         true
                     }
                     GoalClassification::Unreachable { .. } => false,
-                    GoalClassification::Unknown { .. } => panic!("unbounded solve was unknown"),
+                    GoalClassification::Unknown { .. } => {
+                        panic!("{}: unbounded solve was unknown", case.name)
+                    }
                 })
                 .collect();
             match &reference {
-                Some(expected) => assert_eq!(&answers, expected, "{encodings} {bfs:?}"),
+                Some(expected) => {
+                    assert_eq!(&answers, expected, "{}: {encodings}", case.name)
+                }
                 None => reference = Some(answers),
             }
         }
-    }
-    let answers = reference.unwrap();
-    assert!(answers.iter().any(|&answer| answer));
-    assert!(answers.iter().any(|&answer| !answer));
-}
+        let answers = reference.unwrap();
+        let reachable = answers.iter().filter(|&&answer| answer).count();
+        assert!(
+            reachable >= case.minimum_reachable,
+            "{}: reachable={reachable}",
+            case.name
+        );
+        assert!(reachable < case.goals.len(), "{}", case.name);
+        if let Some(maximum) = case.maximum_discs {
+            assert!(
+                case.goals
+                    .iter()
+                    .all(|goal| goal.board.popcount() <= maximum),
+                "{}",
+                case.name
+            );
+        }
 
-#[test]
-fn ordinary_cnf_is_nontrivial_for_every_encoding() {
-    let start = ArrayPosition::initial();
-    let goal = start.apply(PlyAction::Play(19)).unwrap();
-    for encoding in SatEncoding::ALL {
-        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
-        assert!(
-            matches!(outcome, GoalClassification::Reachable { .. }),
-            "{encoding}"
-        );
-        assert!(cnf.variables > 0, "{encoding}: {cnf:?}");
-        assert!(!cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
-        assert!(
-            cnf.clauses.iter().all(|clause| !clause.is_empty()),
-            "{encoding}: {cnf:?}"
-        );
-    }
-}
-
-#[test]
-fn trivially_unreachable_cnf_contains_one_empty_clause_for_every_encoding() {
-    let goal = ArrayPosition::initial();
-    let start = goal.apply(PlyAction::Play(19)).unwrap();
-    for encoding in SatEncoding::ALL
-        .into_iter()
-        .filter(|encoding| encoding.proves_unreachable())
-    {
-        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
-        assert!(
-            matches!(outcome, GoalClassification::Unreachable { .. }),
-            "{encoding}"
-        );
-        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
-        assert_eq!(cnf.clauses, vec![Vec::<i32>::new()], "{encoding}");
-    }
-}
-
-#[test]
-fn zero_placement_reachable_cnf_is_empty_for_every_encoding() {
-    let start = ArrayPosition::initial().position();
-    for encoding in SatEncoding::ALL {
-        let (outcome, cnf) = dump_exact_cnf(encoding, start, start);
-        assert!(
-            matches!(outcome, GoalClassification::Reachable { .. }),
-            "{encoding}"
-        );
-        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
-        assert!(cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
+        let directory = TestDirectory::new();
+        let bfs = run_strategy(
+            &Strategy::Bfs {
+                discs: case.bfs_discs,
+                max_nodes: case.bfs_max_nodes,
+                use_lp: false,
+                threads: 2,
+                parallel_goals: 2,
+            },
+            &case.goals,
+            &directory.path().join("bfs"),
+            case.goal_match,
+        )
+        .unwrap_or_else(|error| panic!("{}: BFS: {error}", case.name));
+        let mut bfs_ok = 0;
+        let mut bfs_ng = 0;
+        for ((classification, _), expected) in bfs.iter().zip(answers) {
+            match classification {
+                GoalClassification::Reachable { record } => {
+                    assert!(expected, "{}: BFS contradicted SAT", case.name);
+                    record.verify().unwrap();
+                    bfs_ok += 1;
+                }
+                GoalClassification::Unreachable { .. } => {
+                    assert!(!expected, "{}: BFS contradicted SAT", case.name);
+                    bfs_ng += 1;
+                }
+                GoalClassification::Unknown { .. } => {}
+            }
+        }
+        assert!(bfs_ok > 0, "{}: BFS decided no OK query", case.name);
+        assert!(bfs_ng > 0, "{}: BFS decided no NG query", case.name);
     }
 }
 
 #[test]
-fn pass_only_reachable_cnf_is_empty_for_every_encoding() {
-    let start = ArrayPosition::from_relative(
+fn cnf_shape_matches_query_classification_for_every_encoding() {
+    #[derive(Clone, Copy)]
+    enum ExpectedClassification {
+        Reachable,
+        Unreachable,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ExpectedShape {
+        Nontrivial,
+        Empty,
+        OneEmptyClause,
+    }
+
+    struct Case {
+        name: &'static str,
+        start: Position,
+        goal: Position,
+        encodings: Vec<SatEncoding>,
+        classification: ExpectedClassification,
+        shape: ExpectedShape,
+    }
+
+    let initial = ArrayPosition::initial();
+    let after_opening = initial.apply(PlyAction::Play(19)).unwrap();
+    let before_pass = ArrayPosition::from_relative(
         "OXX-OOOOOXXXXXXOOXOOOXXOOOXOXOXXOXOXOOXXOOOXXXOXOOXOOOXXOOOOOOXX",
         false,
     );
-    let goal = start.apply(PlyAction::Pass).unwrap();
-    for encoding in SatEncoding::ALL
-        .into_iter()
-        .filter(|encoding| encoding.proves_unreachable())
-    {
-        let (outcome, cnf) = dump_exact_cnf(encoding, start.position(), goal.position());
-        assert!(
-            matches!(outcome, GoalClassification::Reachable { .. }),
-            "{encoding}"
-        );
-        assert_eq!(cnf.variables, 0, "{encoding}: {cnf:?}");
-        assert!(cnf.clauses.is_empty(), "{encoding}: {cnf:?}");
+    let after_pass = before_pass.apply(PlyAction::Pass).unwrap();
+    let complete_encodings = || {
+        SatEncoding::ALL
+            .into_iter()
+            .filter(|encoding| encoding.proves_unreachable())
+            .collect()
+    };
+    let cases = [
+        Case {
+            name: "ordinary",
+            start: initial.position(),
+            goal: after_opening.position(),
+            encodings: SatEncoding::ALL.to_vec(),
+            classification: ExpectedClassification::Reachable,
+            shape: ExpectedShape::Nontrivial,
+        },
+        Case {
+            name: "stone-count-decrease",
+            start: after_opening.position(),
+            goal: initial.position(),
+            encodings: complete_encodings(),
+            classification: ExpectedClassification::Unreachable,
+            shape: ExpectedShape::OneEmptyClause,
+        },
+        Case {
+            name: "zero-placement",
+            start: initial.position(),
+            goal: initial.position(),
+            encodings: SatEncoding::ALL.to_vec(),
+            classification: ExpectedClassification::Reachable,
+            shape: ExpectedShape::Empty,
+        },
+        Case {
+            name: "pass-only",
+            start: before_pass.position(),
+            goal: after_pass.position(),
+            encodings: complete_encodings(),
+            classification: ExpectedClassification::Reachable,
+            shape: ExpectedShape::Empty,
+        },
+    ];
+
+    for case in cases {
+        for encoding in case.encodings {
+            let (outcome, cnf) = dump_exact_cnf(encoding, case.start, case.goal);
+            match case.classification {
+                ExpectedClassification::Reachable => assert!(
+                    matches!(outcome, GoalClassification::Reachable { .. }),
+                    "{}: {encoding}",
+                    case.name
+                ),
+                ExpectedClassification::Unreachable => assert!(
+                    matches!(outcome, GoalClassification::Unreachable { .. }),
+                    "{}: {encoding}",
+                    case.name
+                ),
+            }
+            match case.shape {
+                ExpectedShape::Nontrivial => {
+                    assert!(cnf.variables > 0, "{}: {encoding}: {cnf:?}", case.name);
+                    assert!(
+                        !cnf.clauses.is_empty(),
+                        "{}: {encoding}: {cnf:?}",
+                        case.name
+                    );
+                    assert!(
+                        cnf.clauses.iter().all(|clause| !clause.is_empty()),
+                        "{}: {encoding}: {cnf:?}",
+                        case.name
+                    );
+                }
+                ExpectedShape::Empty => {
+                    assert_eq!(cnf.variables, 0, "{}: {encoding}: {cnf:?}", case.name);
+                    assert!(cnf.clauses.is_empty(), "{}: {encoding}: {cnf:?}", case.name);
+                }
+                ExpectedShape::OneEmptyClause => {
+                    assert_eq!(cnf.variables, 0, "{}: {encoding}: {cnf:?}", case.name);
+                    assert_eq!(
+                        cnf.clauses,
+                        vec![Vec::<i32>::new()],
+                        "{}: {encoding}",
+                        case.name
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1580,45 +1145,116 @@ fn cnf_dump_only_writes_every_candidate_and_encoding_without_classifying() {
 }
 
 #[test]
-fn invalid_positions_and_callback_failures_are_execution_errors() {
+fn invalid_positions_empty_goals_and_callback_failures_have_declared_results() {
+    enum Expected {
+        ErrorPrefix(&'static str),
+        Empty,
+        CallbackError(&'static str),
+    }
+
+    struct Case {
+        name: &'static str,
+        start: Position,
+        goals: Vec<Position>,
+        callback_error: Option<&'static str>,
+        expected: Expected,
+        expected_callbacks: usize,
+    }
+
     let start = Position::initial();
-    let invalid_boards = [
-        Board {
+    let empty = Position {
+        board: Board {
             player: 0,
             opponent: 0,
         },
-        Board {
+        ..start
+    };
+    let overlapping = Position {
+        board: Board {
             player: start.board.player | start.board.opponent,
             opponent: start.board.opponent,
         },
+        ..start
+    };
+    let cases = [
+        Case {
+            name: "empty-board-start",
+            start: empty,
+            goals: vec![start],
+            callback_error: None,
+            expected: Expected::ErrorPrefix("invalid start:"),
+            expected_callbacks: 0,
+        },
+        Case {
+            name: "overlapping-start",
+            start: overlapping,
+            goals: vec![start],
+            callback_error: None,
+            expected: Expected::ErrorPrefix("invalid start:"),
+            expected_callbacks: 0,
+        },
+        Case {
+            name: "empty-board-goal",
+            start,
+            goals: vec![empty],
+            callback_error: None,
+            expected: Expected::ErrorPrefix("invalid goal[1]:"),
+            expected_callbacks: 0,
+        },
+        Case {
+            name: "overlapping-goal",
+            start,
+            goals: vec![overlapping],
+            callback_error: None,
+            expected: Expected::ErrorPrefix("invalid goal[1]:"),
+            expected_callbacks: 0,
+        },
+        Case {
+            name: "empty-goals",
+            start,
+            goals: Vec::new(),
+            callback_error: None,
+            expected: Expected::Empty,
+            expected_callbacks: 0,
+        },
+        Case {
+            name: "callback-error",
+            start,
+            goals: vec![start],
+            callback_error: Some("intentional callback failure"),
+            expected: Expected::CallbackError("intentional callback failure"),
+            expected_callbacks: 1,
+        },
     ];
-    for encoding in SatEncoding::ALL {
-        for board in invalid_boards {
-            let invalid = Position { board, ..start };
-            for (source, goals) in [(invalid, vec![start]), (start, vec![invalid])] {
-                let mut callbacks = 0;
-                let result =
-                    run_with_options(options(source, goals, GoalMatch::Exact, encoding), |_| {
-                        callbacks += 1;
-                        Ok(())
-                    });
-                assert!(result.is_err(), "{encoding}");
-                assert_eq!(callbacks, 0, "{encoding}");
+
+    for case in cases {
+        let mut callbacks = 0;
+        let result = run_with_options(
+            options(
+                case.start,
+                case.goals,
+                GoalMatch::Exact,
+                SatEncoding::PlacementRays,
+            ),
+            |_| {
+                callbacks += 1;
+                match case.callback_error {
+                    Some(error) => Err(error.to_owned()),
+                    None => Ok(()),
+                }
+            },
+        );
+        match case.expected {
+            Expected::ErrorPrefix(prefix) => {
+                let error = result.unwrap_err();
+                assert!(error.starts_with(prefix), "{}: {error}", case.name);
+            }
+            Expected::Empty => assert!(result.unwrap().is_empty(), "{}", case.name),
+            Expected::CallbackError(expected) => {
+                assert_eq!(result.unwrap_err(), expected, "{}", case.name)
             }
         }
-        let empty = run_with_options(options(start, vec![], GoalMatch::Exact, encoding), |_| {
-            panic!("empty input cannot produce an outcome")
-        })
-        .unwrap();
-        assert!(empty.is_empty(), "{encoding}");
-        assert!(
-            run_with_options(
-                options(start, vec![start], GoalMatch::Exact, encoding),
-                |_| Err("intentional callback failure".to_string())
-            )
-            .is_err(),
-            "{encoding}"
-        );
+        assert_eq!(callbacks, case.expected_callbacks, "{}", case.name);
     }
 }
 

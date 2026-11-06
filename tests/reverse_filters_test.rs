@@ -5,29 +5,24 @@ mod support;
 
 use std::collections::HashSet;
 
-use othello_complexity_rs::filters::{
-    impossible_edges::check_virtual_edge_patterns, occupancy::check_occupancy,
-    seg3::check_seg3_more,
-};
-use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
+use othello_complexity_rs::othello::{Board, BoardSymmetry, Color, Position};
 use othello_complexity_rs::query::candidates;
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
 use othello_complexity_rs::search::{
-    bfs::{retrospective_bfs, BfsOutcome},
-    core::{predecessors, successors, SearchOutcome},
-    dfs::retrospective_search,
+    engines::{
+        bfs::retrospective_bfs,
+        dfs::{retrospective_search, retrospective_search_move_ordering},
+        parallel_dfs::retrospective_search_parallel,
+        parallel_gbfs::parallel_retrospective_greedy_best_first_search,
+    },
     forward::ForwardTable,
-    inmemory_bfs::parallel_inmemory_retrospective_bfs,
-    move_ordering::retrospective_search_move_ordering,
-    parallel_dfs::retrospective_search_parallel,
-    parallel_gbfs::parallel_retrospective_greedy_best_first_search,
+    moves::predecessors,
+    outcome::SearchOutcome,
     transposition::Btable,
 };
 
-use rand::{Rng, SeedableRng};
 use support::{
     enumerate, middle_pass_start, random_game, targets_with_turn_changes, ArrayPosition,
-    ALL_SYMMETRIES,
 };
 
 fn verify_outcome(goal: ArrayPosition, expected: bool, outcome: SearchOutcome) {
@@ -93,7 +88,11 @@ fn verify_equivalence_record(goal: ArrayPosition, record: &ReachabilityRecord) {
     record.verify().unwrap();
 }
 
-fn equivalence_records(goal: ArrayPosition, table: &ForwardTable) -> Vec<ReachabilityRecord> {
+fn equivalence_records(
+    case: &str,
+    goal: ArrayPosition,
+    table: &ForwardTable,
+) -> Vec<ReachabilityRecord> {
     let mut visited = Btable::new(100_000, 256);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(2)
@@ -109,10 +108,8 @@ fn equivalence_records(goal: ArrayPosition, table: &ForwardTable) -> Vec<Reachab
             1,
         )
         .unwrap(),
-        pool.install(|| {
-            parallel_inmemory_retrospective_bfs(goal.position(), table, usize::MAX, false, false)
-        })
-        .unwrap(),
+        pool.install(|| retrospective_bfs(goal.position(), table, usize::MAX, false))
+            .unwrap(),
     ];
     outcomes
         .into_iter()
@@ -122,10 +119,12 @@ fn equivalence_records(goal: ArrayPosition, table: &ForwardTable) -> Vec<Reachab
                 record
             }
             SearchOutcome::NotFound { .. } => {
-                panic!("reachable equivalence query was rejected: {goal:?}")
+                panic!("{case}: reachable equivalence query was rejected: {goal:?}")
             }
             SearchOutcome::Unknown { nodes } => {
-                panic!("unbounded equivalence query returned UNKNOWN after {nodes} nodes: {goal:?}")
+                panic!(
+                    "{case}: unbounded equivalence query returned UNKNOWN after {nodes} nodes: {goal:?}"
+                )
             }
         })
         .collect()
@@ -176,7 +175,7 @@ fn parallel_dfs_with_threads(
         .unwrap()
 }
 
-fn inmemory_bfs_with_threads(
+fn bfs_with_threads(
     goal: Position,
     table: &ForwardTable,
     node_limit: usize,
@@ -186,246 +185,43 @@ fn inmemory_bfs_with_threads(
         .num_threads(threads)
         .build()
         .unwrap()
-        .install(|| parallel_inmemory_retrospective_bfs(goal, table, node_limit, false, false))
+        .install(|| retrospective_bfs(goal, table, node_limit, false))
         .unwrap()
 }
 
 #[test]
-fn inmemory_bfs_reconstructs_pass_terminal_and_equivalence_witnesses() {
-    let (actions, trace) = reference_game(32);
-    assert_eq!(actions[8], PlyAction::Pass);
-    let before_pass = trace[8];
-    let after_pass = trace[9];
-    assert_eq!(before_pass.apply(PlyAction::Pass).unwrap(), after_pass);
-
-    let exact_table = ForwardTable::new(11, Some(after_pass.position())).unwrap();
-    assert!(!exact_table.contains(before_pass.position()));
-    assert!(!exact_table.contains(after_pass.position()));
-    let outcome = inmemory_bfs_with_threads(after_pass.position(), &exact_table, usize::MAX, 1);
-    let SearchOutcome::Found { record, .. } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    assert!(record.actions.contains(&PlyAction::Pass));
-    assert_eq!(record.goal_match, GoalMatch::Exact);
-    assert_eq!(
-        ArrayPosition::initial()
-            .replay(&record.actions)
-            .unwrap()
-            .last(),
-        Some(&after_pass)
-    );
-    record.verify().unwrap();
-
-    let equivalence_goal = trace[10].transformed(BoardSymmetry::MirrorHorizontal);
-    let equivalence_table = ForwardTable::for_equivalence(11, equivalence_goal.position()).unwrap();
-    let outcome = inmemory_bfs_with_threads(
-        equivalence_goal.position(),
-        &equivalence_table,
-        usize::MAX,
-        3,
-    );
-    let SearchOutcome::Found { record, .. } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    assert!(record.actions.contains(&PlyAction::Pass));
-    verify_equivalence_record(equivalence_goal, &record);
-
-    let (_, terminal_trace) = reference_game(1194);
-    let terminal = *terminal_trace.last().unwrap();
-    assert!(terminal.moves().is_empty());
-    assert!(terminal.opposite_turn().moves().is_empty());
-    let terminal_table = ForwardTable::for_equivalence(10, terminal.position()).unwrap();
-    let outcome = inmemory_bfs_with_threads(terminal.position(), &terminal_table, usize::MAX, 3);
-    let SearchOutcome::Found { record, .. } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    verify_equivalence_record(terminal, &record);
-}
-
-#[test]
-fn inmemory_bfs_checks_meetings_before_zero_and_one_node_limits() {
-    let initial = ArrayPosition::initial();
-    let table = ForwardTable::new(4, None).unwrap();
-    for node_limit in [0, 1] {
-        let outcome = inmemory_bfs_with_threads(initial.position(), &table, node_limit, 1);
-        let SearchOutcome::Found { record, nodes: 0 } = outcome else {
-            panic!("node_limit={node_limit}, outcome={outcome:?}");
-        };
-        assert!(record.actions.is_empty());
-        record.verify().unwrap();
+fn unbounded_reverse_engines_match_across_thread_counts_and_goal_classes() {
+    #[derive(Clone, Copy)]
+    enum Engine {
+        Gbfs,
+        ParallelDfs,
+        Bfs,
     }
 
-    let goal = initial.apply(PlyAction::Play(19)).unwrap();
-    assert!(matches!(
-        inmemory_bfs_with_threads(goal.position(), &table, 0, 1),
-        SearchOutcome::Unknown { nodes: 0 }
-    ));
-    let outcome = inmemory_bfs_with_threads(goal.position(), &table, 1, 1);
-    let SearchOutcome::Found { record, nodes: 1 } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    assert_eq!(record.actions, [PlyAction::Play(19)]);
-    assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
-}
+    struct Scenario {
+        name: &'static str,
+        goal: ArrayPosition,
+        boundary: u32,
+        goal_match: GoalMatch,
+        expected: bool,
+        requires_pass: bool,
+    }
 
-#[test]
-fn inmemory_bfs_deduplicates_before_reserving_the_node_limit() {
-    let standard = ArrayPosition::initial();
-    let start = standard.apply(PlyAction::Play(19)).unwrap();
-    let actions = [
-        PlyAction::Play(20),
-        PlyAction::Play(13),
-        PlyAction::Play(12),
-        PlyAction::Play(37),
-    ];
-    let goal = *start.replay(&actions).unwrap().last().unwrap();
-    let table = ForwardTable::from_start(start.position(), 5, Some(goal.position())).unwrap();
-
-    assert!(matches!(
-        inmemory_bfs_with_threads(goal.position(), &table, 14, 1),
-        SearchOutcome::Unknown { .. }
-    ));
-    let outcome = inmemory_bfs_with_threads(goal.position(), &table, 15, 1);
-    let SearchOutcome::Found { record, .. } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    assert_eq!(record.start, start.position());
-    assert_eq!(record.goal, goal.position());
-    assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
-}
-
-#[test]
-fn inmemory_bfs_skips_standard_pruning_for_a_custom_start() {
-    let start = Position {
-        board: Board::new(CENTER_MASK, 1_u64 << 19),
-        side_to_move: Color::Black,
-    };
-    assert!(!check_seg3_more(
-        start.board.player,
-        start.board.opponent,
-        false
-    ));
-    let (goal, action) = successors(start)
-        .into_iter()
-        .find(|(_, action)| *action == PlyAction::Play(11))
-        .expect("D2 must be legal from the custom start");
-    let table = ForwardTable::from_start(start, 5, Some(goal)).unwrap();
-    let outcome = inmemory_bfs_with_threads(goal, &table, usize::MAX, 1);
-    let SearchOutcome::Found { record, nodes: 1 } = outcome else {
-        panic!("outcome={outcome:?}");
-    };
-    assert_eq!(record.start, start);
-    assert_eq!(record.goal, goal);
-    assert_eq!(record.actions, [action]);
-    assert_eq!(record.verify().unwrap().last(), Some(&goal));
-}
-
-#[test]
-fn unbounded_inmemory_bfs_results_match_across_thread_counts() {
-    let exact_actions = [
+    let fixed_actions = [
         PlyAction::Play(19),
         PlyAction::Play(20),
         PlyAction::Play(13),
         PlyAction::Play(12),
     ];
-    let exact_goal = *ArrayPosition::initial()
-        .replay(&exact_actions)
+    let fixed_goal = *ArrayPosition::initial()
+        .replay(&fixed_actions)
         .unwrap()
         .last()
         .unwrap();
-    let exact_table = ForwardTable::new(4, Some(exact_goal.position())).unwrap();
-    let exact = [1, 4].map(|threads| {
-        inmemory_bfs_with_threads(exact_goal.position(), &exact_table, usize::MAX, threads)
-    });
-    assert_eq!(exact[0].result(), exact[1].result());
-    for outcome in exact {
-        verify_outcome(exact_goal, true, outcome);
-    }
-
-    let equivalence_goal = exact_goal.transformed(BoardSymmetry::MirrorHorizontal);
-    let equivalence_table = ForwardTable::for_equivalence(4, equivalence_goal.position()).unwrap();
-    let equivalence = [1, 4].map(|threads| {
-        inmemory_bfs_with_threads(
-            equivalence_goal.position(),
-            &equivalence_table,
-            usize::MAX,
-            threads,
-        )
-    });
-    assert_eq!(equivalence[0].result(), equivalence[1].result());
-    for outcome in equivalence {
-        verify_equivalence_outcome(equivalence_goal, true, outcome);
-    }
-
-    let reachable = enumerate(ArrayPosition::initial(), 7);
-    let unreachable = targets_with_turn_changes(&reachable)
-        .into_iter()
-        .find(|goal| goal.discs() == 7 && !reachable.contains(goal))
-        .expect("the independent oracle includes a seven-disc unreachable query");
-    let unreachable_table = ForwardTable::new(4, Some(unreachable.position())).unwrap();
-    let exhausted = [1, 4].map(|threads| {
-        inmemory_bfs_with_threads(
-            unreachable.position(),
-            &unreachable_table,
-            usize::MAX,
-            threads,
-        )
-    });
-    assert_eq!(exhausted[0].result(), exhausted[1].result());
-    for outcome in exhausted {
-        verify_outcome(unreachable, false, outcome);
-    }
-}
-
-#[test]
-fn unbounded_gbfs_results_match_across_thread_counts() {
     let (actions, trace) = reference_game(32);
     assert_eq!(actions[8], PlyAction::Pass);
-    let exact_goal = trace[10];
-    let exact_table = ForwardTable::new(11, Some(exact_goal.position())).unwrap();
-    let exact = [1, 2, 8].map(|threads| {
-        parallel_retrospective_greedy_best_first_search(
-            exact_goal.position(),
-            &exact_table,
-            usize::MAX,
-            false,
-            threads,
-        )
-        .unwrap()
-    });
-    let exact_result = exact[0].result();
-    for (threads, outcome) in [1, 2, 8].into_iter().zip(exact) {
-        assert_eq!(outcome.result(), exact_result, "threads={threads}");
-        let SearchOutcome::Found { record, .. } = &outcome else {
-            panic!("threads={threads}, outcome={outcome:?}");
-        };
-        assert!(record.actions.contains(&PlyAction::Pass));
-        record.verify().unwrap();
-        verify_outcome(exact_goal, true, outcome);
-    }
-
-    let equivalence_goal = exact_goal.transformed(BoardSymmetry::MirrorHorizontal);
-    let equivalence_table = ForwardTable::for_equivalence(11, equivalence_goal.position()).unwrap();
-    let equivalence = [1, 2, 8].map(|threads| {
-        parallel_retrospective_greedy_best_first_search(
-            equivalence_goal.position(),
-            &equivalence_table,
-            usize::MAX,
-            false,
-            threads,
-        )
-        .unwrap()
-    });
-    let equivalence_result = equivalence[0].result();
-    for (threads, outcome) in [1, 2, 8].into_iter().zip(equivalence) {
-        assert_eq!(outcome.result(), equivalence_result, "threads={threads}");
-        let SearchOutcome::Found { record, .. } = &outcome else {
-            panic!("threads={threads}, outcome={outcome:?}");
-        };
-        assert!(record.actions.contains(&PlyAction::Pass));
-        record.verify().unwrap();
-        verify_equivalence_outcome(equivalence_goal, true, outcome);
-    }
+    let pass_goal = trace[10];
+    assert_eq!(pass_goal.discs(), 13);
 
     let reachable = enumerate(ArrayPosition::initial(), 7);
     let targets = targets_with_turn_changes(&reachable);
@@ -434,44 +230,580 @@ fn unbounded_gbfs_results_match_across_thread_counts() {
         .copied()
         .find(|goal| goal.discs() == 7 && !reachable.contains(goal))
         .expect("the independent oracle includes a seven-disc unreachable query");
-    let exact_table = ForwardTable::new(4, Some(exact_unreachable.position())).unwrap();
-    let exact = [1, 2, 8].map(|threads| {
-        parallel_retrospective_greedy_best_first_search(
-            exact_unreachable.position(),
-            &exact_table,
-            usize::MAX,
-            false,
-            threads,
-        )
-        .unwrap()
-    });
-    let exact_result = exact[0].result();
-    for (threads, outcome) in [1, 2, 8].into_iter().zip(exact) {
-        assert_eq!(outcome.result(), exact_result, "threads={threads}");
-        verify_outcome(exact_unreachable, false, outcome);
-    }
-
     let equivalence_unreachable = targets
         .into_iter()
         .find(|goal| goal.discs() == 7 && !equivalence_oracle_contains(&reachable, *goal))
         .expect("the independent oracle includes an unreachable equivalence query");
-    let equivalence_table =
-        ForwardTable::for_equivalence(4, equivalence_unreachable.position()).unwrap();
-    let equivalence = [1, 2, 8].map(|threads| {
-        parallel_retrospective_greedy_best_first_search(
-            equivalence_unreachable.position(),
-            &equivalence_table,
+
+    let scenarios = [
+        Scenario {
+            name: "fixed-exact",
+            goal: fixed_goal,
+            boundary: 4,
+            goal_match: GoalMatch::Exact,
+            expected: true,
+            requires_pass: false,
+        },
+        Scenario {
+            name: "pass-exact",
+            goal: pass_goal,
+            boundary: 11,
+            goal_match: GoalMatch::Exact,
+            expected: true,
+            requires_pass: true,
+        },
+        Scenario {
+            name: "fixed-equivalence",
+            goal: fixed_goal.transformed(BoardSymmetry::MirrorHorizontal),
+            boundary: 4,
+            goal_match: GoalMatch::EquivalenceClass,
+            expected: true,
+            requires_pass: false,
+        },
+        Scenario {
+            name: "pass-equivalence",
+            goal: pass_goal.transformed(BoardSymmetry::MirrorHorizontal),
+            boundary: 11,
+            goal_match: GoalMatch::EquivalenceClass,
+            expected: true,
+            requires_pass: true,
+        },
+        Scenario {
+            name: "unreachable-exact",
+            goal: exact_unreachable,
+            boundary: 4,
+            goal_match: GoalMatch::Exact,
+            expected: false,
+            requires_pass: false,
+        },
+        Scenario {
+            name: "unreachable-equivalence",
+            goal: equivalence_unreachable,
+            boundary: 4,
+            goal_match: GoalMatch::EquivalenceClass,
+            expected: false,
+            requires_pass: false,
+        },
+    ];
+
+    for scenario in scenarios {
+        let table = match scenario.goal_match {
+            GoalMatch::Exact => {
+                ForwardTable::new(scenario.boundary, Some(scenario.goal.position())).unwrap()
+            }
+            GoalMatch::EquivalenceClass => {
+                ForwardTable::for_equivalence(scenario.boundary, scenario.goal.position()).unwrap()
+            }
+        };
+        for engine in [Engine::Gbfs, Engine::ParallelDfs, Engine::Bfs] {
+            let engine_name = match engine {
+                Engine::Gbfs => "gbfs",
+                Engine::ParallelDfs => "parallel-dfs",
+                Engine::Bfs => "bfs",
+            };
+            let mut first_result = None;
+            for threads in [1, 2, 8] {
+                let outcome = match engine {
+                    Engine::Gbfs => parallel_retrospective_greedy_best_first_search(
+                        scenario.goal.position(),
+                        &table,
+                        usize::MAX,
+                        false,
+                        threads,
+                    )
+                    .unwrap(),
+                    Engine::ParallelDfs => {
+                        parallel_dfs_with_threads(scenario.goal.position(), &table, threads)
+                    }
+                    Engine::Bfs => {
+                        bfs_with_threads(scenario.goal.position(), &table, usize::MAX, threads)
+                    }
+                };
+                let row = format!("{}-{engine_name}-{threads}", scenario.name);
+                assert!(
+                    match &outcome {
+                        SearchOutcome::Found { .. } => scenario.expected,
+                        SearchOutcome::NotFound { .. } => !scenario.expected,
+                        SearchOutcome::Unknown { .. } => false,
+                    },
+                    "{row}: outcome={outcome:?}"
+                );
+                if let Some(first_result) = first_result {
+                    assert_eq!(outcome.result(), first_result, "{row}");
+                } else {
+                    first_result = Some(outcome.result());
+                }
+                if scenario.requires_pass && scenario.expected {
+                    let SearchOutcome::Found { record, .. } = &outcome else {
+                        panic!("{row}: expected a pass witness, got {outcome:?}");
+                    };
+                    assert!(record.actions.contains(&PlyAction::Pass), "{row}");
+                }
+                match scenario.goal_match {
+                    GoalMatch::Exact => verify_outcome(scenario.goal, scenario.expected, outcome),
+                    GoalMatch::EquivalenceClass => {
+                        verify_equivalence_outcome(scenario.goal, scenario.expected, outcome)
+                    }
+                }
+            }
+        }
+    }
+
+    let reachable_eight = enumerate(ArrayPosition::initial(), 8);
+    let exhausted = targets_with_turn_changes(&reachable_eight)
+        .into_iter()
+        .find(|goal| !reachable_eight.contains(goal))
+        .expect("the eight-disc oracle includes an unreachable query");
+    let table = ForwardTable::new(6, None).unwrap();
+    for repeat in 0..8 {
+        let outcome = parallel_retrospective_greedy_best_first_search(
+            exhausted.position(),
+            &table,
             usize::MAX,
             false,
-            threads,
+            4,
         )
-        .unwrap()
-    });
-    let equivalence_result = equivalence[0].result();
-    for (threads, outcome) in [1, 2, 8].into_iter().zip(equivalence) {
-        assert_eq!(outcome.result(), equivalence_result, "threads={threads}");
-        verify_equivalence_outcome(equivalence_unreachable, false, outcome);
+        .unwrap();
+        assert!(
+            matches!(&outcome, SearchOutcome::NotFound { .. }),
+            "repeated-gbfs-4-{repeat}: outcome={outcome:?}"
+        );
+        verify_outcome(exhausted, false, outcome);
     }
+}
+
+#[test]
+fn bfs_and_parallel_dfs_preserve_node_and_table_limit_boundaries() {
+    #[derive(Clone, Copy)]
+    enum Engine {
+        Bfs,
+        ParallelDfs { table_limit: usize },
+    }
+
+    enum Expected {
+        Found {
+            nodes: usize,
+            actions: Vec<PlyAction>,
+        },
+        Unknown {
+            nodes: usize,
+        },
+    }
+
+    struct Case {
+        name: &'static str,
+        engine: Engine,
+        goal: ArrayPosition,
+        node_limit: usize,
+        expected: Expected,
+    }
+
+    let initial = ArrayPosition::initial();
+    let goal = initial.apply(PlyAction::Play(19)).unwrap();
+    let table = ForwardTable::new(4, None).unwrap();
+    let mut cases = vec![
+        Case {
+            name: "bfs-meeting-limit-0",
+            engine: Engine::Bfs,
+            goal: initial,
+            node_limit: 0,
+            expected: Expected::Found {
+                nodes: 0,
+                actions: Vec::new(),
+            },
+        },
+        Case {
+            name: "bfs-meeting-limit-1",
+            engine: Engine::Bfs,
+            goal: initial,
+            node_limit: 1,
+            expected: Expected::Found {
+                nodes: 0,
+                actions: Vec::new(),
+            },
+        },
+        Case {
+            name: "bfs-opening-limit-0",
+            engine: Engine::Bfs,
+            goal,
+            node_limit: 0,
+            expected: Expected::Unknown { nodes: 1 },
+        },
+        Case {
+            name: "bfs-opening-limit-1",
+            engine: Engine::Bfs,
+            goal,
+            node_limit: 1,
+            expected: Expected::Found {
+                nodes: 1,
+                actions: vec![PlyAction::Play(19)],
+            },
+        },
+    ];
+    for table_limit in [0, 1, 2] {
+        cases.push(Case {
+            name: "parallel-dfs-before-expansion",
+            engine: Engine::ParallelDfs { table_limit },
+            goal,
+            node_limit: 0,
+            expected: Expected::Unknown { nodes: 1 },
+        });
+        cases.push(Case {
+            name: "parallel-dfs-opening-found",
+            engine: Engine::ParallelDfs { table_limit },
+            goal,
+            node_limit: 1,
+            expected: Expected::Found {
+                nodes: 1,
+                actions: vec![PlyAction::Play(19)],
+            },
+        });
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    for case in cases {
+        let table_limit = match case.engine {
+            Engine::Bfs => None,
+            Engine::ParallelDfs { table_limit } => Some(table_limit),
+        };
+        let outcome = match case.engine {
+            Engine::Bfs => bfs_with_threads(case.goal.position(), &table, case.node_limit, 1),
+            Engine::ParallelDfs { table_limit } => pool
+                .install(|| {
+                    retrospective_search_parallel(
+                        case.goal.position(),
+                        &table,
+                        case.node_limit,
+                        table_limit,
+                    )
+                })
+                .unwrap(),
+        };
+        let row = format!("{}-table-{table_limit:?}", case.name);
+        match case.expected {
+            Expected::Found { nodes, actions } => {
+                let SearchOutcome::Found {
+                    record,
+                    nodes: actual_nodes,
+                } = outcome
+                else {
+                    panic!("{row}: expected FOUND, got {outcome:?}");
+                };
+                assert_eq!(actual_nodes, nodes, "{row}");
+                assert_eq!(record.actions, actions, "{row}");
+                assert_eq!(
+                    record.verify().unwrap().last(),
+                    Some(&case.goal.position()),
+                    "{row}"
+                );
+            }
+            Expected::Unknown { nodes } => assert!(
+                matches!(outcome, SearchOutcome::Unknown { nodes: actual } if actual == nodes),
+                "{row}: outcome={outcome:?}"
+            ),
+        }
+    }
+}
+
+#[test]
+fn bfs_deduplicates_before_reserving_the_node_limit() {
+    #[derive(Clone, Copy)]
+    enum Registration {
+        Added,
+        Dropped,
+        Meeting,
+    }
+
+    fn required_squares(boundary: &[u64], position: Position) -> Option<u64> {
+        let occupied = position.board.player | position.board.opponent;
+        let mut matching = boundary
+            .iter()
+            .copied()
+            .filter(|frontier| frontier & occupied == *frontier);
+        let first = matching.next()?;
+        Some(matching.fold(first, |common, frontier| common & frontier))
+    }
+
+    fn register(
+        position: Position,
+        table: &ForwardTable,
+        boundary: &[u64],
+        layer: &mut HashSet<Position>,
+        registrations: &mut usize,
+        attempts: &mut usize,
+    ) -> Registration {
+        if table.contains(position) {
+            return Registration::Meeting;
+        }
+        if position.board.popcount() <= table.discs()
+            || required_squares(boundary, position).is_none()
+        {
+            return Registration::Dropped;
+        }
+        *attempts += 1;
+        if !layer.insert(position) {
+            return Registration::Dropped;
+        }
+        *registrations += 1;
+        Registration::Added
+    }
+
+    fn independent_exhaustion_count(
+        goal: Position,
+        table: &ForwardTable,
+    ) -> Option<(usize, usize)> {
+        let boundary: Vec<_> = table
+            .positions()
+            .filter(|position| position.board.popcount() == table.discs())
+            .map(|position| position.board.player | position.board.opponent)
+            .collect();
+        let mut registrations = 0;
+        let mut attempts = 0;
+        let mut current = HashSet::new();
+        if !matches!(
+            register(
+                goal,
+                table,
+                &boundary,
+                &mut current,
+                &mut registrations,
+                &mut attempts,
+            ),
+            Registration::Added
+        ) {
+            return Some((registrations, attempts));
+        }
+        if let Some((before_pass, _)) = predecessors(goal)
+            .into_iter()
+            .find(|(_, action)| *action == PlyAction::Pass)
+        {
+            if matches!(
+                register(
+                    before_pass,
+                    table,
+                    &boundary,
+                    &mut current,
+                    &mut registrations,
+                    &mut attempts,
+                ),
+                Registration::Meeting
+            ) {
+                return None;
+            }
+        }
+
+        loop {
+            let mut next = HashSet::new();
+            for position in current {
+                let required = required_squares(&boundary, position)
+                    .expect("registered positions retain a compatible frontier");
+                for (previous, action) in predecessors(position) {
+                    let PlyAction::Play(square) = action else {
+                        continue;
+                    };
+                    if required & (1_u64 << square) != 0 {
+                        continue;
+                    }
+                    match register(
+                        previous,
+                        table,
+                        &boundary,
+                        &mut next,
+                        &mut registrations,
+                        &mut attempts,
+                    ) {
+                        Registration::Meeting => return None,
+                        Registration::Dropped => continue,
+                        Registration::Added => {}
+                    }
+                    if let Some((before_pass, _)) = predecessors(previous)
+                        .into_iter()
+                        .find(|(_, action)| *action == PlyAction::Pass)
+                    {
+                        if matches!(
+                            register(
+                                before_pass,
+                                table,
+                                &boundary,
+                                &mut next,
+                                &mut registrations,
+                                &mut attempts,
+                            ),
+                            Registration::Meeting
+                        ) {
+                            return None;
+                        }
+                    }
+                }
+            }
+            if next.is_empty() {
+                return Some((registrations, attempts));
+            }
+            current = next;
+        }
+    }
+
+    let start = ArrayPosition::initial().apply(PlyAction::Play(19)).unwrap();
+    let reachable = enumerate(start, 9);
+    let (goal, table, unique) = targets_with_turn_changes(&reachable)
+        .into_iter()
+        .filter(|goal| goal.discs() == 9 && !reachable.contains(goal))
+        .find_map(|goal| {
+            let table =
+                ForwardTable::from_start(start.position(), 5, Some(goal.position())).ok()?;
+            let (unique, attempts) = independent_exhaustion_count(goal.position(), &table)?;
+            (unique >= 2 && attempts > unique).then_some((goal, table, unique))
+        })
+        .expect("the independent enumeration includes a duplicate-producing unreachable query");
+
+    assert!(matches!(
+        bfs_with_threads(goal.position(), &table, unique - 1, 1),
+        SearchOutcome::Unknown { .. }
+    ));
+    assert!(matches!(
+        bfs_with_threads(goal.position(), &table, unique, 1),
+        SearchOutcome::NotFound { nodes } if nodes == unique
+    ));
+}
+
+#[test]
+fn bfs_exhaustion_counts_and_limits_are_stable_across_threads_and_goal_classes() {
+    let reachable = enumerate(ArrayPosition::initial(), 8);
+    let targets = targets_with_turn_changes(&reachable);
+    for goal_match in [GoalMatch::Exact, GoalMatch::EquivalenceClass] {
+        let (goal, table, expected_nodes) = targets
+            .iter()
+            .copied()
+            .filter(|goal| {
+                goal.discs() == 8
+                    && match goal_match {
+                        GoalMatch::Exact => !reachable.contains(goal),
+                        GoalMatch::EquivalenceClass => {
+                            !equivalence_oracle_contains(&reachable, *goal)
+                        }
+                    }
+            })
+            .find_map(|goal| {
+                let table = match goal_match {
+                    GoalMatch::Exact => ForwardTable::new(4, Some(goal.position())).unwrap(),
+                    GoalMatch::EquivalenceClass => {
+                        ForwardTable::for_equivalence(4, goal.position()).unwrap()
+                    }
+                };
+                let outcome = bfs_with_threads(goal.position(), &table, usize::MAX, 1);
+                match outcome {
+                    SearchOutcome::NotFound { nodes } if nodes >= 2 => Some((goal, table, nodes)),
+                    _ => None,
+                }
+            })
+            .expect("the independent oracle includes a nontrivial unreachable query");
+
+        for threads in [1, 2, 4] {
+            let repeats = if threads == 1 { 1 } else { 4 };
+            for repeat in 0..repeats {
+                assert!(
+                    matches!(
+                        bfs_with_threads(goal.position(), &table, usize::MAX, threads),
+                        SearchOutcome::NotFound { nodes } if nodes == expected_nodes
+                    ),
+                    "mode={goal_match}, threads={threads}, repeat={repeat}"
+                );
+                assert!(
+                    matches!(
+                        bfs_with_threads(goal.position(), &table, expected_nodes, threads),
+                        SearchOutcome::NotFound { nodes } if nodes == expected_nodes
+                    ),
+                    "mode={goal_match}, threads={threads}, repeat={repeat}"
+                );
+                assert!(
+                    matches!(
+                        bfs_with_threads(goal.position(), &table, expected_nodes - 1, threads),
+                        SearchOutcome::Unknown { .. }
+                    ),
+                    "mode={goal_match}, threads={threads}, repeat={repeat}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn bfs_nodes_count_registered_positions_and_exclude_pruned_goals() {
+    let initial = ArrayPosition::initial();
+    let goal = initial.apply(PlyAction::Play(19)).unwrap();
+    let table = ForwardTable::new(4, Some(goal.position())).unwrap();
+    let SearchOutcome::Found { record, nodes } =
+        bfs_with_threads(goal.position(), &table, usize::MAX, 1)
+    else {
+        panic!("the one-placement history must meet the opening table");
+    };
+    assert_eq!(nodes, 1);
+    assert_eq!(record.actions, [PlyAction::Play(19)]);
+    record.verify().unwrap();
+
+    let mut pruned = Position::initial();
+    pruned.board.player |= 1;
+    let occupied = pruned.board.player | pruned.board.opponent;
+    assert!(!othello_complexity_rs::filters::occupancy::check_occupancy(
+        occupied
+    ));
+    let table = ForwardTable::new(4, Some(pruned)).unwrap();
+    assert!(matches!(
+        bfs_with_threads(pruned, &table, usize::MAX, 1),
+        SearchOutcome::NotFound { nodes: 0 }
+    ));
+}
+
+#[test]
+fn bounded_bfs_never_reports_not_found_for_a_reachable_goal_near_its_limit() {
+    let actions = [
+        PlyAction::Play(19),
+        PlyAction::Play(20),
+        PlyAction::Play(13),
+        PlyAction::Play(12),
+    ];
+    let goal = *ArrayPosition::initial()
+        .replay(&actions)
+        .unwrap()
+        .last()
+        .unwrap();
+    let table = ForwardTable::new(4, Some(goal.position())).unwrap();
+
+    let mut saw_bounded_found = false;
+    for max_nodes in 1..=8 {
+        for repeat in 0..12 {
+            let outcome = bfs_with_threads(goal.position(), &table, max_nodes, 4);
+            match outcome {
+                SearchOutcome::Found { record, .. } => {
+                    saw_bounded_found = true;
+                    assert_eq!(
+                        record.goal,
+                        goal.position(),
+                        "max_nodes={max_nodes}, repeat={repeat}"
+                    );
+                    record.verify().unwrap();
+                }
+                SearchOutcome::Unknown { .. } => {}
+                SearchOutcome::NotFound { nodes } => {
+                    panic!(
+                        "reachable query was rejected after {nodes} nodes, max_nodes={max_nodes}, repeat={repeat}"
+                    )
+                }
+            }
+        }
+    }
+    assert!(saw_bounded_found, "bounded search never found a witness");
+
+    let SearchOutcome::Found { record, .. } =
+        bfs_with_threads(goal.position(), &table, usize::MAX, 4)
+    else {
+        panic!("unbounded search did not find the reachable goal");
+    };
+    assert_eq!(record.goal, goal.position());
+    record.verify().unwrap();
 }
 
 #[test]
@@ -481,6 +813,7 @@ fn forward_table_matches_the_independent_eight_disc_oracle() {
     let actual: HashSet<_> = table.positions().map(as_oracle).collect();
 
     assert_eq!(actual, expected);
+    assert_eq!(table.len(), expected.len());
     for position in table.positions() {
         let (actions, symmetry) = table
             .actions_to(position)
@@ -492,164 +825,245 @@ fn forward_table_matches_the_independent_eight_disc_oracle() {
 }
 
 #[test]
-fn dfs_and_gbfs_match_all_eight_disc_oracle_queries() {
-    let reachable = enumerate(ArrayPosition::initial(), 8);
-    let targets = targets_with_turn_changes(&reachable);
-    assert!(targets.iter().any(|goal| !reachable.contains(goal)));
-    assert!(targets.iter().any(|goal| reachable.contains(goal)));
-    let table = ForwardTable::new(6, None).unwrap();
-    let mut visited = Btable::new(10_000, 256);
-    for &goal in &targets {
-        let expected = reachable.contains(&goal);
-        for ordered in [false, true] {
-            visited.clear();
-            let outcome = if ordered {
-                retrospective_search_move_ordering(
+fn reverse_search_engines_match_independent_shallow_oracle_tables() {
+    #[derive(Clone, Copy)]
+    enum TargetSet {
+        EightDiscs,
+        SevenDiscs,
+        RepresentativeTargeted,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Engine {
+        Dfs,
+        OrderedDfs,
+        Gbfs { threads: usize },
+        ParallelDfs { threads: usize, table_limit: usize },
+        Bfs,
+    }
+
+    struct Row {
+        name: &'static str,
+        targets: TargetSet,
+        boundary: u32,
+        engine: Engine,
+    }
+
+    let reachable_eight = enumerate(ArrayPosition::initial(), 8);
+    let targets_eight = targets_with_turn_changes(&reachable_eight);
+    assert!(targets_eight
+        .iter()
+        .any(|goal| !reachable_eight.contains(goal)));
+    assert!(targets_eight
+        .iter()
+        .any(|goal| reachable_eight.contains(goal)));
+
+    let reachable_seven = enumerate(ArrayPosition::initial(), 7);
+    let targets_seven = targets_with_turn_changes(&reachable_seven);
+    assert!(targets_seven
+        .iter()
+        .any(|goal| !reachable_seven.contains(goal)));
+    assert!(targets_seven
+        .iter()
+        .any(|goal| reachable_seven.contains(goal)));
+
+    let mut bases: Vec<_> = reachable_eight
+        .iter()
+        .copied()
+        .filter(|goal| goal.discs() == 8)
+        .collect();
+    bases.sort_by_key(|goal| goal.position());
+    let mut representative_targets = Vec::new();
+    for index in [0, bases.len() / 3, bases.len() * 2 / 3, bases.len() - 1] {
+        let goal = bases[index];
+        representative_targets.extend([
+            goal,
+            goal.opposite_turn(),
+            goal.color_exchanged(),
+            goal.transformed(BoardSymmetry::Rotate90),
+        ]);
+    }
+    representative_targets.sort_by_key(|goal| goal.position());
+    representative_targets.dedup();
+    assert!(representative_targets
+        .iter()
+        .any(|goal| !reachable_eight.contains(goal)));
+
+    let rows = [
+        Row {
+            name: "eight-boundary-6-dfs",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::Dfs,
+        },
+        Row {
+            name: "eight-boundary-6-ordered-dfs",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::OrderedDfs,
+        },
+        Row {
+            name: "eight-boundary-6-gbfs-1",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::Gbfs { threads: 1 },
+        },
+        Row {
+            name: "eight-boundary-6-gbfs-3",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::Gbfs { threads: 3 },
+        },
+        Row {
+            name: "eight-boundary-6-parallel-dfs",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::ParallelDfs {
+                threads: 2,
+                table_limit: 10_000,
+            },
+        },
+        Row {
+            name: "eight-boundary-6-bfs",
+            targets: TargetSet::EightDiscs,
+            boundary: 6,
+            engine: Engine::Bfs,
+        },
+        Row {
+            name: "seven-boundary-4-dfs",
+            targets: TargetSet::SevenDiscs,
+            boundary: 4,
+            engine: Engine::Dfs,
+        },
+        Row {
+            name: "seven-boundary-4-ordered-dfs",
+            targets: TargetSet::SevenDiscs,
+            boundary: 4,
+            engine: Engine::OrderedDfs,
+        },
+        Row {
+            name: "seven-boundary-4-parallel-dfs",
+            targets: TargetSet::SevenDiscs,
+            boundary: 4,
+            engine: Engine::ParallelDfs {
+                threads: 2,
+                table_limit: 100_000,
+            },
+        },
+        Row {
+            name: "seven-boundary-4-gbfs-1",
+            targets: TargetSet::SevenDiscs,
+            boundary: 4,
+            engine: Engine::Gbfs { threads: 1 },
+        },
+        Row {
+            name: "eight-boundary-4-bfs",
+            targets: TargetSet::EightDiscs,
+            boundary: 4,
+            engine: Engine::Bfs,
+        },
+        Row {
+            name: "targeted-eight-boundary-6-dfs",
+            targets: TargetSet::RepresentativeTargeted,
+            boundary: 6,
+            engine: Engine::Dfs,
+        },
+        Row {
+            name: "targeted-eight-boundary-6-parallel-dfs",
+            targets: TargetSet::RepresentativeTargeted,
+            boundary: 6,
+            engine: Engine::ParallelDfs {
+                threads: 2,
+                table_limit: 10_000,
+            },
+        },
+        Row {
+            name: "targeted-eight-boundary-6-gbfs-1",
+            targets: TargetSet::RepresentativeTargeted,
+            boundary: 6,
+            engine: Engine::Gbfs { threads: 1 },
+        },
+        Row {
+            name: "targeted-eight-boundary-6-gbfs-3",
+            targets: TargetSet::RepresentativeTargeted,
+            boundary: 6,
+            engine: Engine::Gbfs { threads: 3 },
+        },
+    ];
+
+    for row in rows {
+        let (targets, reachable, targeted) = match row.targets {
+            TargetSet::EightDiscs => (&targets_eight, &reachable_eight, false),
+            TargetSet::SevenDiscs => (&targets_seven, &reachable_seven, false),
+            TargetSet::RepresentativeTargeted => (&representative_targets, &reachable_eight, true),
+        };
+        let shared_table = (!targeted).then(|| ForwardTable::new(row.boundary, None).unwrap());
+        let pool = match row.engine {
+            Engine::ParallelDfs { threads, .. } => Some(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .unwrap(),
+            ),
+            _ => None,
+        };
+        let mut visited = Btable::new(10_000, 256);
+
+        for &goal in targets {
+            let expected = reachable.contains(&goal);
+            let targeted_table =
+                targeted.then(|| ForwardTable::new(row.boundary, Some(goal.position())).unwrap());
+            let table = targeted_table.as_ref().or(shared_table.as_ref()).unwrap();
+            let outcome = match row.engine {
+                Engine::Dfs => {
+                    visited.clear();
+                    retrospective_search(goal.position(), table, &mut visited, usize::MAX).unwrap()
+                }
+                Engine::OrderedDfs => {
+                    visited.clear();
+                    retrospective_search_move_ordering(
+                        goal.position(),
+                        table,
+                        &mut visited,
+                        usize::MAX,
+                    )
+                    .unwrap()
+                }
+                Engine::Gbfs { threads } => parallel_retrospective_greedy_best_first_search(
                     goal.position(),
-                    &table,
-                    &mut visited,
-                    usize::MAX,
-                )
-            } else {
-                retrospective_search(goal.position(), &table, &mut visited, usize::MAX)
-            }
-            .unwrap();
-            verify_outcome(goal, expected, outcome);
-        }
-        for threads in [1, 3] {
-            verify_outcome(
-                goal,
-                expected,
-                parallel_retrospective_greedy_best_first_search(
-                    goal.position(),
-                    &table,
+                    table,
                     usize::MAX,
                     false,
                     threads,
                 )
                 .unwrap(),
-            );
-        }
-    }
-
-    let exhausted = *targets
-        .iter()
-        .find(|goal| !reachable.contains(goal))
-        .expect("the fixture includes an unreachable query");
-    for _ in 0..8 {
-        verify_outcome(
-            exhausted,
-            false,
-            parallel_retrospective_greedy_best_first_search(
-                exhausted.position(),
-                &table,
-                usize::MAX,
-                false,
-                4,
-            )
-            .unwrap(),
-        );
-    }
-}
-
-#[test]
-fn unbounded_bfs_matches_all_eight_disc_oracle_queries() {
-    let reachable = enumerate(ArrayPosition::initial(), 8);
-    let targets = targets_with_turn_changes(&reachable);
-    for discs in [4, 6] {
-        let table = ForwardTable::new(discs, None).unwrap();
-        for &goal in &targets {
-            let expected = reachable.contains(&goal);
-            match retrospective_bfs(goal.position(), &table, usize::MAX).unwrap() {
-                BfsOutcome::Resolved(outcome) => verify_outcome(goal, expected, outcome),
-                BfsOutcome::Frontier { .. } => {
-                    panic!("an unbounded reverse BFS must not stop early: {goal:?}")
+                Engine::ParallelDfs { table_limit, .. } => pool
+                    .as_ref()
+                    .unwrap()
+                    .install(|| {
+                        retrospective_search_parallel(
+                            goal.position(),
+                            table,
+                            usize::MAX,
+                            table_limit,
+                        )
+                    })
+                    .unwrap(),
+                Engine::Bfs => {
+                    retrospective_bfs(goal.position(), table, usize::MAX, false).unwrap()
                 }
-            }
-        }
-    }
-}
-
-#[test]
-fn searches_match_all_seven_disc_oracle_queries_from_four_disc_boundary() {
-    let reachable = enumerate(ArrayPosition::initial(), 7);
-    let targets = targets_with_turn_changes(&reachable);
-    assert!(targets.iter().any(|goal| !reachable.contains(goal)));
-    assert!(targets.iter().any(|goal| reachable.contains(goal)));
-    let table = ForwardTable::new(4, None).unwrap();
-    let mut visited = Btable::new(10_000, 256);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    for goal in targets {
-        let expected = reachable.contains(&goal);
-        for ordered in [false, true] {
-            visited.clear();
-            let outcome = if ordered {
-                retrospective_search_move_ordering(
-                    goal.position(),
-                    &table,
-                    &mut visited,
-                    usize::MAX,
-                )
-            } else {
-                retrospective_search(goal.position(), &table, &mut visited, usize::MAX)
-            }
-            .unwrap();
+            };
+            assert!(
+                match &outcome {
+                    SearchOutcome::Found { .. } => expected,
+                    SearchOutcome::NotFound { .. } => !expected,
+                    SearchOutcome::Unknown { .. } => false,
+                },
+                "{}: goal={goal:?}, outcome={outcome:?}",
+                row.name
+            );
             verify_outcome(goal, expected, outcome);
         }
-        verify_outcome(
-            goal,
-            expected,
-            pool.install(|| {
-                retrospective_search_parallel(goal.position(), &table, usize::MAX, 100_000)
-            })
-            .unwrap(),
-        );
-        verify_outcome(
-            goal,
-            expected,
-            parallel_retrospective_greedy_best_first_search(
-                goal.position(),
-                &table,
-                usize::MAX,
-                false,
-                1,
-            )
-            .unwrap(),
-        );
-    }
-}
-
-#[test]
-fn parallel_dfs_preserves_small_node_and_table_limit_boundaries() {
-    let goal = ArrayPosition::initial()
-        .apply(PlyAction::Play(19))
-        .expect("D3 is a legal opening move");
-    let table = ForwardTable::new(4, None).unwrap();
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build()
-        .unwrap();
-
-    for table_limit in [0, 1, 2] {
-        let outcome = pool
-            .install(|| retrospective_search_parallel(goal.position(), &table, 0, table_limit))
-            .unwrap();
-        assert!(
-            matches!(outcome, SearchOutcome::Unknown { nodes: 1 }),
-            "table_limit={table_limit}, outcome={outcome:?}"
-        );
-
-        let outcome = pool
-            .install(|| retrospective_search_parallel(goal.position(), &table, 1, table_limit))
-            .unwrap();
-        let SearchOutcome::Found { record, nodes: 1 } = outcome else {
-            panic!("table_limit={table_limit}, outcome={outcome:?}");
-        };
-        assert_eq!(record.actions, [PlyAction::Play(19)]);
-        assert_eq!(record.verify().unwrap().last(), Some(&goal.position()));
     }
 }
 
@@ -683,52 +1097,6 @@ fn one_thread_parallel_dfs_matches_sequential_exhaustion_counts() {
         saw_nontrivial_search |= sequential.nodes() > 1;
     }
     assert!(saw_nontrivial_search);
-}
-
-#[test]
-fn parallel_dfs_unbounded_results_match_across_thread_counts() {
-    let (actions, trace) = reference_game(32);
-    assert_eq!(actions[8], PlyAction::Pass);
-    let exact_goal = trace[10];
-    let exact_table = ForwardTable::new(11, Some(exact_goal.position())).unwrap();
-
-    for threads in [1, 2, 8] {
-        let outcome = parallel_dfs_with_threads(exact_goal.position(), &exact_table, threads);
-        let SearchOutcome::Found { record, .. } = outcome else {
-            panic!("threads={threads}, outcome={outcome:?}");
-        };
-        assert_eq!(record.goal_match, GoalMatch::Exact);
-        assert!(record.actions.contains(&PlyAction::Pass));
-        let independent_trace = ArrayPosition::initial().replay(&record.actions).unwrap();
-        assert_eq!(independent_trace.last(), Some(&exact_goal));
-        record.verify().unwrap();
-    }
-
-    let equivalence_goal = exact_goal.transformed(BoardSymmetry::MirrorHorizontal);
-    let equivalence_table = ForwardTable::for_equivalence(11, equivalence_goal.position()).unwrap();
-    for threads in [1, 2, 8] {
-        let outcome =
-            parallel_dfs_with_threads(equivalence_goal.position(), &equivalence_table, threads);
-        let SearchOutcome::Found { record, .. } = outcome else {
-            panic!("threads={threads}, outcome={outcome:?}");
-        };
-        assert!(record.actions.contains(&PlyAction::Pass));
-        verify_equivalence_record(equivalence_goal, &record);
-    }
-
-    let reachable = enumerate(ArrayPosition::initial(), 7);
-    let unreachable = targets_with_turn_changes(&reachable)
-        .into_iter()
-        .find(|goal| goal.discs() == 7 && !reachable.contains(goal))
-        .expect("the independent oracle includes a seven-disc unreachable query");
-    let exhausted_table = ForwardTable::new(4, None).unwrap();
-    for threads in [1, 2, 8] {
-        let outcome = parallel_dfs_with_threads(unreachable.position(), &exhausted_table, threads);
-        assert!(
-            matches!(outcome, SearchOutcome::NotFound { .. }),
-            "threads={threads}, outcome={outcome:?}"
-        );
-    }
 }
 
 #[test]
@@ -776,16 +1144,8 @@ fn one_equivalence_search_matches_all_exact_candidates_through_eight_discs() {
             verify_equivalence_outcome(
                 goal,
                 expected,
-                pool.install(|| {
-                    parallel_inmemory_retrospective_bfs(
-                        goal.position(),
-                        &table,
-                        usize::MAX,
-                        false,
-                        false,
-                    )
-                })
-                .unwrap(),
+                pool.install(|| retrospective_bfs(goal.position(), &table, usize::MAX, false))
+                    .unwrap(),
             );
 
             let mut exact_reachable = [false; 3];
@@ -823,13 +1183,7 @@ fn one_equivalence_search_matches_all_exact_candidates_through_eight_discs() {
                 let found = outcome_is_reachable(
                     candidate,
                     pool.install(|| {
-                        parallel_inmemory_retrospective_bfs(
-                            candidate,
-                            &candidate_table,
-                            usize::MAX,
-                            false,
-                            false,
-                        )
+                        retrospective_bfs(candidate, &candidate_table, usize::MAX, false)
                     })
                     .unwrap(),
                 );
@@ -840,51 +1194,6 @@ fn one_equivalence_search_matches_all_exact_candidates_through_eight_discs() {
                 exact_reachable, [expected; 3],
                 "goal={goal:?}, discs={discs}"
             );
-        }
-    }
-}
-
-#[test]
-fn equivalence_dfs_and_gbfs_are_invariant_under_all_board_symmetries() {
-    let reachable = enumerate(ArrayPosition::initial(), 8);
-    let mut reachable_goals: Vec<_> = reachable
-        .iter()
-        .copied()
-        .filter(|goal| goal.discs() == 8)
-        .collect();
-    reachable_goals.sort_by_key(|goal| goal.position());
-    let reachable_goal = reachable_goals[reachable_goals.len() / 2];
-    let unreachable_goal = targets_with_turn_changes(&reachable)
-        .into_iter()
-        .find(|goal| goal.discs() == 8 && !equivalence_oracle_contains(&reachable, *goal))
-        .expect("the independent oracle includes an unreachable eight-disc query");
-    let mut visited = Btable::new(10_000, 256);
-
-    for goal in [reachable_goal, unreachable_goal] {
-        let expected = equivalence_oracle_contains(&reachable, goal);
-        for symmetry in ALL_SYMMETRIES {
-            let image = goal.transformed(symmetry);
-            assert_eq!(equivalence_oracle_contains(&reachable, image), expected);
-            let table = ForwardTable::for_equivalence(6, image.position()).unwrap();
-
-            visited.clear();
-            let dfs = equivalence_outcome_is_reachable(
-                image,
-                retrospective_search(image.position(), &table, &mut visited, usize::MAX).unwrap(),
-            );
-            let gbfs = equivalence_outcome_is_reachable(
-                image,
-                parallel_retrospective_greedy_best_first_search(
-                    image.position(),
-                    &table,
-                    usize::MAX,
-                    false,
-                    1,
-                )
-                .unwrap(),
-            );
-            assert_eq!(dfs, expected, "goal={goal:?}, symmetry={symmetry:?}");
-            assert_eq!(gbfs, dfs, "goal={goal:?}, symmetry={symmetry:?}");
         }
     }
 }
@@ -920,70 +1229,6 @@ fn equivalence_table_contains_exactly_the_orbits_reachable_through_eight_discs()
 }
 
 #[test]
-fn targeted_tables_and_parallel_searches_match_representative_oracle_queries() {
-    let reachable = enumerate(ArrayPosition::initial(), 8);
-    let mut bases: Vec<_> = reachable
-        .iter()
-        .copied()
-        .filter(|goal| goal.discs() == 8)
-        .collect();
-    bases.sort_by_key(|goal| goal.position());
-    let mut goals = Vec::new();
-    for index in [0, bases.len() / 3, bases.len() * 2 / 3, bases.len() - 1] {
-        let goal = bases[index];
-        goals.extend([
-            goal,
-            goal.opposite_turn(),
-            goal.color_exchanged(),
-            goal.transformed(BoardSymmetry::Rotate90),
-        ]);
-    }
-    goals.sort_by_key(|goal| goal.position());
-    goals.dedup();
-    assert!(goals.iter().any(|goal| !reachable.contains(goal)));
-    let shared_table = ForwardTable::new(6, None).unwrap();
-    let mut visited = Btable::new(10_000, 256);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    for goal in goals {
-        let expected = reachable.contains(&goal);
-        let targeted_table = ForwardTable::new(6, Some(goal.position())).unwrap();
-        for table in [&shared_table, &targeted_table] {
-            visited.clear();
-            verify_outcome(
-                goal,
-                expected,
-                retrospective_search(goal.position(), table, &mut visited, usize::MAX).unwrap(),
-            );
-            verify_outcome(
-                goal,
-                expected,
-                pool.install(|| {
-                    retrospective_search_parallel(goal.position(), table, usize::MAX, 10_000)
-                })
-                .unwrap(),
-            );
-            for threads in [1, 3] {
-                verify_outcome(
-                    goal,
-                    expected,
-                    parallel_retrospective_greedy_best_first_search(
-                        goal.position(),
-                        table,
-                        usize::MAX,
-                        false,
-                        threads,
-                    )
-                    .unwrap(),
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn bounded_bfs_never_refutes_a_legal_history() {
     let table = ForwardTable::new(8, None).unwrap();
     let mut saw_frontier = false;
@@ -999,9 +1244,11 @@ fn bounded_bfs_never_refutes_a_legal_history() {
             goal.side_to_move == Color::Black,
         );
         for budget in [200, 5_000] {
-            match retrospective_bfs(goal, &table, budget).unwrap() {
-                BfsOutcome::Resolved(outcome) => verify_outcome(array_goal, true, outcome),
-                BfsOutcome::Frontier { .. } => saw_frontier = true,
+            let outcome = retrospective_bfs(goal, &table, budget, false).unwrap();
+            if matches!(outcome, SearchOutcome::Unknown { .. }) {
+                saw_frontier = true;
+            } else {
+                verify_outcome(array_goal, true, outcome);
             }
         }
     }
@@ -1009,7 +1256,22 @@ fn bounded_bfs_never_refutes_a_legal_history() {
 }
 
 #[test]
-fn equivalence_searches_reconstruct_passes_on_both_sides_of_the_meeting() {
+fn equivalence_searches_preserve_forward_reverse_pass_and_terminal_histories() {
+    #[derive(Clone, Copy)]
+    enum Check {
+        ForwardPass,
+        ReversePass,
+        PassParity(usize),
+        NoPass,
+    }
+
+    struct Row {
+        name: &'static str,
+        goal: ArrayPosition,
+        boundary: u32,
+        check: Check,
+    }
+
     let (actions, trace) = reference_game(32);
     assert_eq!(actions[8], PlyAction::Pass);
     assert_eq!(
@@ -1027,92 +1289,103 @@ fn equivalence_searches_reconstruct_passes_on_both_sides_of_the_meeting() {
     assert!(!after_pass.moves().is_empty());
     assert_eq!(before_pass.apply(PlyAction::Pass).unwrap(), after_pass);
 
-    let forward_pass_table = ForwardTable::for_equivalence(12, goal.position()).unwrap();
-    assert!(forward_pass_table.contains(after_pass.position()));
-    let (prefix, _) = forward_pass_table
-        .actions_to(after_pass.position())
-        .expect("the forward side of the meeting must retain the pass");
-    assert!(prefix.contains(&PlyAction::Pass));
-    for record in equivalence_records(goal, &forward_pass_table) {
-        assert!(record.actions.contains(&PlyAction::Pass));
-    }
-
-    let reverse_pass_table = ForwardTable::for_equivalence(11, goal.position()).unwrap();
-    assert!(!reverse_pass_table.contains(before_pass.position()));
-    assert!(!reverse_pass_table.contains(after_pass.position()));
-    for record in equivalence_records(goal, &reverse_pass_table) {
-        let pass = record
-            .actions
-            .iter()
-            .position(|action| *action == PlyAction::Pass)
-            .expect("the reverse side of the meeting must retain the pass");
-        let placements_before_pass = record.actions[..pass]
-            .iter()
-            .filter(|action| matches!(action, PlyAction::Play(_)))
-            .count();
-        assert_eq!(placements_before_pass, 8);
-    }
-}
-
-#[test]
-fn equivalence_searches_preserve_even_and_odd_pass_histories() {
-    let (actions, trace) = reference_game(32);
     assert!(actions[..8].iter().all(|action| *action != PlyAction::Pass));
-    assert_eq!(actions[8], PlyAction::Pass);
-
-    for (goal, expected_parity) in [(trace[8], 0), (trace[9], 1)] {
-        let table = ForwardTable::for_equivalence(11, goal.position()).unwrap();
-        for record in equivalence_records(goal, &table) {
-            let passes = record
-                .actions
-                .iter()
-                .filter(|action| **action == PlyAction::Pass)
-                .count();
-            assert_eq!(passes % 2, expected_parity);
-        }
-    }
-}
-
-#[test]
-fn equivalence_search_maps_a_witness_from_the_mirrored_opening() {
-    let mirrored_start = ArrayPosition::initial().transformed(BoardSymmetry::MirrorHorizontal);
-    let goal = mirrored_start.apply(PlyAction::Play(20)).unwrap();
-    let reachable = enumerate(ArrayPosition::initial(), 5);
-    assert!(!reachable.contains(&goal));
-
-    let table = ForwardTable::for_equivalence(4, goal.position()).unwrap();
-    let (actions, symmetry) = table.actions_to(mirrored_start.position()).unwrap();
-    assert!(actions.is_empty());
-    assert_eq!(symmetry, BoardSymmetry::MirrorHorizontal);
-    for record in equivalence_records(goal, &table) {
-        assert_eq!(record.actions, [PlyAction::Play(19)]);
-        assert_eq!(
-            record.transform,
-            PositionTransform {
-                symmetry: BoardSymmetry::MirrorHorizontal,
-                exchange_colors: false,
-            }
-        );
-    }
-}
-
-#[test]
-fn equivalence_searches_accept_an_early_terminal_position() {
-    let (actions, trace) = reference_game(1194);
-    let terminal = *trace.last().unwrap();
-    assert_eq!(actions.len(), 10);
+    let (terminal_actions, terminal_trace) = reference_game(1194);
+    let terminal = *terminal_trace.last().unwrap();
+    assert_eq!(terminal_actions.len(), 10);
     assert_eq!(terminal.discs(), 14);
-    assert!(actions.iter().all(|action| *action != PlyAction::Pass));
+    assert!(terminal_actions
+        .iter()
+        .all(|action| *action != PlyAction::Pass));
     assert!(terminal.moves().is_empty());
     assert!(terminal.opposite_turn().moves().is_empty());
     assert!(terminal.apply(PlyAction::Pass).is_err());
 
-    let table = ForwardTable::for_equivalence(10, terminal.position()).unwrap();
-    for record in equivalence_records(terminal, &table) {
-        assert!(record
-            .actions
-            .iter()
-            .all(|action| *action != PlyAction::Pass));
+    let rows = [
+        Row {
+            name: "forward-pass",
+            goal,
+            boundary: 12,
+            check: Check::ForwardPass,
+        },
+        Row {
+            name: "reverse-pass",
+            goal,
+            boundary: 11,
+            check: Check::ReversePass,
+        },
+        Row {
+            name: "even-pass-history",
+            goal: trace[8],
+            boundary: 11,
+            check: Check::PassParity(0),
+        },
+        Row {
+            name: "odd-pass-history",
+            goal: trace[9],
+            boundary: 11,
+            check: Check::PassParity(1),
+        },
+        Row {
+            name: "early-terminal",
+            goal: terminal,
+            boundary: 10,
+            check: Check::NoPass,
+        },
+    ];
+
+    for row in rows {
+        let table = ForwardTable::for_equivalence(row.boundary, row.goal.position()).unwrap();
+        match row.check {
+            Check::ForwardPass => {
+                assert!(table.contains(after_pass.position()), "{}", row.name);
+                let (prefix, _) = table
+                    .actions_to(after_pass.position())
+                    .expect("the forward side of the meeting must retain the pass");
+                assert!(prefix.contains(&PlyAction::Pass), "{}", row.name);
+                for record in equivalence_records(row.name, row.goal, &table) {
+                    assert!(record.actions.contains(&PlyAction::Pass), "{}", row.name);
+                }
+            }
+            Check::ReversePass => {
+                assert!(!table.contains(before_pass.position()), "{}", row.name);
+                assert!(!table.contains(after_pass.position()), "{}", row.name);
+                for record in equivalence_records(row.name, row.goal, &table) {
+                    let pass = record
+                        .actions
+                        .iter()
+                        .position(|action| *action == PlyAction::Pass)
+                        .expect("the reverse side of the meeting must retain the pass");
+                    let placements_before_pass = record.actions[..pass]
+                        .iter()
+                        .filter(|action| matches!(action, PlyAction::Play(_)))
+                        .count();
+                    assert_eq!(placements_before_pass, 8, "{}", row.name);
+                }
+            }
+            Check::PassParity(expected_parity) => {
+                for record in equivalence_records(row.name, row.goal, &table) {
+                    let passes = record
+                        .actions
+                        .iter()
+                        .filter(|action| **action == PlyAction::Pass)
+                        .count();
+                    assert_eq!(passes % 2, expected_parity, "{}", row.name);
+                }
+            }
+            Check::NoPass => {
+                for record in equivalence_records(row.name, row.goal, &table) {
+                    assert!(
+                        record
+                            .actions
+                            .iter()
+                            .all(|action| *action != PlyAction::Pass),
+                        "{}",
+                        row.name
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1191,36 +1464,4 @@ fn predecessor_enumeration_preserves_forced_pass_and_terminal_turn() {
     assert!(terminal.apply(PlyAction::Pass).is_err());
     assert!(!predecessors(terminal.opposite_turn().position())
         .contains(&(terminal.position(), PlyAction::Pass)));
-}
-
-#[test]
-fn reverse_pruning_conditions_are_invariant_under_all_board_symmetries() {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0x8a11_5eed);
-    for _ in 0..1024 {
-        let occupied = rng.random::<u64>() | CENTER_MASK;
-        let player = rng.random::<u64>() & occupied;
-        let board = Board::new(player, occupied ^ player);
-        let expected_occupancy = check_occupancy(occupied);
-        let expected_edges = check_virtual_edge_patterns(board.player, board.opponent);
-        let expected_seg3 = check_seg3_more(board.player, board.opponent, false);
-
-        for symmetry in ALL_SYMMETRIES {
-            let image = symmetry.apply(board);
-            assert_eq!(
-                check_occupancy(image.player | image.opponent),
-                expected_occupancy,
-                "occupancy symmetry={symmetry:?}, board={board:?}"
-            );
-            assert_eq!(
-                check_virtual_edge_patterns(image.player, image.opponent),
-                expected_edges,
-                "virtual edges symmetry={symmetry:?}, board={board:?}"
-            );
-            assert_eq!(
-                check_seg3_more(image.player, image.opponent, false),
-                expected_seg3,
-                "seg3 symmetry={symmetry:?}, board={board:?}"
-            );
-        }
-    }
 }

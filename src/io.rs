@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn positions_round_trip_without_changing_relative_colors_or_turn() {
+    fn position_input_round_trips_complete_positions_and_rejects_invalid_text() {
         for (suffix, color) in [('b', Color::Black), ('w', Color::White)] {
             let text = format!("{INITIAL} {suffix}");
             let position = parse_position(&text).unwrap();
@@ -365,10 +365,7 @@ mod tests {
             assert_eq!(position.side_to_move, color);
             assert_eq!(format_position(position), text);
         }
-    }
 
-    #[test]
-    fn position_input_requires_the_full_valid_position() {
         let invalid = [
             INITIAL.to_owned(),
             format!("{INITIAL} B"),
@@ -404,10 +401,7 @@ mod tests {
         assert!(parse_temporary_file("", parse_file_to_positions)
             .unwrap()
             .is_empty());
-    }
 
-    #[test]
-    fn unreadable_text_reports_the_physical_line() {
         let contents = [format!("{INITIAL} b\n").as_bytes(), &[0xff, b'\n']].concat();
         let error = parse_temporary_file(contents, parse_file_to_positions).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -424,8 +418,11 @@ mod tests {
             parse_actions("A1 H8").unwrap(),
             vec![PlyAction::Play(0), PlyAction::Play(63)]
         );
+        let h2 = parse_actions("H2").unwrap();
+        assert_eq!(h2, vec![PlyAction::Play(15)]);
+        assert_eq!(format_actions(&h2), "H2");
         for text in [
-            " ", " A1", "A1 ", "A1  ps", "A1\tps", "a1", "A0", "I1", "pass",
+            " ", " A1", "A1 ", "A1  ps", "A1\tps", "a1", "A0", "A9", "I1", "pass",
         ] {
             assert!(parse_actions(text).is_err(), "accepted {text:?}");
         }

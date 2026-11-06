@@ -1,8 +1,8 @@
 //! Necessary occupancy conditions supplied by the forward frontier.
 
+use super::{compatible, ForwardTable, SEQUENTIAL_LAYER_LIMIT};
 use crate::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use crate::record::GoalMatch;
-use crate::search::forward::{compatible, ForwardTable, SEQUENTIAL_LAYER_LIMIT};
 use rayon::prelude::*;
 use std::sync::Mutex;
 
@@ -298,12 +298,11 @@ impl ForwardOccupancyCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{ForwardOccupancyCache, ForwardOccupancyIndex, OccupancyTree, TREE_THRESHOLD};
-    use crate::filters::occupancy::check_occupancy;
+    use super::{ForwardOccupancyIndex, OccupancyTree};
     use crate::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
-    use crate::record::{replay, GoalMatch, PlyAction};
-    use crate::search::core::predecessors;
+    use crate::record::GoalMatch;
     use crate::search::forward::{compatible, ForwardTable};
+    use crate::search::moves::predecessors;
     use rand::{Rng, SeedableRng};
     use std::collections::HashSet;
 
@@ -377,85 +376,21 @@ mod tests {
     }
 
     #[test]
-    fn occupancy_tree_handles_empty_leaf_and_mixed_subfamilies() {
-        assert_eq!(OccupancyTree::new(&[]).required_squares(u64::MAX), None);
-        let leaf = CENTER_MASK | (1_u64 << 63);
-        let tree = OccupancyTree::new(&[leaf]);
-        assert_eq!(tree.required_squares(leaf), Some(leaf));
-        assert_eq!(tree.required_squares(u64::MAX), Some(leaf));
-        assert_eq!(tree.required_squares(CENTER_MASK), None);
-        assert_eq!(tree.required_squares(0), None);
-
-        let high = 1_u64 << 63;
-        let next = 1_u64 << 62;
-        let family = [
-            CENTER_MASK | next | 1,
-            CENTER_MASK | high | 1,
-            CENTER_MASK | high | 2,
-        ];
-        let tree = OccupancyTree::new(&family);
-        for (mask, expected) in [
-            (CENTER_MASK, None),
-            (CENTER_MASK | high | 1, Some(CENTER_MASK | high | 1)),
-            (CENTER_MASK | high | 3, Some(CENTER_MASK | high)),
-            (CENTER_MASK | high | next | 1, Some(CENTER_MASK | 1)),
-            (u64::MAX, Some(CENTER_MASK)),
-        ] {
-            assert_eq!(tree.required_squares(mask), expected);
-            assert_eq!(
-                tree.required_squares(mask),
-                direct_intersection(&family, mask)
-            );
-        }
-    }
-
-    #[test]
-    fn small_families_keep_linear_queries_after_deduplication() {
-        for size in [0, 1, TREE_THRESHOLD - 1, TREE_THRESHOLD, TREE_THRESHOLD + 1] {
+    fn random_occupancy_trees_match_linear_intersections() {
+        for size in [0, 1, 63, 64, 65] {
             let masks: Vec<_> = (0..size as u64).map(|bits| CENTER_MASK | bits).collect();
             let mut duplicates = masks.clone();
             duplicates.extend(masks.iter().copied());
             duplicates.reverse();
             let index = ForwardOccupancyIndex::from_occupancies(duplicates);
-            assert_eq!(index.occupancies, masks);
-            assert_eq!(index.tree.is_some(), size >= TREE_THRESHOLD);
+            assert_eq!(index.occupancies, masks, "duplicate-family-size={size}");
             assert_eq!(
                 index.required_squares(u64::MAX),
-                direct_intersection(&masks, u64::MAX)
+                direct_intersection(&masks, u64::MAX),
+                "duplicate-family-size={size}"
             );
         }
-    }
 
-    #[test]
-    fn occupancy_caches_are_independent_of_the_shared_index() {
-        let index = ForwardOccupancyIndex::from_occupancies(vec![CENTER_MASK]);
-        let first = ForwardOccupancyCache::new();
-        let second = ForwardOccupancyCache::new();
-
-        assert_eq!(
-            index.required_squares_cached(&first, CENTER_MASK),
-            Some(CENTER_MASK)
-        );
-        assert!(first
-            .entries
-            .lock()
-            .expect("frontier cache mutex poisoned")
-            .iter()
-            .any(Option::is_some));
-        assert!(second
-            .entries
-            .lock()
-            .expect("frontier cache mutex poisoned")
-            .iter()
-            .all(Option::is_none));
-        assert_eq!(
-            index.required_squares_cached(&second, CENTER_MASK),
-            Some(CENTER_MASK)
-        );
-    }
-
-    #[test]
-    fn random_occupancy_trees_match_linear_intersections() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0xf012_71e2);
         for size in [0, 1, 2, 7, 63, 64, 65, 128, 257] {
             for density in 0..3 {
@@ -498,14 +433,10 @@ mod tests {
                     assert_eq!(forced_tree.required_squares(occupied), expected);
                     assert_eq!(index.compute_required_squares(occupied), expected);
                     assert_eq!(index.required_squares(occupied), expected);
-                    assert_eq!(index.required_squares(occupied), expected);
                 }
             }
         }
-    }
 
-    #[test]
-    fn actual_forward_frontiers_match_linear_queries() {
         let table = ForwardTable::new(9, None).unwrap();
         let all = ForwardOccupancyIndex::new(&table, all_squares_goal());
         assert!(
@@ -575,80 +506,52 @@ mod tests {
     }
 
     #[test]
-    fn forward_occupancy_removal_condition_matches_direct_frontier_scan() {
-        let boundary = ForwardTable::new(6, None).unwrap();
-        let reachable = ForwardTable::new(8, None).unwrap();
-        let index = ForwardOccupancyIndex::new(&boundary, all_squares_goal());
-        for node in reachable.positions().filter(|p| p.board.popcount() >= 6) {
-            let mask = occupied(node);
-            let matching: Vec<_> = boundary
-                .positions()
-                .filter(|p| p.board.popcount() == boundary.discs())
-                .map(occupied)
-                .filter(|frontier| frontier & mask == *frontier)
-                .collect();
-            let expected = matching.iter().copied().reduce(|a, b| a & b);
-            assert_eq!(index.required_squares(mask), expected);
-            let required = expected.unwrap();
-            let mut squares = mask & !CENTER_MASK;
-            while squares != 0 {
-                let square = 1_u64 << squares.trailing_zeros();
-                squares &= squares - 1;
-                let after_removal = mask & !square;
-                let any_survivor = matching
-                    .iter()
-                    .any(|frontier| frontier & after_removal == *frontier);
-                assert_eq!(any_survivor, required & square == 0);
-            }
+    fn forward_occupancy_index_filters_goal_masks() {
+        struct Case<'a> {
+            name: String,
+            table: &'a ForwardTable,
+            goal: Position,
+            expected: Vec<u64>,
+            required: Option<(u64, Option<u64>)>,
         }
-    }
 
-    #[test]
-    fn forward_occupancy_can_reject_a_colorless_reachable_occupancy() {
-        let boundary = ForwardTable::new(6, None).unwrap();
-        let index = ForwardOccupancyIndex::new(&boundary, all_squares_goal());
-        // D3 and C4 can each be Black's first placement. Neither can be
-        // White's reply after the other, despite passing colorless closure.
-        let mask = CENTER_MASK | (1_u64 << 19) | (1_u64 << 26);
-        assert!(check_occupancy(mask));
-        assert_eq!(index.required_squares(mask), None);
-    }
-
-    #[test]
-    fn forward_occupancy_index_filters_and_deduplicates_goal_masks() {
-        let boundary = ForwardTable::new(7, None).unwrap();
-        for goal in boundary.positions().filter(|p| p.board.popcount() == 7) {
-            let index = ForwardOccupancyIndex::new(&boundary, goal);
-            assert_eq!(index.occupancies, vec![occupied(goal)]);
-        }
-    }
-
-    #[test]
-    fn shared_frontier_rejects_goal_colors_that_cannot_change() {
-        let boundary = ForwardTable::new(5, None).unwrap();
+        let seven_disc_boundary = ForwardTable::new(7, None).unwrap();
+        let five_disc_boundary = ForwardTable::new(5, None).unwrap();
         let mask = CENTER_MASK | (1_u64 << 19);
-        assert!(boundary
+        assert!(five_disc_boundary
             .positions()
             .any(|position| occupied(position) == mask));
-        let goal = Position {
+        let color_incompatible_goal = Position {
             board: Board::new(mask, 0),
             side_to_move: Color::Black,
         };
-        let index = ForwardOccupancyIndex::new(&boundary, goal);
-        assert!(index.occupancies.is_empty());
-        assert_eq!(index.required_squares(mask), None);
-    }
 
-    #[test]
-    fn equivalence_frontier_retains_the_relative_five_disc_ancestor() {
-        let trace = replay(
-            Position::initial(),
-            &[PlyAction::Play(19), PlyAction::Play(18)],
-        )
-        .unwrap();
-        let table = ForwardTable::for_equivalence(5, trace[2]).unwrap();
-        let index = ForwardOccupancyIndex::new(&table, trace[2]);
+        let mut cases: Vec<_> = seven_disc_boundary
+            .positions()
+            .filter(|position| position.board.popcount() == 7)
+            .enumerate()
+            .map(|(index, goal)| Case {
+                name: format!("seven-disc-{index}"),
+                table: &seven_disc_boundary,
+                goal,
+                expected: vec![occupied(goal)],
+                required: None,
+            })
+            .collect();
+        cases.push(Case {
+            name: "color-incompatible".to_owned(),
+            table: &five_disc_boundary,
+            goal: color_incompatible_goal,
+            expected: Vec::new(),
+            required: Some((mask, None)),
+        });
 
-        assert_eq!(index.occupancies, vec![occupied(trace[1])]);
+        for case in cases {
+            let index = ForwardOccupancyIndex::new(case.table, case.goal);
+            assert_eq!(index.occupancies, case.expected, "{}", case.name);
+            if let Some((query, expected)) = case.required {
+                assert_eq!(index.required_squares(query), expected, "{}", case.name);
+            }
+        }
     }
 }

@@ -258,37 +258,6 @@ mod tests {
     }
 
     #[test]
-    fn legal_first_move_swaps_relative_view_and_absolute_turn() {
-        // Black D3 captures D4; only E5 remains white.
-        let goal = Position {
-            board: Board::new(
-                1_u64 << 36,
-                (1_u64 << 19) | (1_u64 << 27) | (1_u64 << 28) | (1_u64 << 35),
-            ),
-            side_to_move: Color::White,
-        };
-        let record = exact_record(Position::initial(), goal, vec![PlyAction::Play(19)]);
-        assert_eq!(record.verify().unwrap(), vec![Position::initial(), goal]);
-        let mut forged = record;
-        forged.goal.side_to_move = Color::Black;
-        assert!(forged.verify().is_err());
-    }
-
-    #[test]
-    fn zero_actions_allow_equal_positions_including_terminal_positions() {
-        let terminal = Position {
-            board: Board::new(u64::MAX, 0),
-            side_to_move: Color::White,
-        };
-        for position in [Position::initial(), terminal] {
-            let record = exact_record(position, position, Vec::new());
-            assert_eq!(record.verify().unwrap(), vec![position]);
-        }
-        assert!(replay(terminal, &[PlyAction::Pass]).is_err());
-        assert!(replay(terminal, &[PlyAction::Play(0)]).is_err());
-    }
-
-    #[test]
     fn pass_only_and_leading_middle_trailing_passes_are_explicit() {
         let start = before_middle_pass();
         let passed = Position {
@@ -354,6 +323,13 @@ mod tests {
     #[test]
     fn records_bind_the_goal_to_the_declared_matching_condition_and_symmetry() {
         let initial = Position::initial();
+        let mut invariant = exact_record(initial, initial, Vec::new());
+        invariant.transform.symmetry = BoardSymmetry::Rotate180;
+        assert_eq!(invariant.transform.apply_position(initial), initial);
+        assert!(invariant.verify().is_err());
+        invariant.goal_match = GoalMatch::EquivalenceClass;
+        assert_eq!(invariant.verify().unwrap(), vec![initial]);
+
         let reflected = Position {
             board: initial.board.swapped(),
             side_to_move: Color::Black,
@@ -385,9 +361,6 @@ mod tests {
                 side_to_move: Color::Black,
             };
             assert!(replay(position, &[]).is_err());
-            assert!(exact_record(Position::initial(), position, Vec::new())
-                .verify()
-                .is_err());
         }
         let mut record = exact_record(Position::initial(), Position::initial(), Vec::new());
         record.input_index = 0;

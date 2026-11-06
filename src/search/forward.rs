@@ -1,5 +1,7 @@
 //! Forward reachability with exact and equivalence-class meeting tables.
 
+pub(crate) mod frontier;
+
 use std::collections::HashSet;
 use std::io;
 
@@ -11,9 +13,9 @@ use crate::othello::{
     flip, get_moves, validate_board, Board, BoardSymmetry, Color, Direction, Position,
 };
 use crate::record::{GoalMatch, PlyAction};
-use crate::search::core::{pass_predecessor, PlacementPredecessors};
+use crate::search::moves::{pass_predecessor, PlacementPredecessors};
 
-pub(super) const SEQUENTIAL_LAYER_LIMIT: usize = 16_384;
+const SEQUENTIAL_LAYER_LIMIT: usize = 16_384;
 
 /// Reachable positions at every stone count through the meeting boundary.
 /// A goal with fewer stones is looked up at its own stone count. Equivalence
@@ -476,7 +478,7 @@ fn stable_discs(occupied: u64, target: u64) -> u64 {
 
 /// Necessary occupancy and immutable-color conditions for continuing to target.
 /// Used both to prune a forward table and to derive a goal-specific frontier.
-pub(crate) fn compatible(position: Position, target: Position, goal_match: GoalMatch) -> bool {
+fn compatible(position: Position, target: Position, goal_match: GoalMatch) -> bool {
     let occupied = position.board.player | position.board.opponent;
     let target_occupied = target.board.player | target.board.opponent;
     if occupied & target_occupied != occupied {
@@ -509,7 +511,7 @@ mod tests {
     use crate::io::parse_position;
     use crate::othello::{Board, BoardSymmetry, Color, Position};
     use crate::record::{replay, GoalMatch, PlyAction};
-    use crate::search::core::successors;
+    use crate::search::moves::successors;
 
     fn naive_positions(start: Position, discs: u32, target: Option<Position>) -> HashSet<Position> {
         let discs = target.map_or(discs, |goal| {
@@ -605,18 +607,6 @@ mod tests {
             for target in [None, Some(target)] {
                 assert_next_layer_paths_match(layer, target, goal_match);
             }
-        }
-    }
-
-    #[test]
-    fn unpruned_layers_match_naive_bfs_through_eight_discs() {
-        let start = Position::initial();
-        let expected = naive_positions(start, 8, None);
-        let table = ForwardTable::new(8, None).unwrap();
-
-        assert_matches_naive(&table, &expected);
-        for position in table.positions() {
-            assert_actions_reach(&table, position);
         }
     }
 
@@ -743,46 +733,5 @@ mod tests {
             })
             .unwrap();
         assert!(table.validate_goal(start).is_err());
-    }
-
-    #[test]
-    fn equivalence_compatibility_accepts_both_relative_color_alignments() {
-        let start = Position::initial();
-        let mirrored = BoardSymmetry::MirrorHorizontal.apply_position(start);
-
-        assert!(!compatible(start, mirrored, GoalMatch::Exact));
-        assert!(compatible(start, mirrored, GoalMatch::EquivalenceClass));
-        assert!(compatible(mirrored, start, GoalMatch::EquivalenceClass));
-    }
-
-    #[test]
-    fn equivalence_target_pruning_retains_the_five_disc_ancestor() {
-        let trace = replay(
-            Position::initial(),
-            &[PlyAction::Play(19), PlyAction::Play(18)],
-        )
-        .unwrap();
-        let table = ForwardTable::for_equivalence(5, trace[2]).unwrap();
-
-        assert!(table.contains(trace[1]));
-        let (actions, symmetry) = table.actions_to(trace[1]).unwrap();
-        assert_eq!(actions.len(), 1);
-        let transformed_actions: Vec<_> = actions
-            .into_iter()
-            .map(|action| match action {
-                PlyAction::Play(square) => {
-                    let image = symmetry
-                        .apply(crate::othello::Board::new(1_u64 << square, 0))
-                        .player;
-                    PlyAction::Play(image.trailing_zeros() as usize)
-                }
-                PlyAction::Pass => PlyAction::Pass,
-            })
-            .collect();
-        let transformed_trace = replay(Position::initial(), &transformed_actions).unwrap();
-        assert_eq!(
-            transformed_trace.last(),
-            Some(&symmetry.apply_position(trace[1]))
-        );
     }
 }

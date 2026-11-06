@@ -25,7 +25,7 @@ impl OccupancyGeometry {
         }
         let order = occupancy_order(occupied);
         Self::Viable {
-            removable: removable_squares(occupied, &order, u64::MAX),
+            removable: removable_squares(occupied, &order),
             seg3: seg3_geometry(occupied, &order),
         }
     }
@@ -131,14 +131,14 @@ fn centers_match(position: Position, immutable: u64, goal_match: GoalMatch) -> b
     }
 }
 
-/// Retain candidate squares whose removal leaves an explainable occupancy.
+/// Return the noncentral occupied squares whose removal leaves an explainable occupancy.
 ///
 /// `order[q]` is the closure after removing q, with q itself restored. Thus
 /// `order[q] == occupied` is equivalent to `check_occupancy(occupied & !(1 << q))`
 /// for a noncentral occupied q. All unflip combinations for q have that same
 /// occupancy, so a failed test rejects their entire Cartesian product.
-fn removable_squares(occupied: u64, order: &[u64; 64], candidates: u64) -> u64 {
-    let mut remaining = occupied & !CENTER_MASK & candidates;
+fn removable_squares(occupied: u64, order: &[u64; 64]) -> u64 {
+    let mut remaining = occupied & !CENTER_MASK;
     let mut removable = 0;
     while remaining != 0 {
         let square = remaining.trailing_zeros() as usize;
@@ -151,32 +151,6 @@ fn removable_squares(occupied: u64, order: &[u64; 64], candidates: u64) -> u64 {
     removable
 }
 
-/// Return viable last-placement squares after sharing one occupancy analysis
-/// with the existing seg3 color test. `None` rejects the position itself.
-///
-/// `Some(0)` rejects all placement predecessors, but does not reject a legal
-/// pass predecessor. Pass exploration must remain separate from this mask.
-#[cfg(test)]
-fn placement_candidates(position: Position, goal_match: GoalMatch) -> Option<u64> {
-    let board = position.board;
-    let occupied = board.player | board.opponent;
-    if !check_occupancy(occupied) {
-        return None;
-    }
-    let order = occupancy_order(occupied);
-    let geometry = seg3_geometry(occupied, &order);
-    if !centers_match(position, geometry.immutable_centers(), goal_match)
-        || !check_seg3_more_with_geometry(board.player, board.opponent, &geometry)
-    {
-        return None;
-    }
-    Some(removable_squares(
-        occupied,
-        &order,
-        get_last_moves(board.opponent, board.player),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -186,14 +160,14 @@ mod tests {
     use super::*;
     use crate::othello::BoardSymmetry;
     use crate::record::PlyAction;
-    use crate::search::core::successors;
+    use crate::search::moves::successors;
 
     #[test]
     fn removable_mask_matches_separate_occupancy_checks() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x0cc0_5eed);
         for _ in 0..512 {
             let occupied = rng.random::<u64>() | CENTER_MASK;
-            let actual = removable_squares(occupied, &occupancy_order(occupied), u64::MAX);
+            let actual = removable_squares(occupied, &occupancy_order(occupied));
             let mut remaining = occupied & !CENTER_MASK;
             let mut expected = 0;
             while remaining != 0 {
@@ -225,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn every_legal_transition_through_eight_discs_retains_its_last_placement() {
+    fn legal_transitions_and_complete_games_retain_the_last_placement() {
         let placement_filter = PlacementFilter::new(GoalMatch::Exact);
         let mut seen = HashSet::new();
         let mut open = vec![Position::initial()];
@@ -240,10 +214,7 @@ mod tests {
                 }
             }
         }
-    }
 
-    #[test]
-    fn full_legal_games_retain_last_placements_including_after_passes() {
         let placement_filter = PlacementFilter::new(GoalMatch::Exact);
         let mut rng = rand::rngs::StdRng::seed_from_u64(0x1a57_5eed);
         let mut passes = 0;
@@ -266,75 +237,54 @@ mod tests {
     }
 
     #[test]
-    fn immutable_center_rejects_a_wrong_absolute_color_accepted_by_seg3() {
+    fn immutable_centers_distinguish_exact_and_equivalence_opening_alignments() {
         let occupied = CENTER_MASK | (1_u64 << 19);
-        for side_to_move in [Color::Black, Color::White] {
-            let board = match side_to_move {
-                Color::Black => crate::othello::Board::new(occupied, 0),
-                Color::White => crate::othello::Board::new(0, occupied),
-            };
-            let position = Position {
-                board,
-                side_to_move,
-            };
-            assert!(crate::filters::seg3::check_seg3_more(
-                board.player,
-                board.opponent,
-                false,
-            ));
-            assert!(PlacementFilter::new(GoalMatch::Exact)
-                .candidates(position)
-                .is_none());
-            assert!(PlacementFilter::new(GoalMatch::EquivalenceClass)
-                .candidates(position)
-                .is_none());
-        }
-    }
-
-    #[test]
-    fn equivalence_centers_accept_either_opening_alignment() {
         let mirrored = BoardSymmetry::MirrorHorizontal.apply_position(Position::initial());
-
-        assert!(PlacementFilter::new(GoalMatch::Exact)
-            .candidates(mirrored)
-            .is_none());
-        assert_eq!(
-            PlacementFilter::new(GoalMatch::EquivalenceClass).candidates(mirrored),
-            Some(0)
-        );
-    }
-
-    #[test]
-    fn bounded_geometry_cache_preserves_candidates_for_color_variants() {
-        let placement_filter = PlacementFilter::new(GoalMatch::Exact);
-        let mut rng = rand::rngs::StdRng::seed_from_u64(0x6361_6368);
-        for _ in 0..64 {
-            let a = rng.random::<u64>();
-            let b = rng.random::<u64>();
-            for occupied in [
-                (a & b) | CENTER_MASK,
-                a | CENTER_MASK,
-                a | b | CENTER_MASK,
-                u64::MAX,
-                CENTER_MASK,
-            ] {
-                for _ in 0..8 {
-                    let player = rng.random::<u64>() & occupied;
-                    let position = Position {
-                        board: crate::othello::Board::new(player, occupied ^ player),
-                        side_to_move: crate::othello::Color::Black,
-                    };
-                    assert_eq!(
-                        placement_filter.candidates(position),
-                        placement_candidates(position, GoalMatch::Exact),
-                        "position={position:?}"
-                    );
-                }
-                assert!(Arc::ptr_eq(
-                    &placement_filter.geometry(occupied),
-                    &placement_filter.geometry(occupied)
-                ));
+        let cases = [
+            (
+                "black monochrome centres",
+                Position {
+                    board: crate::othello::Board::new(occupied, 0),
+                    side_to_move: Color::Black,
+                },
+                Some(true),
+                None,
+                None,
+            ),
+            (
+                "white monochrome centres",
+                Position {
+                    board: crate::othello::Board::new(0, occupied),
+                    side_to_move: Color::White,
+                },
+                Some(true),
+                None,
+                None,
+            ),
+            ("mirrored opening", mirrored, None, None, Some(0)),
+        ];
+        for (name, position, seg3_expected, exact, equivalence) in cases {
+            if let Some(expected) = seg3_expected {
+                assert_eq!(
+                    crate::filters::seg3::check_seg3_more(
+                        position.board.player,
+                        position.board.opponent,
+                        false,
+                    ),
+                    expected,
+                    "case={name}"
+                );
             }
+            assert_eq!(
+                PlacementFilter::new(GoalMatch::Exact).candidates(position),
+                exact,
+                "case={name}, goal_match=exact"
+            );
+            assert_eq!(
+                PlacementFilter::new(GoalMatch::EquivalenceClass).candidates(position),
+                equivalence,
+                "case={name}, goal_match=equivalence"
+            );
         }
     }
 
@@ -354,23 +304,50 @@ mod tests {
                 .expect("the opening move must be legal")
         };
         let positions = [
-            (initial, Some(0)),
-            (successor_after(D3), Some(1_u64 << D3)),
-            (successor_after(C4), Some(1_u64 << C4)),
+            ("initial", initial, Some(0)),
+            ("legal D3", successor_after(D3), Some(1_u64 << D3)),
+            ("legal C4", successor_after(C4), Some(1_u64 << C4)),
+            (
+                "D3 with the wrong absolute color",
+                Position {
+                    board: crate::othello::Board::new(
+                        initial.board.player,
+                        initial.board.opponent | 1_u64 << D3,
+                    ),
+                    side_to_move: Color::Black,
+                },
+                None,
+            ),
+            (
+                "isolated corner",
+                Position {
+                    board: crate::othello::Board::new(
+                        initial.board.player | 1,
+                        initial.board.opponent,
+                    ),
+                    side_to_move: Color::Black,
+                },
+                None,
+            ),
         ];
-        let masks = positions.map(|(position, _)| position.board.player | position.board.opponent);
-        for &(position, expected) in &positions {
-            assert_eq!(placement_filter.candidates(position), expected);
+        for &(name, position, expected) in &positions {
+            assert_eq!(
+                placement_filter.candidates(position),
+                expected,
+                "case={name}"
+            );
         }
         {
             let cache = placement_filter.cache.lock().unwrap();
             assert_eq!(cache.entries.len(), 2);
-            assert!(!cache.entries.contains_key(&masks[0]));
-            assert!(cache.entries.contains_key(&masks[1]));
-            assert!(cache.entries.contains_key(&masks[2]));
+            assert_eq!(cache.insertion_order.len(), 2);
         }
-        for &(position, expected) in positions.iter().cycle().take(12) {
-            assert_eq!(placement_filter.candidates(position), expected);
+        for &(name, position, expected) in positions.iter().cycle().take(12) {
+            assert_eq!(
+                placement_filter.candidates(position),
+                expected,
+                "case={name}"
+            );
             let cache = placement_filter.cache.lock().unwrap();
             assert_eq!(cache.entries.len(), 2);
             assert_eq!(cache.insertion_order.len(), 2);
@@ -391,17 +368,21 @@ mod tests {
                 }
             })
             .collect();
+        let reference_filter = PlacementFilter::new(GoalMatch::Exact);
+        let expected: Vec<_> = positions
+            .iter()
+            .map(|&position| reference_filter.candidates(position))
+            .collect();
         std::thread::scope(|scope| {
             for offset in 0..4 {
                 let positions = &positions;
+                let expected = &expected;
                 let placement_filter = &placement_filter;
                 scope.spawn(move || {
                     for step in 0..64 {
-                        let position = positions[(step + offset) % positions.len()];
-                        assert_eq!(
-                            placement_filter.candidates(position),
-                            placement_candidates(position, GoalMatch::Exact)
-                        );
+                        let index = (step + offset) % positions.len();
+                        let position = positions[index];
+                        assert_eq!(placement_filter.candidates(position), expected[index]);
                         let cache = placement_filter.cache.lock().unwrap();
                         assert!(cache.entries.len() <= cache.capacity);
                         assert_eq!(cache.insertion_order.len(), cache.entries.len());
