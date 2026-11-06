@@ -4,8 +4,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::filters::{
+    never_flipped::{never_flipped_discs, FlipDirections},
     occupancy::{check_occupancy, occupancy_order},
-    seg3::{check_seg3_more_with_geometry, seg3_geometry, Seg3Geometry},
 };
 use crate::hash::CustomHash;
 use crate::othello::{get_last_moves, Color, Position, CENTER_MASK};
@@ -15,7 +15,10 @@ const GEOMETRY_CACHE_CAPACITY: usize = 4096;
 
 enum OccupancyGeometry {
     Impossible,
-    Viable { removable: u64, seg3: Seg3Geometry },
+    Viable {
+        removable: u64,
+        flip_directions: FlipDirections,
+    },
 }
 
 impl OccupancyGeometry {
@@ -26,7 +29,7 @@ impl OccupancyGeometry {
         let order = occupancy_order(occupied);
         Self::Viable {
             removable: removable_squares(occupied, &order),
-            seg3: seg3_geometry(occupied, &order),
+            flip_directions: FlipDirections::new(occupied, &order),
         }
     }
 }
@@ -100,20 +103,25 @@ impl PlacementFilter {
     pub(crate) fn candidates(&self, position: Position) -> Option<u64> {
         let board = position.board;
         let geometry = self.geometry(board.player | board.opponent);
-        let OccupancyGeometry::Viable { removable, seg3 } = geometry.as_ref() else {
+        let OccupancyGeometry::Viable {
+            removable,
+            flip_directions,
+        } = geometry.as_ref()
+        else {
             return None;
         };
-        if !centers_match(position, seg3.immutable_centers(), self.goal_match) {
+        let never_flipped = never_flipped_discs(board.player, board.opponent);
+        if !centers_match(position, never_flipped & CENTER_MASK, self.goal_match) {
             return None;
         }
-        if !check_seg3_more_with_geometry(board.player, board.opponent, seg3) {
+        if !flip_directions.consistent_with(board.player, board.opponent, never_flipped) {
             return None;
         }
         Some(removable & get_last_moves(board.opponent, board.player))
     }
 }
 
-fn centers_match(position: Position, immutable: u64, goal_match: GoalMatch) -> bool {
+fn centers_match(position: Position, never_flipped_centers: u64, goal_match: GoalMatch) -> bool {
     let initial = Position::initial().board;
     match goal_match {
         GoalMatch::Exact => {
@@ -121,12 +129,12 @@ fn centers_match(position: Position, immutable: u64, goal_match: GoalMatch) -> b
                 Color::Black => position.board.player,
                 Color::White => position.board.opponent,
             };
-            (black ^ initial.player) & immutable == 0
+            (black ^ initial.player) & never_flipped_centers == 0
         }
         GoalMatch::EquivalenceClass => {
             let player = position.board.player;
-            (player ^ initial.player) & immutable == 0
-                || (player ^ initial.opponent) & immutable == 0
+            (player ^ initial.player) & never_flipped_centers == 0
+                || (player ^ initial.opponent) & never_flipped_centers == 0
         }
     }
 }
@@ -237,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn immutable_centers_distinguish_exact_and_equivalence_opening_alignments() {
+    fn never_flipped_centers_distinguish_exact_and_equivalence_opening_alignments() {
         let occupied = CENTER_MASK | (1_u64 << 19);
         let mirrored = BoardSymmetry::MirrorHorizontal.apply_position(Position::initial());
         let cases = [
@@ -263,13 +271,24 @@ mod tests {
             ),
             ("mirrored opening", mirrored, None, None, Some(0)),
         ];
-        for (name, position, seg3_expected, exact, equivalence) in cases {
-            if let Some(expected) = seg3_expected {
+        for (name, position, never_flipped_expected, exact, equivalence) in cases {
+            let never_flipped_centers =
+                never_flipped_discs(position.board.player, position.board.opponent) & CENTER_MASK;
+            assert_eq!(
+                centers_match(position, never_flipped_centers, GoalMatch::Exact),
+                exact.is_some(),
+                "case={name}, direct goal_match=exact"
+            );
+            assert_eq!(
+                centers_match(position, never_flipped_centers, GoalMatch::EquivalenceClass,),
+                equivalence.is_some(),
+                "case={name}, direct goal_match=equivalence"
+            );
+            if let Some(expected) = never_flipped_expected {
                 assert_eq!(
-                    crate::filters::seg3::check_seg3_more(
+                    crate::filters::never_flipped::check_never_flipped(
                         position.board.player,
                         position.board.opponent,
-                        false,
                     ),
                     expected,
                     "case={name}"
@@ -286,6 +305,26 @@ mod tests {
                 "case={name}, goal_match=equivalence"
             );
         }
+    }
+
+    #[test]
+    fn never_flipped_center_colors_reject_both_opening_alignments() {
+        let position = crate::io::parse_position(
+            "XXXXXO-X-XXXOOX-----XXOX---XO-XOX--XOXO--XXO-O-O--XXXOOXOOO-XO-- b",
+        )
+        .unwrap();
+        assert!(crate::filters::never_flipped::check_never_flipped(
+            position.board.player,
+            position.board.opponent,
+        ));
+        assert_eq!(
+            PlacementFilter::new(GoalMatch::Exact).candidates(position),
+            None,
+        );
+        assert_eq!(
+            PlacementFilter::new(GoalMatch::EquivalenceClass).candidates(position),
+            None,
+        );
     }
 
     #[test]

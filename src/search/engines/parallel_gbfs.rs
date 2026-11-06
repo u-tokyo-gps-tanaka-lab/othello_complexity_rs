@@ -417,7 +417,7 @@ mod tests {
         heuristic_function, parallel_retrospective_greedy_best_first_search,
         placement_predecessor_count, Context, Entry, Shared, XorShift64,
     };
-    use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
+    use crate::filters::reverse::PlacementFilter;
     use crate::othello::{Board, Color, Position, CENTER_MASK};
     use crate::record::PlyAction;
     use crate::search::{
@@ -750,10 +750,6 @@ mod tests {
         let table = ForwardTable::new(6, None).unwrap();
         let frontier = ForwardOccupancyIndex::new(&table, goal);
         let placement_filter = PlacementFilter::new(crate::record::GoalMatch::Exact);
-        assert!(check_virtual_edge_patterns(
-            goal.board.player,
-            goal.board.opponent
-        ));
         let candidates = ReverseConstraints::new(&table, &frontier)
             .candidates(goal)
             .expect("root passes the shared constraints");
@@ -763,10 +759,6 @@ mod tests {
         assert!(frontier
             .required_squares(child.board.player | child.board.opponent)
             .is_some());
-        assert!(check_virtual_edge_patterns(
-            child.board.player,
-            child.board.opponent
-        ));
         assert_eq!(pass_predecessor(child), None);
 
         assert!(matches!(

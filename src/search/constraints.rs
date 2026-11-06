@@ -2,7 +2,7 @@
 
 use std::io;
 
-use crate::filters::{impossible_edges::check_virtual_edge_patterns, reverse::PlacementFilter};
+use crate::filters::reverse::PlacementFilter;
 use crate::othello::{get_last_moves, Board, Position};
 use crate::search::forward::{
     frontier::{ForwardOccupancyCache, ForwardOccupancyIndex},
@@ -20,7 +20,7 @@ pub(crate) struct ReverseConstraints<'a> {
 
 impl<'a> ReverseConstraints<'a> {
     pub(crate) fn new(table: &ForwardTable, frontier: &'a ForwardOccupancyIndex) -> Self {
-        // The occupancy and seg3 proofs start from the standard opening, not
+        // The occupancy and never-flipped proofs start from the standard opening, not
         // from an arbitrary user-provided position. The exact frontier test
         // remains valid for either kind of start.
         let placement = (table.start() == Position::initial())
@@ -39,14 +39,7 @@ impl<'a> ReverseConstraints<'a> {
             .frontier
             .required_squares_cached(&self.frontier_cache, occupied)?;
         let candidates = match &self.placement {
-            Some(filter) => {
-                // Impossible edge patterns are proved from the standard
-                // opening, like the other placement conditions.
-                if !check_virtual_edge_patterns(position.board.player, position.board.opponent) {
-                    return None;
-                }
-                filter.candidates(position)?
-            }
+            Some(filter) => filter.candidates(position)?,
             None => get_last_moves(position.board.opponent, position.board.player),
         };
         Some(candidates & !required)
@@ -69,18 +62,9 @@ pub(crate) fn passes_lp(position: Position) -> io::Result<bool> {
 }
 
 pub(crate) fn viable(position: Position) -> io::Result<bool> {
-    use crate::filters::{
-        impossible_edges::check_virtual_edge_patterns,
-        occupancy::{check_occupancy, occupancy_order},
-        seg3::check_seg3_more_with_order,
-    };
+    use crate::filters::never_flipped::check_never_flipped;
     let Board { player, opponent } = position.board;
-    let occupied = player | opponent;
-    if !check_occupancy(occupied) || !check_virtual_edge_patterns(player, opponent) {
-        return Ok(false);
-    }
-    let order = occupancy_order(occupied);
-    if !check_seg3_more_with_order(player, opponent, &order) {
+    if !check_never_flipped(player, opponent) {
         return Ok(false);
     }
     passes_lp(position)
@@ -89,7 +73,9 @@ pub(crate) fn viable(position: Position) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::ReverseConstraints;
-    use crate::filters::{linear_programming::check_lp, seg3::check_seg3_more, FilterResult};
+    use crate::filters::{
+        linear_programming::check_lp, never_flipped::check_never_flipped, FilterResult,
+    };
     use crate::io::parse_position;
     use crate::othello::{get_last_moves, Board, Color, Position, CENTER_MASK};
     use crate::record::{replay, PlyAction};
@@ -184,10 +170,9 @@ mod tests {
             board: Board::new(CENTER_MASK, 1_u64 << 19),
             side_to_move: Color::Black,
         };
-        assert!(!check_seg3_more(
+        assert!(!check_never_flipped(
             start.board.player,
-            start.board.opponent,
-            false
+            start.board.opponent
         ));
         let (goal, action) = successors(start)
             .into_iter()

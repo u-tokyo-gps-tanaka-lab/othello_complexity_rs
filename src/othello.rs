@@ -498,7 +498,7 @@ where
 /// 8方向すべてに mobility_dir を適用し、擬似合法手を返す
 /// 空きマスかどうかのチェック & !(player | opponent) をしていないため、実際には石がある位置も含まれる
 #[inline(always)]
-fn pseudo_mobility_bits(player: u64, opponent: u64) -> u64 {
+pub(crate) fn pseudo_mobility_bits(player: u64, opponent: u64) -> u64 {
     mobility_dir(player, opponent, east)
         | mobility_dir(player, opponent, west)
         | mobility_dir(player, opponent, north)

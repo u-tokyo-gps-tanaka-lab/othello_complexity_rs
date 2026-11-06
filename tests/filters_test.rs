@@ -8,9 +8,8 @@ mod support;
 use std::collections::{HashSet, VecDeque};
 
 use othello_complexity_rs::filters::{
-    impossible_edges::{check_edge_patterns, check_virtual_edge_patterns},
+    never_flipped::{check_never_flipped, check_placement_order},
     occupancy::check_occupancy,
-    seg3::check_seg3_more,
     Filter,
 };
 use othello_complexity_rs::io::{format_actions, parse_actions, parse_position};
@@ -20,11 +19,11 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use support::{enumerate, ArrayPosition, ALL_SYMMETRIES};
 
-fn results(board: Board) -> [bool; 5] {
+fn results(board: Board) -> [bool; 4] {
     Filter::PIPELINE.map(|filter| filter.check(&board).unwrap().passes())
 }
 
-fn non_lp_results(board: Board) -> [bool; 4] {
+fn non_lp_results(board: Board) -> [bool; 3] {
     std::array::from_fn(|index| Filter::PIPELINE[index].check(&board).unwrap().passes())
 }
 
@@ -101,7 +100,7 @@ fn reachable_lines(len: usize) -> HashSet<Vec<u8>> {
 }
 
 #[test]
-fn edge_filters_match_the_independent_line_game_for_all_lengths_and_configurations() {
+fn placement_order_matches_the_independent_line_game_for_all_lengths_and_configurations() {
     for len in 1..=8 {
         let reachable = reachable_lines(len);
         for mut encoding in 0..3_usize.pow(len as u32) {
@@ -121,14 +120,9 @@ fn edge_filters_match_the_independent_line_game_for_all_lengths_and_configuratio
             }
             let expected = reachable.contains(&line);
             assert_eq!(
-                check_edge_patterns(player, opponent),
+                check_placement_order(player, opponent),
                 expected,
-                "physical edge {line:?} disagrees with the independent line game"
-            );
-            assert_eq!(
-                check_virtual_edge_patterns(player, opponent),
-                expected,
-                "virtual edge {line:?} disagrees with the independent line game"
+                "placement order {line:?} disagrees with the independent line game"
             );
         }
     }
@@ -140,12 +134,17 @@ fn every_independently_reachable_position_through_nine_discs_passes_applicable_f
         let filters = if position.discs() <= 7 {
             Filter::PIPELINE.as_slice()
         } else {
-            &Filter::PIPELINE[..4]
+            &Filter::PIPELINE[..3]
         };
         for symmetry in ALL_SYMMETRIES {
             let image = position.transformed(symmetry);
             for position in [image, image.opposite_turn()] {
                 let board = position.position().board;
+                assert!(
+                    check_placement_order(board.player, board.opponent),
+                    "placement order rejected reachable position {:?}",
+                    position.position()
+                );
                 for &filter in filters {
                     assert!(
                         filter.check(&board).unwrap().passes(),
@@ -164,14 +163,18 @@ fn independent_complete_games_including_passes_and_terminals_pass_applicable_fil
     let mut position = ArrayPosition::initial();
     let mut first_game_passes = 0;
     loop {
-        assert_eq!(results(position.position().board), [true; 5]);
+        let board = position.position().board;
+        assert_eq!(results(board), [true; 4]);
+        assert!(check_placement_order(board.player, board.opponent));
         let moves = position.moves();
         if let Some(&square) = moves.first() {
             position = position.apply(PlyAction::Play(square)).unwrap();
         } else if let Ok(next) = position.apply(PlyAction::Pass) {
             // Passing preserves the occupied squares and exchanges the relative
             // colours. It must not change any necessary condition.
-            assert_eq!(results(next.position().board), [true; 5]);
+            let board = next.position().board;
+            assert_eq!(results(board), [true; 4]);
+            assert!(check_placement_order(board.player, board.opponent));
             position = next;
             first_game_passes += 1;
         } else {
@@ -192,8 +195,14 @@ fn independent_complete_games_including_passes_and_terminals_pass_applicable_fil
             let board = position.position().board;
             assert_eq!(
                 non_lp_results(board),
-                [true; 4],
+                [true; 3],
                 "game {game}, legal trace {}, position {:?}",
+                format_actions(&actions),
+                position.position()
+            );
+            assert!(
+                check_placement_order(board.player, board.opponent),
+                "placement order rejected game {game}, legal trace {}, position {:?}",
                 format_actions(&actions),
                 position.position()
             );
@@ -227,13 +236,10 @@ fn relaxed_filters_are_invariant_even_for_rejected_fixed_and_random_inputs() {
         Board::new(CENTER_MASK, 0),
         Board::new(initial.player | 0x55, initial.opponent | 0xaa),
     ];
-    assert!(!check_seg3_more(
-        boards[0].player,
-        boards[0].opponent,
-        false
-    ));
+    assert!(!check_never_flipped(boards[0].player, boards[0].opponent));
     for board in boards {
         let expected = results(board);
+        let expected_placement_order = check_placement_order(board.player, board.opponent);
         for symmetry in BoardSymmetry::ALL {
             let image = symmetry
                 .apply_position(Position {
@@ -243,6 +249,14 @@ fn relaxed_filters_are_invariant_even_for_rejected_fixed_and_random_inputs() {
                 .board;
             assert_eq!(results(image), expected);
             assert_eq!(results(image.swapped()), expected);
+            assert_eq!(
+                check_placement_order(image.player, image.opponent),
+                expected_placement_order
+            );
+            assert_eq!(
+                check_placement_order(image.opponent, image.player),
+                expected_placement_order
+            );
         }
     }
 
@@ -254,8 +268,8 @@ fn relaxed_filters_are_invariant_even_for_rejected_fixed_and_random_inputs() {
             let player = b & occupied;
             let board = Board::new(player, occupied ^ player);
             let expected_occupancy = check_occupancy(occupied);
-            let expected_edges = check_virtual_edge_patterns(board.player, board.opponent);
-            let expected_seg3 = check_seg3_more(board.player, board.opponent, false);
+            let expected_placement_order = check_placement_order(board.player, board.opponent);
+            let expected_never_flipped = check_never_flipped(board.player, board.opponent);
 
             for symmetry in ALL_SYMMETRIES {
                 let image = symmetry.apply(board);
@@ -265,14 +279,19 @@ fn relaxed_filters_are_invariant_even_for_rejected_fixed_and_random_inputs() {
                     "occupancy symmetry={symmetry:?}, board={board:?}"
                 );
                 assert_eq!(
-                    check_virtual_edge_patterns(image.player, image.opponent),
-                    expected_edges,
-                    "virtual edges symmetry={symmetry:?}, board={board:?}"
+                    check_placement_order(image.player, image.opponent),
+                    expected_placement_order,
+                    "placement order symmetry={symmetry:?}, board={board:?}"
                 );
                 assert_eq!(
-                    check_seg3_more(image.player, image.opponent, false),
-                    expected_seg3,
-                    "seg3 symmetry={symmetry:?}, board={board:?}"
+                    check_placement_order(image.opponent, image.player),
+                    expected_placement_order,
+                    "placement order color exchange symmetry={symmetry:?}, board={board:?}"
+                );
+                assert_eq!(
+                    check_never_flipped(image.player, image.opponent),
+                    expected_never_flipped,
+                    "never-flipped symmetry={symmetry:?}, board={board:?}"
                 );
             }
         }
@@ -282,7 +301,7 @@ fn relaxed_filters_are_invariant_even_for_rejected_fixed_and_random_inputs() {
 fn assert_passes(position: ArrayPosition) {
     let board = position.position().board;
     assert!(
-        check_virtual_edge_patterns(board.player, board.opponent),
+        check_placement_order(board.player, board.opponent),
         "legal position rejected: {:?}",
         position.position()
     );
@@ -301,10 +320,6 @@ fn assert_legal_trace_passes(actions: &str, expected: &str) -> Position {
             .collect::<Vec<_>>()
     );
     assert_eq!(production_trace.last(), Some(&expected));
-    assert!(check_edge_patterns(
-        expected.board.player,
-        expected.board.opponent
-    ));
     for position in oracle_trace {
         assert_passes(position);
     }
@@ -337,7 +352,7 @@ fn assert_verdict_for_images(board: Board, expected: bool) {
         for position in [image, image.opposite_turn()] {
             let board = position.position().board;
             assert_eq!(
-                check_virtual_edge_patterns(board.player, board.opponent),
+                check_placement_order(board.player, board.opponent),
                 expected,
                 "incorrect verdict for {:?}",
                 position.position()
@@ -347,7 +362,7 @@ fn assert_verdict_for_images(board: Board, expected: bool) {
 }
 
 #[test]
-fn edge_pipeline_distinguishes_a_legal_alternating_line_from_a_virtual_edge() {
+fn placement_order_distinguishes_a_legal_alternating_line_from_one_without_transverse_captures() {
     // F3-F6 reads XOXO and contains no initial disc. Its neighbours permit
     // captures across the line, despite its contact with exterior empties.
     let legal = assert_legal_trace_passes(
@@ -358,16 +373,12 @@ fn edge_pipeline_distinguishes_a_legal_alternating_line_from_a_virtual_edge() {
         board: line_board("XOXO", (2, 1), (1, 0)),
         side_to_move: Color::Black,
     };
-    assert!(check_edge_patterns(
-        impossible.board.player,
-        impossible.board.opponent
-    ));
     for (name, position, passes) in [
-        ("virtual pattern", impossible, false),
+        ("line without transverse captures", impossible, false),
         ("legal alternating line", legal, true),
     ] {
         assert_eq!(
-            Filter::Edge.check(&position.board).unwrap().passes(),
+            check_placement_order(position.board.player, position.board.opponent),
             passes,
             "case={name}"
         );
@@ -376,9 +387,8 @@ fn edge_pipeline_distinguishes_a_legal_alternating_line_from_a_virtual_edge() {
 
 #[test]
 fn forbidden_words_on_lines_without_transverse_captures_are_rejected() {
-    // These three words and their colour exchanges are the forbidden edge
-    // words. Empty neighbours or the board boundary block every transverse
-    // capture in these fixtures; a virtual edge can be shorter than 8 cells.
+    // These three words and their colour exchanges cannot arise on a line when
+    // empty neighbours or the board boundary block every transverse capture.
     for pattern in ["XOXO", "XOXXOX", "XOXXOOXO"] {
         for (start, step) in [
             ((0, 0), (1, 0)),  // physical rank
@@ -387,9 +397,84 @@ fn forbidden_words_on_lines_without_transverse_captures_are_rejected() {
             ((0, 0), (1, 1)),  // main diagonal
             ((0, 7), (1, -1)), // other diagonal
         ] {
-            assert_verdict_for_images(line_board(pattern, start, step), false);
+            let board = line_board(pattern, start, step);
+            assert_verdict_for_images(board, false);
         }
     }
+}
+
+#[test]
+fn fixed_positions_separate_placement_order_from_color_checks() {
+    let iterative =
+        parse_position("XXX-OOO---OOX--O-OXOOOOX-X-OOX--X--XXXX-XOO-XOOOOXOXOOXXOX-OOX-- b")
+            .unwrap();
+    assert!(!check_placement_order(
+        iterative.board.player,
+        iterative.board.opponent
+    ));
+    assert!(!check_never_flipped(
+        iterative.board.player,
+        iterative.board.opponent
+    ));
+
+    let color =
+        parse_position("--XXXXX---O-XX-----XXXOOXXXOOXOOOOOXO-OOOOO---XX-O-O--X--XO----- b")
+            .unwrap();
+    assert!(check_placement_order(
+        color.board.player,
+        color.board.opponent
+    ));
+    assert!(!check_never_flipped(
+        color.board.player,
+        color.board.opponent
+    ));
+
+    // FlipDirections::consistent_with から着手順序の条件が抜けると検出する。
+    let geometry_order =
+        parse_position("XXX-X--OXXOXOOOXXXOO-XXOOX-XOXX-XO-XXXOXXOX-O-XXXXO-OXOXXXOO---- b")
+            .unwrap();
+    assert!(!check_placement_order(
+        geometry_order.board.player,
+        geometry_order.board.opponent
+    ));
+    assert!(!check_never_flipped(
+        geometry_order.board.player,
+        geometry_order.board.opponent
+    ));
+
+    // 色の検査を返り得る軸がない石だけに戻すと検出する。
+    let possible_flip_axis =
+        parse_position("O-XXXXO--OO---XXXOO--XOXXXOXOXXOOO-XOO---X-O-OXO-XX--OOX-X--O--- b")
+            .unwrap();
+    assert!(check_placement_order(
+        possible_flip_axis.board.player,
+        possible_flip_axis.board.opponent
+    ));
+    assert!(!check_never_flipped(
+        possible_flip_axis.board.player,
+        possible_flip_axis.board.opponent
+    ));
+
+    // 後に置かれた石がある方向まで反転候補にすると棄却できないため、occupancy_order を使わない誤りを検出する。
+    let ordered_directions =
+        parse_position("OXO--XXXOO-O-O--XXOXXOXX-XOXO-X-OX-OOXO---OXOOXO-OOX-O-X--O----- b")
+            .unwrap();
+    assert!(check_placement_order(
+        ordered_directions.board.player,
+        ordered_directions.board.opponent
+    ));
+    assert!(!check_never_flipped(
+        ordered_directions.board.player,
+        ordered_directions.board.opponent
+    ));
+
+    let central =
+        parse_position("-------------------X-------OX------XO--------------------------- b")
+            .unwrap();
+    assert!(!check_placement_order(
+        central.board.player,
+        central.board.opponent
+    ));
 }
 
 #[test]

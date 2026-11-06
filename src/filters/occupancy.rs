@@ -1,7 +1,4 @@
-use crate::hash::CustomHash;
 use crate::othello::{backshift, Direction, CENTER_MASK};
-use dashmap::DashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 /// `occupied` のうち、中央4マスから占有到達可能なマスの集合を返す。
@@ -158,13 +155,11 @@ fn transpose_bit_matrix_64(mut rows: [u64; 64]) -> [u64; 64] {
     rows
 }
 
-/// 下記の考え方に基づいて、各石の置かれた順序を計算
-/// 1. マスAの石を取り除いたら、マスBが説明不可能になった
-/// → マスBは、マスAを経由して初めて中心と接続できた
-/// → つまり、マスBはマスAの後に置かれた石
-/// 2. マスAを取り除いても、マスCが依然として説明可能
-/// → マスCは、マスAに依存せずに中心と接続できている
-/// → つまり、マスCはマスAと同時またはそれ以前に置かれた石
+/// 各マスを除いた占有配置から説明できる石の集合を返す。
+///
+/// 非中央のマスAについて、返り値はAを除いた占有配置の到達可能集合に、
+/// A自身を戻した集合である。Aを除いても説明できるマスCは、
+/// Aより後に置かれたとは言えない。
 pub fn occupancy_order(occupied: u64) -> [u64; 64] {
     let (deps, dep_len) = occupancy_deps();
 
@@ -236,65 +231,11 @@ pub fn occupied_to_string(o: u64) -> String {
     return s;
 }
 
-static OCCUPANCY_ORDER_TT: OnceLock<DashMap<u64, [u64; 64], CustomHash>> = OnceLock::new();
-static OCCUPANCY_ORDER_TT_LOOKUPS: AtomicU64 = AtomicU64::new(0);
-static OCCUPANCY_ORDER_TT_HITS: AtomicU64 = AtomicU64::new(0);
-
-fn occupancy_order_tt() -> &'static DashMap<u64, [u64; 64], CustomHash> {
-    OCCUPANCY_ORDER_TT.get_or_init(|| DashMap::with_hasher(CustomHash::default()))
-}
-
-/// Clear the occupancy order transposition table (optional).
-pub fn clear_occupancy_cache() {
-    if let Some(tt) = OCCUPANCY_ORDER_TT.get() {
-        tt.clear();
-    }
-}
-
-pub fn occupancy_order_cached(occupied: u64) -> [u64; 64] {
-    let tt = occupancy_order_tt();
-    OCCUPANCY_ORDER_TT_LOOKUPS.fetch_add(1, Ordering::Relaxed);
-    if let Some(hit) = tt.get(&occupied) {
-        OCCUPANCY_ORDER_TT_HITS.fetch_add(1, Ordering::Relaxed);
-        return *hit;
-    }
-
-    let result = occupancy_order(occupied);
-    tt.insert(occupied, result);
-    result
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct OccupancyOrderCacheStats {
-    pub lookups: u64,
-    pub hits: u64,
-    pub entries: usize,
-}
-
-impl OccupancyOrderCacheStats {
-    pub fn misses(&self) -> u64 {
-        self.lookups.saturating_sub(self.hits)
-    }
-
-    pub fn hit_rate(&self) -> f64 {
-        if self.lookups == 0 {
-            0.0
-        } else {
-            (self.hits as f64) / (self.lookups as f64)
-        }
-    }
-}
-
-pub fn occupancy_order_cache_stats() -> OccupancyOrderCacheStats {
-    let entries = OCCUPANCY_ORDER_TT.get().map_or(0, |tt| tt.len());
-    OccupancyOrderCacheStats {
-        lookups: OCCUPANCY_ORDER_TT_LOOKUPS.load(Ordering::Relaxed),
-        hits: OCCUPANCY_ORDER_TT_HITS.load(Ordering::Relaxed),
-        entries,
-    }
-}
-
-// ナイーブな実装 (盤上の石全てにreachable_occupancyを呼ぶ)
+/// `occupancy_order` のナイーブな実装。
+///
+/// 非中央のマスAについて、返り値はAを除いた占有配置の到達可能集合に、
+/// A自身を戻した集合である。Aを除いても説明できるマスCは、
+/// Aより後に置かれたとは言えない。
 pub fn occupancy_order_naive(occupied: u64) -> [u64; 64] {
     let mut ans = [0; 64];
     let mut b = occupied;
@@ -302,7 +243,7 @@ pub fn occupancy_order_naive(occupied: u64) -> [u64; 64] {
         let sq = b.trailing_zeros() as usize;
         let newb = b & (b - 1);
         let b_one = b ^ newb; // bからマスsqの石を取り除いた盤面
-        ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one; // マスsqと同時またはそれ以前に置かれた石の集合
+        ans[sq] = reachable_occupancy(occupied ^ b_one) | b_one; // マスsq自身を集合に戻す
         b = newb;
     }
     ans

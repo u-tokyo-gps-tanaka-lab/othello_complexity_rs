@@ -342,7 +342,7 @@ fn filters_deduplicate_in_first_appearance_order_and_keep_row_weights() {
         fs::read_to_string(run.join("01-filters/con_NG.txt")).unwrap(),
         position_text(&[disconnected()])
     );
-    for filter in ["edge", "occupancy", "seg3more", "lp"] {
+    for filter in ["occupancy", "never_flipped", "lp"] {
         assert_eq!(
             fs::read_to_string(run.join(format!("01-filters/{filter}_OK.txt"))).unwrap(),
             position_text(&[initial(), after_d3()])

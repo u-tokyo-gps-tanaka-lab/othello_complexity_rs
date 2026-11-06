@@ -1,10 +1,9 @@
 pub mod connectivity;
-pub mod impossible_edges;
 pub mod linear_programming;
+pub mod never_flipped;
 pub mod occupancy;
 pub(crate) mod reverse;
 pub mod sat;
-pub mod seg3;
 
 use std::io;
 
@@ -13,27 +12,19 @@ use crate::othello::Board;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Filter {
     Con,
-    Edge,
     Occupancy,
-    Seg3More,
+    NeverFlipped,
     Lp,
 }
 
 impl Filter {
-    pub const PIPELINE: [Self; 5] = [
-        Self::Con,
-        Self::Edge,
-        Self::Occupancy,
-        Self::Seg3More,
-        Self::Lp,
-    ];
+    pub const PIPELINE: [Self; 4] = [Self::Con, Self::Occupancy, Self::NeverFlipped, Self::Lp];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Con => "con",
-            Self::Edge => "edge",
             Self::Occupancy => "occupancy",
-            Self::Seg3More => "seg3more",
+            Self::NeverFlipped => "never_flipped",
             Self::Lp => "lp",
         }
     }
@@ -44,28 +35,14 @@ impl Filter {
                 connectivity::is_connected(board.player | board.opponent),
                 "occupied squares are disconnected from the centre",
             )),
-            Self::Edge => Ok(necessary_condition(
-                impossible_edges::check_virtual_edge_patterns(board.player, board.opponent),
-                "an impossible physical or virtual edge pattern is present",
-            )),
             Self::Occupancy => Ok(necessary_condition(
                 occupancy::check_occupancy(board.player | board.opponent),
                 "some occupied squares cannot be reached from the centre",
             )),
-            Self::Seg3More => {
-                let occupied = board.player | board.opponent;
-                if !occupancy::check_occupancy(occupied) {
-                    return Ok(necessary_condition(
-                        false,
-                        "occupancy reachability prerequisite is not satisfied",
-                    ));
-                }
-                let order = occupancy::occupancy_order(occupied);
-                Ok(necessary_condition(
-                    seg3::check_seg3_more_with_order(board.player, board.opponent, &order),
-                    "the possible flips cannot explain the final colours",
-                ))
-            }
+            Self::NeverFlipped => Ok(necessary_condition(
+                never_flipped::check_never_flipped(board.player, board.opponent),
+                "the possible flips cannot explain the final colours",
+            )),
             Self::Lp => linear_programming::check_lp(board.player, board.opponent, false),
         }
     }

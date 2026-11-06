@@ -65,15 +65,13 @@ struct LpOpts {
 enum Command {
     /// Connectivity of occupied squares
     Con(CommonOpts),
-    /// Impossible patterns on physical and virtual edges
-    Edge(CommonOpts),
     /// Linear/integer programming feasibility
     Lp(LpOpts),
     /// Occupancy reachability; diagnostic masks are separate from positions
     Occupancy(CommonOpts),
-    /// Flip consistency, including its occupancy prerequisite
-    #[command(name = "seg3more")]
-    Seg3More(CommonOpts),
+    /// Placement order and colours of never-flipped discs, including the occupancy prerequisite
+    #[command(name = "never-flipped")]
+    NeverFlipped(CommonOpts),
     /// Flip-based SAT relaxation
     #[command(name = "flip-sat")]
     FlipSat(CommonOpts),
@@ -205,13 +203,12 @@ fn run_filter(opts: &CommonOpts, filter: Filter) -> io::Result<()> {
 fn main() {
     let result = match Cli::parse().command {
         Command::Con(opts) => run_filter(&opts, Filter::Con),
-        Command::Edge(opts) => run_filter(&opts, Filter::Edge),
         Command::Lp(opts) if opts.ip => run_check(&opts.common, "ip", |board| {
             check_lp(board.player, board.opponent, true)
         }),
         Command::Lp(opts) => run_filter(&opts.common, Filter::Lp),
         Command::Occupancy(opts) => run_filter(&opts, Filter::Occupancy),
-        Command::Seg3More(opts) => run_filter(&opts, Filter::Seg3More),
+        Command::NeverFlipped(opts) => run_filter(&opts, Filter::NeverFlipped),
         Command::FlipSat(opts) => run_check(&opts, "flip_sat", |board| {
             check_flip_sat(board.player, board.opponent)
         }),
