@@ -5,11 +5,10 @@ mod support;
 use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{
-    artifact, create_output_dir, ensure_distinct_files, fixed_discs_class_population,
-    fixed_discs_population, for_each_relative_board, generate, is_representative,
-    position_from_rank, rank_of_position, read_sample_dir, representative_candidates,
-    sample_fixed_discs, select_representative, sha256, Population, CLASS_POPULATION_SIZE,
-    POPULATION_SIZE,
+    artifact, class_representative, convert_classes, create_output_dir, ensure_distinct_files,
+    fixed_discs_population, generate, is_representative, position_from_rank, rank_of_position,
+    read_sample_dir, representative_candidates, sample_fixed_discs, select_representative, sha256,
+    Population, POPULATION_SIZE,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -101,55 +100,14 @@ fn ranks_use_the_declared_low_turn_bit_and_cell_radices() {
 }
 
 #[test]
-fn class_population_matches_independent_small_board_enumeration() {
-    // Enumerate all 16 central colorings, and then all 60 × 2 single outer
-    // discs. Coordinate-based transformations, not the Burnside implementation,
-    // decide whether two boards belong to the same class.
-    let mut four_disc_classes = HashSet::new();
-    let mut five_disc_classes = HashSet::new();
-    for colors in 0..16 {
-        let board = central_coloring(colors);
-        four_disc_classes.insert(geometric_class_key(board));
-        for square in 0..64 {
-            let bit = 1 << square;
-            if bit & CENTER_MASK != 0 {
-                continue;
-            }
-            for outer in [
-                Board::new(board.player | bit, board.opponent),
-                Board::new(board.player, board.opponent | bit),
-            ] {
-                five_disc_classes.insert(geometric_class_key(outer));
-            }
-        }
-    }
-    assert_eq!(four_disc_classes.len(), 6);
-    assert_eq!(five_disc_classes.len(), 264);
+fn population_sizes_count_black_to_move_positions_and_partition_by_disc_count() {
     assert_eq!(
-        fixed_discs_class_population(4).unwrap(),
-        four_disc_classes.len() as u128
+        Population::Classes.size(None).unwrap(),
+        2_u128.pow(4) * 3_u128.pow(60)
     );
-    assert_eq!(
-        fixed_discs_class_population(5).unwrap(),
-        five_disc_classes.len() as u128
-    );
-    assert!(fixed_discs_class_population(3).is_err());
-    assert!(fixed_discs_class_population(65).is_err());
-}
-
-#[test]
-fn population_sizes_include_self_symmetric_classes_and_partition_by_disc_count() {
-    // Burnside cycle counts for a full binary 8×8 board are 64, 16, 32,
-    // 16, 32, 32, 36, 36; fixed points give the exact boundary value below.
-    assert_eq!(
-        fixed_discs_class_population(64).unwrap(),
-        2_305_843_028_004_192_256
-    );
-    assert_eq!(
-        CLASS_POPULATION_SIZE,
-        84_782_316_550_443_833_986_427_293_875
-    );
-    assert!(CLASS_POPULATION_SIZE > POPULATION_SIZE / 16);
+    assert_eq!(Population::Classes.size(Some(4)).unwrap(), 16);
+    assert_eq!(Population::Classes.size(Some(5)).unwrap(), 1_920);
+    assert_eq!(Population::Classes.size(Some(64)).unwrap(), 2_u128.pow(64));
     for population in [Population::Absolute, Population::Classes] {
         let sum: u128 = (4..=64)
             .map(|discs| population.size(Some(discs)).unwrap())
@@ -179,12 +137,17 @@ fn representative_rejection_gives_equal_mass_to_self_symmetric_classes() {
     assert_eq!(accepted.len(), 6);
     assert!(accepted.values().all(|&count| count == 1));
 
-    // Exercise the actual sampler as well: canonicalizing every proposal would
-    // give counts near 375, 750 or 1500 rather than 1000 for each class.
+    // Each of the 16 central colorings is sampled independently. Six are
+    // representatives, so 16,000 attempts yield 6,000 accepted positions in
+    // expectation and 1,000 occurrences of each representative in expectation.
     let mut rng = ChaCha8Rng::seed_from_u64(20261022);
     let mut observed = HashMap::new();
-    for _ in 0..6000 {
-        let position = Population::Classes.sample(&mut rng, Some(4)).unwrap();
+    let mut accepted_total = 0;
+    for _ in 0..16_000 {
+        let Some(position) = Population::Classes.sample(&mut rng, Some(4)).unwrap() else {
+            continue;
+        };
+        accepted_total += 1;
         assert_eq!(position.side_to_move, Color::Black);
         assert_eq!(position.board.player | position.board.opponent, CENTER_MASK);
         assert_eq!(geometric_class_key(position.board).1, position.board.player);
@@ -192,6 +155,7 @@ fn representative_rejection_gives_equal_mass_to_self_symmetric_classes() {
     }
     assert_eq!(observed.len(), 6);
     assert!(observed.values().all(|count| (750..=1250).contains(count)));
+    assert!((5_700..=6_300).contains(&accepted_total));
 }
 
 #[test]
@@ -223,12 +187,15 @@ fn fixed_disc_and_selected_population_sampling_preserve_counts_turns_and_reprodu
         for discs in [None, Some(4), Some(5), Some(32), Some(64)] {
             let mut turns = HashSet::new();
             for _ in 0..32 {
-                let position = population.sample(&mut first, discs).unwrap();
+                let sampled = population.sample(&mut first, discs).unwrap();
                 assert_eq!(
-                    position,
+                    sampled,
                     population.sample(&mut second, discs).unwrap(),
                     "{case}, {discs:?} discs"
                 );
+                let Some(position) = sampled else {
+                    continue;
+                };
                 turns.insert(position.side_to_move);
                 let occupied = position.board.player | position.board.opponent;
                 assert_eq!(
@@ -281,7 +248,9 @@ fn representative_candidates_match_the_oracle_and_have_equal_rational_mass() {
             "{case}"
         );
         let accepted: Vec<_> = (0..16)
-            .filter_map(|draw| select_representative(&candidates, draw).unwrap())
+            .filter_map(|selection_index| {
+                select_representative(&candidates, selection_index).unwrap()
+            })
             .collect();
         assert_eq!(accepted.len(), expected, "{case}");
         assert_eq!(
@@ -341,16 +310,18 @@ fn representative_candidates_match_the_oracle_and_have_equal_rational_mass() {
             expected_positions,
             "rank {encoded_rank}"
         );
-        for draw in 0..16 {
+        for selection_index in 0..16 {
             trials += 1;
-            if let Some((_, position)) = select_representative(&candidates, draw).unwrap() {
+            if let Some((_, position)) =
+                select_representative(&candidates, selection_index).unwrap()
+            {
                 *masses.entry(position).or_default() += 1;
             } else {
                 rejects += 1;
             }
         }
     }
-    // Each original representative has weight 1/r; each draw weight 1/16.
+    // Each original representative has weight 1/r; each selection has weight 1/16.
     // Integer numerator 1 for every candidate proves equality without a
     // frequency tolerance. Conditional on acceptance, the mass is 1/(2*81).
     assert_eq!(trials, 16 * representative_count);
@@ -399,10 +370,69 @@ fn generated_samples_are_reproducible_and_pass_sample_validation() {
         assert_eq!(sample.population, Population::Absolute);
         assert_eq!(sample.discs, Some(8));
         assert_eq!(sample.positions.len(), 16);
+        assert_eq!(sample.sample_size, 16);
     }
 
     fs::remove_dir_all(first).unwrap();
     fs::remove_dir_all(second).unwrap();
+}
+
+#[test]
+fn equivalence_generation_records_sample_size_and_only_writes_representatives() {
+    let directory = std::env::temp_dir().join(format!(
+        "othello-equivalence-generation-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    let sample_size = 64;
+    let seed = 20261107;
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let expected = (1..=sample_size)
+        .filter_map(|input_line| {
+            Population::Classes
+                .sample(&mut rng, Some(4))
+                .unwrap()
+                .map(|position| (input_line, position))
+        })
+        .collect::<Vec<_>>();
+    assert!(!expected.is_empty());
+    assert!(expected.len() < sample_size);
+
+    generate(&directory, Population::Classes, Some(4), sample_size, seed).unwrap();
+
+    let sample = read_sample_dir(&directory).unwrap();
+    assert_eq!(sample.sample_size, sample_size);
+    assert_eq!(
+        sample.positions,
+        expected
+            .iter()
+            .map(|(_, position)| *position)
+            .collect::<Vec<_>>()
+    );
+    assert!(sample.positions.iter().all(|position| {
+        position.side_to_move == Color::Black && is_representative(position.board)
+    }));
+    assert_eq!(sample.metadata["input_count"], sample_size);
+    assert_eq!(sample.metadata["accepted_count"], expected.len());
+
+    let mapping = fs::read_to_string(directory.join("mapping.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(mapping.len(), expected.len());
+    for (output_index, (row, (input_line, position))) in mapping.iter().zip(&expected).enumerate() {
+        assert_eq!(row["input_line"], *input_line);
+        assert_eq!(row["output_line"], output_index + 1);
+        assert_eq!(row["accepted"], true);
+        assert_eq!(row["position"], format_position(*position));
+    }
+    assert!(mapping
+        .iter()
+        .enumerate()
+        .any(|(index, row)| row["input_line"] != index + 1));
+
+    fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
@@ -445,38 +475,140 @@ fn create_output_dir_removes_sampling_record_and_preserves_other_files() {
 }
 
 #[test]
-fn relative_boards_are_streamed_with_stable_line_numbers_and_digest() {
-    let directory = std::env::temp_dir().join(format!(
-        "othello-relative-board-stream-{}-{}",
+fn class_samples_convert_to_valid_uniform_absolute_samples() {
+    let root = std::env::temp_dir().join(format!(
+        "othello-class-conversion-{}-{}",
         std::process::id(),
         NEXT_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    fs::create_dir(&directory).unwrap();
-    let path = directory.join("boards.txt");
-    let boards = [Board::initial(), Board::new(CENTER_MASK, 0)];
-    let bytes = format!("{}\r\n{}", boards[0].to_string(), boards[1].to_string()).into_bytes();
-    fs::write(&path, &bytes).unwrap();
+    fs::create_dir(&root).unwrap();
+    let unrestricted_source = root.join("unrestricted-source");
+    let fixed_source = root.join("fixed-source");
+    let unrestricted_output = root.join("unrestricted-output");
+    let fixed_output = root.join("fixed-output");
+    generate(&unrestricted_source, Population::Classes, None, 256, 101).unwrap();
+    generate(&fixed_source, Population::Classes, Some(5), 1_920, 102).unwrap();
+    convert_classes(&unrestricted_source, &unrestricted_output, 201).unwrap();
+    convert_classes(&fixed_source, &fixed_output, 202).unwrap();
 
-    let mut observed = Vec::new();
-    let count = for_each_relative_board(&path, |line_number, board| {
-        observed.push((line_number, board));
-        Ok(())
-    })
+    let unrestricted = read_sample_dir(&unrestricted_output).unwrap();
+    assert_eq!(unrestricted.population, Population::Absolute);
+    assert_eq!(unrestricted.discs, None);
+    let fixed = read_sample_dir(&fixed_output).unwrap();
+    assert_eq!(fixed.population, Population::Absolute);
+    assert_eq!(fixed.discs, Some(5));
+
+    let verify = |source: &std::path::Path, output: &std::path::Path| {
+        let source_sample = read_sample_dir(source).unwrap();
+        let converted_sample = read_sample_dir(output).unwrap();
+        let rows = fs::read_to_string(output.join("mapping.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), source_sample.positions.len());
+        let mut accepted = Vec::new();
+        let mut rejected = 0;
+        for (index, (&source_position, row)) in
+            source_sample.positions.iter().zip(&rows).enumerate()
+        {
+            let candidates = representative_candidates(source_position.board);
+            let selection_index = row["selection_index"].as_u64().unwrap() as usize;
+            let selected = candidates.get(selection_index).copied();
+            assert_eq!(row["input_line"], index + 1);
+            assert_eq!(row["source_position"], format_position(source_position));
+            assert_eq!(row["candidate_count"], candidates.len());
+            assert_eq!(row["accepted"], selected.is_some());
+            assert_eq!(selection_index < candidates.len(), selected.is_some());
+            if let Some((symmetry, position)) = selected {
+                accepted.push(position);
+                assert_eq!(row["output_line"], accepted.len());
+                assert_eq!(row["symmetry"], symmetry.as_str());
+                assert_eq!(
+                    row["side_to_move"],
+                    if position.side_to_move == Color::Black {
+                        "b"
+                    } else {
+                        "w"
+                    }
+                );
+                assert_eq!(row["position"], format_position(position));
+                assert_eq!(class_representative(position), source_position);
+            } else {
+                rejected += 1;
+                assert!(row["output_line"].is_null());
+                assert!(row["symmetry"].is_null());
+                assert!(row["side_to_move"].is_null());
+                assert!(row["position"].is_null());
+            }
+        }
+        assert_eq!(converted_sample.positions, accepted);
+        let source_bytes = fs::read(source.join("positions.txt")).unwrap();
+        assert_eq!(
+            converted_sample.metadata["input"]["sha256"],
+            sha256(&source_bytes)
+        );
+        assert_eq!(
+            converted_sample.metadata["input"],
+            artifact(&source.join("positions.txt")).unwrap()
+        );
+        assert_eq!(
+            converted_sample.metadata["source_sampling"],
+            artifact(&source.join("sampling.json")).unwrap()
+        );
+        (converted_sample.positions.len(), rejected)
+    };
+
+    verify(&unrestricted_source, &unrestricted_output);
+    let (accepted, rejected) = verify(&fixed_source, &fixed_output);
+    assert!(accepted > 0);
+    assert!(rejected > 0);
+
+    let exact_error_output = root.join("exact-error");
+    assert!(convert_classes(&fixed_output, &exact_error_output, 302).is_err());
+    assert!(!exact_error_output.exists());
+    let repeated_seed_output = root.join("repeated-seed-error");
+    assert!(convert_classes(&fixed_source, &repeated_seed_output, 102).is_err());
+    assert!(!repeated_seed_output.exists());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn empty_equivalence_sample_cannot_be_converted() {
+    let root = std::env::temp_dir().join(format!(
+        "othello-empty-equivalence-conversion-{}-{}",
+        std::process::id(),
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    let source = root.join("source");
+    let output = root.join("output");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("positions.txt"), b"").unwrap();
+    fs::write(source.join("mapping.jsonl"), b"").unwrap();
+    fs::write(
+        source.join("sampling.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "method": "fixed-discs",
+            "population": Population::Classes.metadata(Some(4)).unwrap(),
+            "uniform": true,
+            "with_replacement": true,
+            "seed": 1,
+            "input_count": 8,
+            "accepted_count": 0,
+        }))
+        .unwrap(),
+    )
     .unwrap();
+    let sample = read_sample_dir(&source).unwrap();
+    assert_eq!(sample.sample_size, 8);
+    assert!(sample.positions.is_empty());
 
-    assert_eq!(count, 2);
-    assert_eq!(observed, vec![(1, boards[0]), (2, boards[1])]);
-    let expected_digest = sha256(&bytes);
-    assert_eq!(
-        artifact(&path).unwrap()["sha256"].as_str(),
-        Some(expected_digest.as_str())
-    );
+    assert!(convert_classes(&source, &output, 2).is_err());
+    assert!(!output.join("sampling.json").exists());
 
-    fs::write(&path, format!("{}\ninvalid", boards[0].to_string())).unwrap();
-    let error = for_each_relative_board(&path, |_, _| Ok(())).unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    assert!(error.to_string().contains("line 2"));
-    fs::remove_dir_all(directory).unwrap();
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = Pipeline::sample(SampleSpec {
         population: Population::Classes,
         discs: None,
-        count: 1_000,
+        sample_size: 1_000,
         seed: 20261022,
     })
     .filters()

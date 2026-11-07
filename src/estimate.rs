@@ -23,7 +23,7 @@ use crate::search::{run_strategy, Strategy};
 pub struct SampleSpec {
     pub population: Population,
     pub discs: Option<u32>,
-    pub count: usize,
+    pub sample_size: usize,
     pub seed: u64,
 }
 
@@ -56,6 +56,7 @@ enum Source {
 )]
 enum Stage {
     Filters,
+    EquivalenceNg { run: PathBuf },
     Sat(SatStage),
     ReverseSearch(Strategy),
 }
@@ -64,6 +65,7 @@ impl Stage {
     fn kind(&self) -> &'static str {
         match self {
             Self::Filters => "filters",
+            Self::EquivalenceNg { .. } => "equivalence-ng",
             Self::Sat(_) => "sat",
             Self::ReverseSearch(_) => "reverse-search",
         }
@@ -98,6 +100,7 @@ struct SampleRecord {
     population: PopulationRecord,
     with_replacement: bool,
     rows: usize,
+    sample_size: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -195,6 +198,13 @@ impl Pipeline {
         self
     }
 
+    pub fn equivalence_ng(mut self, run: &Path) -> Self {
+        self.stages.push(Stage::EquivalenceNg {
+            run: run.to_owned(),
+        });
+        self
+    }
+
     pub fn sat(mut self, stage: SatStage) -> Self {
         self.stages.push(Stage::Sat(stage));
         self
@@ -244,13 +254,13 @@ fn initialize_run(
 ) -> io::Result<Summary> {
     match source {
         Source::Sample(spec) => {
-            sampling::validate_generation(spec.population, spec.discs, spec.count)?;
+            sampling::validate_generation(spec.population, spec.discs, spec.sample_size)?;
             validate_stages(stages, population_goal_match(spec.population))?;
             sampling::generate(
                 &out_dir.join("sample"),
                 spec.population,
                 spec.discs,
-                spec.count,
+                spec.sample_size,
                 spec.seed,
             )?;
             let sample = read_sample_dir(&out_dir.join("sample"))?;
@@ -388,7 +398,7 @@ fn declared_stages(
 ) -> io::Result<Vec<Stage>> {
     match source {
         Source::Sample(spec) => {
-            sampling::validate_generation(spec.population, spec.discs, spec.count)?;
+            sampling::validate_generation(spec.population, spec.discs, spec.sample_size)?;
             if summary.sample.source != SampleSource::Generated(spec.clone()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -496,6 +506,14 @@ fn validate_stages(stages: &[Stage], mode: GoalMatch) -> io::Result<()> {
     for stage in stages {
         match stage {
             Stage::Filters => {}
+            Stage::EquivalenceNg { .. } => {
+                if mode != GoalMatch::Exact {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "equivalence-ng requires an exact-position sample",
+                    ));
+                }
+            }
             Stage::Sat(stage) => validate_options(&sat_options(stage, mode, Vec::new()))
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
             Stage::ReverseSearch(strategy) => strategy.validate()?,
@@ -516,6 +534,10 @@ fn execute_run(out_dir: &Path, alpha: f64, mut run: RunState) -> io::Result<Repo
         let nodes = match &stage {
             Stage::Filters => {
                 run_filter_stage(&input, &directory)?;
+                None
+            }
+            Stage::EquivalenceNg { run: source } => {
+                run_equivalence_ng_stage(source, &input, run.sample.discs, &directory)?;
                 None
             }
             Stage::Sat(settings) => {
@@ -647,6 +669,66 @@ fn run_filter_stage(input: &[Position], directory: &Path) -> io::Result<()> {
         write_positions(&directory.join(format!("{prefix}_NG.txt")), &output.ng)?;
     }
     Ok(())
+}
+
+fn run_equivalence_ng_stage(
+    run: &Path,
+    input: &[Position],
+    discs: Option<u32>,
+    directory: &Path,
+) -> io::Result<()> {
+    let source_dir = canonical_directory(run, "equivalence source run directory")?;
+    let source_summary = read_summary(&source_dir.join("summary.json"))?;
+    let completed = source_summary.stages.len();
+    let mut entries = inherited_entries(&source_summary, completed)?.to_vec();
+    let source_sample = read_recorded_sample(&source_dir, &source_summary.sample)?;
+    if source_sample.population != Population::Classes {
+        return Err(invalid(
+            "equivalence-ng source must use an equivalence-class sample",
+        ));
+    }
+    if source_sample.discs != discs {
+        return Err(invalid(
+            "equivalence-ng source and exact sample must use the same disc count",
+        ));
+    }
+    let source_stages = entries
+        .iter()
+        .map(|entry| entry.stage.clone())
+        .collect::<Vec<_>>();
+    validate_stages(
+        &source_stages,
+        population_goal_match(source_sample.population),
+    )?;
+    let mut source_table = ClassificationTable::new(&source_sample.positions);
+    reload_completed(
+        &source_dir,
+        &source_sample,
+        source_summary.alpha,
+        completed,
+        &mut entries,
+        &mut source_table,
+    )?;
+
+    let mut ng = Vec::new();
+    let mut unknown = Vec::new();
+    for &position in input {
+        let representative = sampling::class_representative(position);
+        match source_table.statuses.get(&representative) {
+            Some(Status::Ng) => ng.push(position),
+            Some(Status::Ok | Status::Unknown) => unknown.push(position),
+            None => {
+                return Err(invalid(format!(
+                    "equivalence-ng source sample lacks representative for {}",
+                    format_position(position)
+                )))
+            }
+        }
+    }
+
+    fs::create_dir_all(directory)?;
+    write_positions(&directory.join("equivalence_NG.txt"), &ng)?;
+    write_positions(&directory.join("equivalence_UNKNOWN.txt"), &unknown)
 }
 
 fn sat_options(stage: &SatStage, mode: GoalMatch, goals: Vec<Position>) -> RunOptions {
@@ -817,9 +899,27 @@ fn load_stage(
 ) -> io::Result<StageLoad> {
     match stage {
         Stage::Filters => load_filter_stage(directory, input, table),
+        Stage::EquivalenceNg { .. } => load_equivalence_ng_stage(directory, input, table),
         Stage::Sat(settings) => load_solver_stage(directory, input, table, mode, Some(settings)),
         Stage::ReverseSearch(_) => load_solver_stage(directory, input, table, mode, None),
     }
+}
+
+fn load_equivalence_ng_stage(
+    directory: &Path,
+    input: Vec<Position>,
+    table: &mut ClassificationTable,
+) -> io::Result<StageLoad> {
+    let ng = read_positions(&directory.join("equivalence_NG.txt"))?;
+    let unknown = read_positions(&directory.join("equivalence_UNKNOWN.txt"))?;
+    validate_ordered_partition(&input, &unknown, &ng, "equivalence-ng")?;
+    for position in &ng {
+        set_classification(&mut table.statuses, *position, Status::Ng)?;
+    }
+    Ok(StageLoad {
+        input: input.len(),
+        classified: [0, ng.len(), unknown.len()],
+    })
 }
 
 fn load_filter_stage(
@@ -1014,7 +1114,7 @@ fn reload_completed(
                     .clone()
                     .ok_or_else(|| invalid("completed reverse-search stage has no nodes array"))?,
             ),
-            Stage::Filters | Stage::Sat(_) => {
+            Stage::Filters | Stage::EquivalenceNg { .. } | Stage::Sat(_) => {
                 if saved.nodes.is_some() {
                     return Err(invalid("only reverse-search stages may contain nodes"));
                 }
@@ -1085,6 +1185,7 @@ fn sample_record(source: SampleSource, sample: &Sample) -> io::Result<SampleReco
         population,
         with_replacement,
         rows: sample.positions.len(),
+        sample_size: sample.sample_size,
     })
 }
 
@@ -1106,7 +1207,7 @@ fn read_recorded_sample(base: &Path, record: &SampleRecord) -> io::Result<Sample
         SampleSource::Generated(_) => SampleSource::Generated(SampleSpec {
             population: sample.population,
             discs: sample.discs,
-            count: sample.positions.len(),
+            sample_size: sample.sample_size,
             seed: sample.metadata["seed"]
                 .as_u64()
                 .ok_or_else(|| invalid("sampling record has no u64 seed"))?,
@@ -1258,7 +1359,16 @@ fn interval_for_counts(sample: &Sample, counts: Counts, alpha: f64) -> io::Resul
     let size = sample.population.size(sample.discs).map_err(invalid)?;
     let population_size = NonZeroU128::new(size)
         .ok_or_else(|| io::Error::other("population size must be positive"))?;
-    interval::compute(counts.ok, counts.ng, counts.unknown, population_size, alpha)
+    let omitted = sample
+        .sample_size
+        .checked_sub(sample.positions.len())
+        .ok_or_else(|| invalid("sample size is less than its row count"))?;
+    let omitted = u64::try_from(omitted).map_err(|_| io::Error::other("sample size overflow"))?;
+    let ng = counts
+        .ng
+        .checked_add(omitted)
+        .ok_or_else(|| io::Error::other("NG count overflow"))?;
+    interval::compute(counts.ok, ng, counts.unknown, population_size, alpha)
 }
 
 fn population_goal_match(population: Population) -> GoalMatch {

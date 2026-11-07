@@ -11,10 +11,12 @@ use std::time::Duration;
 use othello_complexity_rs::estimate::{Pipeline, SampleSpec, SatStage};
 use othello_complexity_rs::filters::sat::SatEncoding;
 use othello_complexity_rs::interval;
-use othello_complexity_rs::io::format_position;
+use othello_complexity_rs::io::{format_position, parse_position};
 use othello_complexity_rs::othello::{Board, Color, Position};
 use othello_complexity_rs::record::{GoalMatch, PlyAction, PositionTransform, ReachabilityRecord};
-use othello_complexity_rs::sampling::Population;
+use othello_complexity_rs::sampling::{
+    class_representative, convert_classes, generate, read_sample_dir, Population,
+};
 use othello_complexity_rs::search::{engines::external_bfs::ExternalBfs, Strategy};
 use serde_json::{json, Value};
 
@@ -22,7 +24,7 @@ use serde_json::{json, Value};
 // [n / (n + 1), 1].
 const ALPHA: f64 = 0.31731050786291415;
 const ABSOLUTE_SIZE: u128 = 32 * 3_u128.pow(60);
-const CLASS_SIZE: &str = "84782316550443833986427293875";
+const CLASS_SIZE: u128 = 16 * 3_u128.pow(60);
 static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
 
 struct Fixture(PathBuf);
@@ -43,6 +45,16 @@ impl Fixture {
     }
 
     fn sample(&self, name: &str, positions: &[Position], population: Value) -> PathBuf {
+        self.sample_with_size(name, positions, positions.len(), population)
+    }
+
+    fn sample_with_size(
+        &self,
+        name: &str,
+        positions: &[Position],
+        sample_size: usize,
+        population: Value,
+    ) -> PathBuf {
         let directory = self.path(name);
         fs::create_dir(&directory).unwrap();
         write_positions(&directory.join("positions.txt"), positions);
@@ -59,7 +71,7 @@ impl Fixture {
                 "uniform": true,
                 "with_replacement": true,
                 "seed": 1,
-                "input_count": positions.len(),
+                "input_count": sample_size,
                 "accepted_count": positions.len(),
             }),
         );
@@ -109,8 +121,8 @@ fn absolute_population() -> Value {
 
 fn class_population() -> Value {
     json!({
-        "definition": "equivalence_classes_center_occupied",
-        "size": CLASS_SIZE
+        "definition": "black_to_move_positions_center_occupied",
+        "size": CLASS_SIZE.to_string()
     })
 }
 
@@ -124,7 +136,7 @@ fn fixed_absolute(discs: u32, size: &str) -> Value {
 
 fn fixed_classes(discs: u32, size: &str) -> Value {
     json!({
-        "definition": "equivalence_classes_fixed_discs",
+        "definition": "black_to_move_positions_fixed_discs",
         "discs": discs,
         "size": size,
     })
@@ -230,6 +242,17 @@ fn close(actual: f64, expected: f64) {
     assert!((actual - expected).abs() < 1e-12, "{actual} != {expected}");
 }
 
+fn assert_interval_eq(actual: &interval::Interval, expected: &interval::Interval) {
+    assert_eq!(actual.population_size, expected.population_size);
+    assert_eq!(actual.sample_size, expected.sample_size);
+    close(actual.observed_lower, expected.observed_lower);
+    close(actual.observed_upper, expected.observed_upper);
+    close(actual.lower, expected.lower);
+    close(actual.upper, expected.upper);
+    assert_eq!(&actual.expected_lower, &expected.expected_lower);
+    assert_eq!(&actual.expected_upper, &expected.expected_upper);
+}
+
 fn tree_files(directory: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     fn collect(root: &Path, directory: &Path, files: &mut Vec<(PathBuf, Vec<u8>)>) {
         let mut entries = fs::read_dir(directory)
@@ -262,6 +285,42 @@ fn assert_error_without_changes<T>(directory: &Path, operation: impl FnOnce() ->
     let before = tree_files(directory);
     assert!(operation().is_err());
     assert_eq!(tree_files(directory), before);
+}
+
+fn copy_tree(source: &Path, destination: &Path) {
+    for (relative, bytes) in tree_files(source) {
+        let target = destination.join(relative);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, bytes).unwrap();
+    }
+}
+
+fn ng_outputs(run: &Path) -> HashSet<Position> {
+    tree_files(run)
+        .into_iter()
+        .filter(|(path, _)| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("_NG.txt"))
+        })
+        .flat_map(|(_, bytes)| {
+            String::from_utf8(bytes)
+                .unwrap()
+                .lines()
+                .map(|line| parse_position(line).unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn assert_equivalence_ng_runtime_error(sample: &Path, source: &Path, output: &Path) {
+    assert!(Pipeline::from_sample_dir(sample)
+        .equivalence_ng(source)
+        .run(output, ALPHA)
+        .is_err());
+    let saved = summary(output);
+    assert!(saved["stages"][0]["result"].is_null());
+    assert!(tree_files(&output.join("01-equivalence-ng")).is_empty());
 }
 
 fn summary(run: &Path) -> Value {
@@ -376,19 +435,19 @@ fn fixed_populations_preserve_duplicate_weights_and_goal_matching() {
             GoalMatch::Exact,
         ),
         (
-            "four-disc equivalence classes",
+            "four-disc equivalence representatives",
             initial(),
-            fixed_classes(4, "6"),
+            fixed_classes(4, "16"),
             "equivalence",
-            6.0,
+            16.0,
             GoalMatch::EquivalenceClass,
         ),
         (
-            "five-disc equivalence classes",
+            "five-disc equivalence representatives",
             class_d3(),
-            fixed_classes(5, "264"),
+            fixed_classes(5, "1920"),
             "equivalence",
-            264.0,
+            1_920.0,
             GoalMatch::EquivalenceClass,
         ),
     ] {
@@ -443,6 +502,81 @@ fn fixed_populations_preserve_duplicate_weights_and_goal_matching() {
         position_text(&[class_d3()])
     );
     assert!(read_records(&run.join("01-sat/sat_exact_records.csv")).is_empty());
+}
+
+#[test]
+fn equivalence_interval_reproduces_the_published_sample() {
+    let fixture = Fixture::new();
+    let positions = vec![initial(); 97];
+    let sample = fixture.sample_with_size("sample", &positions, 1_000_000, class_population());
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .sat(sat_stage(SatEncoding::Ply))
+        .run(&run, 0.005)
+        .unwrap();
+    let expected =
+        interval::compute(97, 999_903, 0, NonZeroU128::new(CLASS_SIZE).unwrap(), 0.005).unwrap();
+
+    assert_interval_eq(&report.interval, &expected);
+    assert_eq!((report.ok, report.ng, report.unknown), (97, 0, 0));
+    let lower: f64 = report.interval.expected_lower.to_string().parse().unwrap();
+    let upper: f64 = report.interval.expected_upper.to_string().parse().unwrap();
+    close((lower / 1e25 * 100.0).round() / 100.0, 4.95);
+    close((upper / 1e25 * 100.0).round() / 100.0, 8.74);
+
+    let saved = summary(&run);
+    assert_eq!(saved["sample"]["rows"], 97);
+    assert_eq!(saved["sample"]["sample_size"], 1_000_000);
+    assert_eq!(
+        saved["stages"][0]["result"]["counts"],
+        json!({"OK": 97, "NG": 0, "UNKNOWN": 0})
+    );
+}
+
+#[test]
+fn equivalence_interval_uses_sample_size_with_all_classifications_present() {
+    let fixture = Fixture::new();
+    let unreachable = class_representative(disconnected());
+    let sample = fixture.sample_with_size(
+        "sample",
+        &[initial(), unreachable, class_d3()],
+        8,
+        class_population(),
+    );
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .filters()
+        .reverse_search(limited_dfs())
+        .run(&run, ALPHA)
+        .unwrap();
+    let expected =
+        interval::compute(1, 6, 1, NonZeroU128::new(CLASS_SIZE).unwrap(), ALPHA).unwrap();
+
+    assert_eq!((report.ok, report.ng, report.unknown), (1, 1, 1));
+    assert_interval_eq(&report.interval, &expected);
+    assert_eq!(
+        summary(&run)["stages"][1]["result"]["counts"],
+        json!({"OK": 1, "NG": 1, "UNKNOWN": 1})
+    );
+}
+
+#[test]
+fn empty_equivalence_rows_still_produce_an_interval() {
+    let fixture = Fixture::new();
+    let sample = fixture.sample_with_size("sample", &[], 8, class_population());
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    let expected =
+        interval::compute(0, 8, 0, NonZeroU128::new(CLASS_SIZE).unwrap(), ALPHA).unwrap();
+
+    assert_eq!((report.ok, report.ng, report.unknown), (0, 0, 0));
+    assert_interval_eq(&report.interval, &expected);
+    let saved = summary(&run);
+    assert_eq!(saved["sample"]["rows"], 0);
+    assert_eq!(saved["sample"]["sample_size"], 8);
 }
 
 #[test]
@@ -570,6 +704,7 @@ fn nopass_witness_only_settles_ok_and_leaves_ng_for_general_sat() {
 fn settings_validation_is_complete_and_writes_nothing() {
     let fixture = Fixture::new();
     let sample = fixture.sample("sample", &[initial()], absolute_population());
+    let class_sample = fixture.sample("class-sample", &[class_d3()], class_population());
     let invalid_alpha = fixture.path("invalid-alpha");
     assert!(Pipeline::from_sample_dir(&sample)
         .filters()
@@ -582,14 +717,14 @@ fn settings_validation_is_complete_and_writes_nothing() {
         Pipeline::sample(SampleSpec {
             population: Population::Absolute,
             discs: None,
-            count: 0,
+            sample_size: 0,
             seed: 1,
         })
         .filters(),
         Pipeline::sample(SampleSpec {
             population: Population::Absolute,
             discs: Some(3),
-            count: 1,
+            sample_size: 1,
             seed: 1,
         })
         .filters(),
@@ -618,6 +753,8 @@ fn settings_validation_is_complete_and_writes_nothing() {
                 max_nodes: 1,
             }),
     );
+    cases
+        .push(Pipeline::from_sample_dir(&class_sample).equivalence_ng(&fixture.path("unused-run")));
     for (index, case) in cases.into_iter().enumerate() {
         let output = fixture.path(&format!("invalid-{index}"));
         assert!(
@@ -653,6 +790,36 @@ fn invalid_sample_metadata_is_rejected_before_output() {
     }
 
     let fixture = Fixture::new();
+    let sample = fixture.sample("missing-input-count", &[initial()], class_population());
+    let path = sample.join("sampling.json");
+    let mut metadata = read_json(&path);
+    metadata.as_object_mut().unwrap().remove("input_count");
+    write_json(&path, &metadata);
+    let output = fixture.path("missing-input-count-run");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&output, ALPHA)
+        .is_err());
+    assert!(!output.exists());
+
+    let fixture = Fixture::new();
+    let sample = fixture.sample(
+        "small-input-count",
+        &[initial(), initial()],
+        class_population(),
+    );
+    let path = sample.join("sampling.json");
+    let mut metadata = read_json(&path);
+    metadata["input_count"] = json!(1);
+    write_json(&path, &metadata);
+    let output = fixture.path("small-input-count-run");
+    assert!(Pipeline::from_sample_dir(&sample)
+        .filters()
+        .run(&output, ALPHA)
+        .is_err());
+    assert!(!output.exists());
+
+    let fixture = Fixture::new();
     let sample = fixture.sample("empty-sample", &[], absolute_population());
     let output = fixture.path("empty-run");
     assert!(Pipeline::from_sample_dir(&sample)
@@ -660,6 +827,332 @@ fn invalid_sample_metadata_is_rejected_before_output() {
         .run(&output, ALPHA)
         .is_err());
     assert!(!output.exists());
+}
+
+#[test]
+fn generated_equivalence_sample_size_survives_resume_and_branch() {
+    let fixture = Fixture::new();
+    let run = fixture.path("run");
+    let spec = SampleSpec {
+        population: Population::Classes,
+        discs: Some(4),
+        sample_size: 64,
+        seed: 20261107,
+    };
+    Pipeline::sample(spec.clone())
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    let first = summary(&run);
+    assert_eq!(first["sample"]["sample_size"], spec.sample_size);
+    assert!(first["sample"]["rows"].as_u64().unwrap() < spec.sample_size as u64);
+    assert_eq!(
+        first["sample"]["source"]["generated"]["sample_size"],
+        spec.sample_size
+    );
+
+    let completed = tree_files(&run.join("01-filters"));
+    Pipeline::sample(spec.clone())
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&run)["sample"]["sample_size"], spec.sample_size);
+    assert_eq!(tree_files(&run.join("01-filters")), completed);
+
+    let branch = fixture.path("branch");
+    Pipeline::from_run(&run, 1)
+        .filters()
+        .run(&branch, ALPHA)
+        .unwrap();
+    assert_eq!(summary(&branch)["sample"]["sample_size"], spec.sample_size);
+
+    let metadata_path = run.join("sample/sampling.json");
+    let mut metadata = read_json(&metadata_path);
+    metadata["input_count"] = json!(spec.sample_size + 1);
+    write_json(&metadata_path, &metadata);
+    assert_error_without_changes(&run, || Pipeline::sample(spec).filters().run(&run, ALPHA));
+}
+
+#[test]
+fn converted_sample_uses_its_rows_as_the_sample_size() {
+    let fixture = Fixture::new();
+    let equivalence_sample = fixture.path("equivalence-sample");
+    generate(
+        &equivalence_sample,
+        Population::Classes,
+        Some(4),
+        512,
+        20261110,
+    )
+    .unwrap();
+    let source = read_sample_dir(&equivalence_sample).unwrap();
+    let exact_sample = fixture.path("exact-sample");
+    convert_classes(&equivalence_sample, &exact_sample, 20261111).unwrap();
+    let converted = read_sample_dir(&exact_sample).unwrap();
+    let input_count = converted.metadata["input_count"].as_u64().unwrap() as usize;
+    assert_eq!(input_count, source.positions.len());
+    assert_eq!(converted.sample_size, converted.positions.len());
+    assert_ne!(converted.sample_size, input_count);
+
+    let run = fixture.path("run");
+    let report = Pipeline::from_sample_dir(&exact_sample)
+        .filters()
+        .run(&run, ALPHA)
+        .unwrap();
+    assert_eq!(
+        report.interval.sample_size,
+        converted.positions.len() as u64
+    );
+    let saved = summary(&run);
+    assert_eq!(saved["sample"]["rows"], converted.positions.len());
+    assert_eq!(saved["sample"]["sample_size"], converted.positions.len());
+    assert_ne!(saved["sample"]["sample_size"], input_count);
+}
+
+#[test]
+fn equivalence_ng_inherits_only_proven_unreachable_classes() {
+    let fixture = Fixture::new();
+    let class_sample = fixture.path("class-sample");
+    generate(&class_sample, Population::Classes, Some(5), 4_096, 20261107).unwrap();
+
+    let source_one = fixture.path("source-one");
+    let source_one_report = Pipeline::from_sample_dir(&class_sample)
+        .filters()
+        .reverse_search(complete_dfs())
+        .run(&source_one, ALPHA)
+        .unwrap();
+    assert_eq!(source_one_report.unknown, 0);
+    assert!(!ng_outputs(&source_one.join("01-filters")).is_empty());
+    assert!(
+        !read_positions(&source_one.join("02-reverse-search/reverse_equivalence_NG.txt"))
+            .is_empty()
+    );
+    assert!(
+        !read_positions(&source_one.join("02-reverse-search/reverse_equivalence_OK.txt"))
+            .is_empty()
+    );
+
+    let source_two = fixture.path("source-two");
+    let source_two_report = Pipeline::from_sample_dir(&class_sample)
+        .filters()
+        .reverse_search(limited_dfs())
+        .run(&source_two, ALPHA)
+        .unwrap();
+    assert!(source_two_report.unknown > 0);
+    let source_two_unknown =
+        read_positions(&source_two.join("02-reverse-search/reverse_equivalence_UNKNOWN.txt"))
+            .into_iter()
+            .collect::<HashSet<_>>();
+    assert!(!source_two_unknown.is_empty());
+
+    let exact_sample = fixture.path("exact-sample");
+    convert_classes(&class_sample, &exact_sample, 20261108).unwrap();
+    let converted = read_sample_dir(&exact_sample).unwrap();
+    assert_eq!(converted.population, Population::Absolute);
+    assert_eq!(converted.discs, Some(5));
+    let mut seen = HashSet::new();
+    let unique_exact = converted
+        .positions
+        .iter()
+        .copied()
+        .filter(|position| seen.insert(*position))
+        .collect::<Vec<_>>();
+
+    let source_one_ng = ng_outputs(&source_one);
+    let source_two_ng = ng_outputs(&source_two);
+    let expected_partition = |source_ng: &HashSet<Position>| {
+        unique_exact
+            .iter()
+            .copied()
+            .partition::<Vec<_>, _>(|position| source_ng.contains(&class_representative(*position)))
+    };
+
+    let carry_one = fixture.path("carry-one");
+    let carry_one_report = Pipeline::from_sample_dir(&exact_sample)
+        .equivalence_ng(&source_one)
+        .run(&carry_one, ALPHA)
+        .unwrap();
+    let (expected_one_ng, expected_one_unknown) = expected_partition(&source_one_ng);
+    assert_eq!(
+        read_positions(&carry_one.join("01-equivalence-ng/equivalence_NG.txt")),
+        expected_one_ng
+    );
+    assert_eq!(
+        read_positions(&carry_one.join("01-equivalence-ng/equivalence_UNKNOWN.txt")),
+        expected_one_unknown
+    );
+    let carry_one_summary = summary(&carry_one);
+    assert_eq!(
+        carry_one_summary["stages"][0]["stage"],
+        json!({"kind": "equivalence-ng", "settings": {"run": source_one}})
+    );
+    assert_eq!(
+        carry_one_summary["stages"][0]["directory"],
+        "01-equivalence-ng"
+    );
+
+    let carry_two = fixture.path("carry-two");
+    Pipeline::from_sample_dir(&exact_sample)
+        .equivalence_ng(&source_two)
+        .run(&carry_two, ALPHA)
+        .unwrap();
+    let (expected_two_ng, expected_two_unknown) = expected_partition(&source_two_ng);
+    assert_eq!(
+        read_positions(&carry_two.join("01-equivalence-ng/equivalence_NG.txt")),
+        expected_two_ng
+    );
+    assert_eq!(
+        read_positions(&carry_two.join("01-equivalence-ng/equivalence_UNKNOWN.txt")),
+        expected_two_unknown
+    );
+    let inherited_source_unknown = unique_exact
+        .iter()
+        .copied()
+        .filter(|position| source_two_unknown.contains(&class_representative(*position)))
+        .collect::<Vec<_>>();
+    assert!(!inherited_source_unknown.is_empty());
+    let carried_two_unknown =
+        read_positions(&carry_two.join("01-equivalence-ng/equivalence_UNKNOWN.txt"))
+            .into_iter()
+            .collect::<HashSet<_>>();
+    assert!(inherited_source_unknown
+        .iter()
+        .all(|position| carried_two_unknown.contains(position)));
+
+    let carry_complete = fixture.path("carry-complete");
+    let carry_complete_report = Pipeline::from_sample_dir(&exact_sample)
+        .equivalence_ng(&source_one)
+        .reverse_search(complete_dfs())
+        .run(&carry_complete, ALPHA)
+        .unwrap();
+    let baseline = fixture.path("baseline");
+    let baseline_report = Pipeline::from_sample_dir(&exact_sample)
+        .reverse_search(complete_dfs())
+        .run(&baseline, ALPHA)
+        .unwrap();
+    assert_eq!(
+        (
+            carry_complete_report.ok,
+            carry_complete_report.ng,
+            carry_complete_report.unknown
+        ),
+        (
+            baseline_report.ok,
+            baseline_report.ng,
+            baseline_report.unknown
+        )
+    );
+    let position_set = |path: &Path| read_positions(path).into_iter().collect::<HashSet<_>>();
+    assert_eq!(
+        position_set(&carry_complete.join("02-reverse-search/reverse_exact_OK.txt")),
+        position_set(&baseline.join("01-reverse-search/reverse_exact_OK.txt"))
+    );
+    let mut carried_ng = position_set(&carry_complete.join("01-equivalence-ng/equivalence_NG.txt"));
+    carried_ng.extend(position_set(
+        &carry_complete.join("02-reverse-search/reverse_exact_NG.txt"),
+    ));
+    assert_eq!(
+        carried_ng,
+        position_set(&baseline.join("01-reverse-search/reverse_exact_NG.txt"))
+    );
+    assert_eq!(
+        position_set(&carry_complete.join("02-reverse-search/reverse_exact_UNKNOWN.txt")),
+        position_set(&baseline.join("01-reverse-search/reverse_exact_UNKNOWN.txt"))
+    );
+
+    let incomplete = fixture.path("incomplete-source");
+    copy_tree(&source_one, &incomplete);
+    let mut incomplete_summary = summary(&incomplete);
+    incomplete_summary["stages"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap()["result"] = Value::Null;
+    write_json(&incomplete.join("summary.json"), &incomplete_summary);
+    assert_equivalence_ng_runtime_error(
+        &exact_sample,
+        &incomplete,
+        &fixture.path("incomplete-error"),
+    );
+    assert_equivalence_ng_runtime_error(
+        &exact_sample,
+        &baseline,
+        &fixture.path("exact-source-error"),
+    );
+
+    let six_disc_sample = fixture.path("six-disc-sample");
+    generate(
+        &six_disc_sample,
+        Population::Classes,
+        Some(6),
+        128,
+        20261109,
+    )
+    .unwrap();
+    let six_disc_source = fixture.path("six-disc-source");
+    Pipeline::from_sample_dir(&six_disc_sample)
+        .filters()
+        .run(&six_disc_source, ALPHA)
+        .unwrap();
+    assert_equivalence_ng_runtime_error(
+        &exact_sample,
+        &six_disc_source,
+        &fixture.path("six-disc-error"),
+    );
+
+    let unrestricted_sample = fixture.sample(
+        "unrestricted-class-sample",
+        &[class_d3()],
+        class_population(),
+    );
+    let unrestricted_source = fixture.path("unrestricted-source");
+    Pipeline::from_sample_dir(&unrestricted_sample)
+        .filters()
+        .run(&unrestricted_source, ALPHA)
+        .unwrap();
+    assert_equivalence_ng_runtime_error(
+        &exact_sample,
+        &unrestricted_source,
+        &fixture.path("unrestricted-error"),
+    );
+
+    let missing_sample = fixture.sample(
+        "missing-class-sample",
+        &[class_d3()],
+        fixed_classes(5, "1920"),
+    );
+    let missing_source = fixture.path("missing-source");
+    Pipeline::from_sample_dir(&missing_sample)
+        .filters()
+        .run(&missing_source, ALPHA)
+        .unwrap();
+    assert!(unique_exact
+        .iter()
+        .any(|position| class_representative(*position) != class_d3()));
+    assert_equivalence_ng_runtime_error(
+        &exact_sample,
+        &missing_source,
+        &fixture.path("missing-error"),
+    );
+
+    let completed_files = tree_files(&carry_one.join("01-equivalence-ng"));
+    fs::remove_dir_all(&source_one).unwrap();
+    let resumed = Pipeline::from_sample_dir(&exact_sample)
+        .equivalence_ng(&source_one)
+        .run(&carry_one, ALPHA)
+        .unwrap();
+    assert_eq!(
+        (resumed.ok, resumed.ng, resumed.unknown),
+        (
+            carry_one_report.ok,
+            carry_one_report.ng,
+            carry_one_report.unknown
+        )
+    );
+    assert_eq!(
+        tree_files(&carry_one.join("01-equivalence-ng")),
+        completed_files
+    );
 }
 
 #[test]
@@ -685,6 +1178,7 @@ fn summary_is_single_atomic_run_record_with_recomputed_counts_and_intervals() {
 
     let saved = summary(&run);
     assert_eq!(saved["sample"]["rows"], 4);
+    assert_eq!(saved["sample"]["sample_size"], 4);
     assert_eq!(saved["stages"].as_array().unwrap().len(), 2);
     assert_eq!(saved["stages"][0]["stage"]["kind"], "filters");
     assert_eq!(saved["stages"][1]["stage"]["kind"], "reverse-search");
@@ -826,7 +1320,7 @@ fn changed_generated_spec_or_completed_settings_fails_without_modification() {
     let spec = SampleSpec {
         population: Population::Absolute,
         discs: Some(4),
-        count: 2,
+        sample_size: 2,
         seed: 7,
     };
     Pipeline::sample(spec.clone())
@@ -1062,7 +1556,7 @@ fn from_run_copies_prefix_without_touching_source_and_survives_source_deletion()
     let spec = SampleSpec {
         population: Population::Absolute,
         discs: Some(4),
-        count: 4,
+        sample_size: 4,
         seed: 20261022,
     };
     Pipeline::sample(spec)

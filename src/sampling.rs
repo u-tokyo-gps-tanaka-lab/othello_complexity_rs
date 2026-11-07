@@ -1,12 +1,12 @@
-//! Uniform sampling of absolute positions or geometric/color equivalence classes.
+//! Uniform sampling of absolute positions with optional representative filtering.
 //!
 //! An absolute rank's low bit is the turn (0 = Black, 1 = White). The remaining
 //! digits run from A1 to H8, in radix 2 at the four occupied central squares and
 //! radix 3 elsewhere. Central digits 0/1 mean X/O; other digits 0/1/2 mean -/X/O.
 //! Changing only the turn bit exchanges absolute colors as well as the turn.
 //! Class representatives have Black to move and minimize (occupancy, player)
-//! among the eight geometric images. Sampling rejects nonrepresentatives instead
-//! of mapping proposals to their representatives, which would favor larger orbits.
+//! among the eight geometric images. Equivalence sampling omits proposals that
+//! are not representatives while counting every proposal in the sample size.
 
 use crate::io::{format_position, parse_file_to_positions};
 use crate::othello::{validate_board, Board, BoardSymmetry, Color, Position, CENTER_MASK};
@@ -17,14 +17,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 pub const POPULATION_SIZE: u128 = 32 * 3_u128.pow(60);
 pub const POPULATION_DEFINITION: &str = "absolute_positions_center_occupied";
 pub const DEFAULT_SEED: u64 = 42; // Default random seed for reproducible sampling.
-pub const CLASS_POPULATION_SIZE: u128 =
-    (16 * 3_u128.pow(60) + 4 * 3_u128.pow(15) + 12 * 3_u128.pow(30) + 16 * 3_u128.pow(33)) / 8;
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
 pub enum Population {
@@ -41,8 +39,8 @@ impl Population {
         match (self, discs) {
             (Self::Absolute, None) => Ok(POPULATION_SIZE),
             (Self::Absolute, Some(discs)) => fixed_discs_population(discs),
-            (Self::Classes, None) => Ok(CLASS_POPULATION_SIZE),
-            (Self::Classes, Some(discs)) => fixed_discs_class_population(discs),
+            (Self::Classes, None) => Ok(POPULATION_SIZE / 2),
+            (Self::Classes, Some(discs)) => fixed_discs_population(discs).map(|size| size / 2),
         }
     }
 
@@ -50,8 +48,8 @@ impl Population {
         let definition = match (self, discs) {
             (Self::Absolute, None) => POPULATION_DEFINITION,
             (Self::Absolute, Some(_)) => "absolute_positions_fixed_discs",
-            (Self::Classes, None) => "equivalence_classes_center_occupied",
-            (Self::Classes, Some(_)) => "equivalence_classes_fixed_discs",
+            (Self::Classes, None) => "black_to_move_positions_center_occupied",
+            (Self::Classes, Some(_)) => "black_to_move_positions_fixed_discs",
         };
         let mut metadata = json!({"definition": definition, "size": self.size(discs)?.to_string()});
         if let Some(discs) = discs {
@@ -60,26 +58,26 @@ impl Population {
         Ok(metadata)
     }
 
-    /// Draw one sample with replacement from the selected population.
-    /// For classes, each accepted representative has exactly one equally likely
-    /// Black-to-move proposal, regardless of its number of distinct images.
-    pub fn sample(self, rng: &mut impl Rng, discs: Option<u32>) -> Result<Position, String> {
-        loop {
-            let position = match (self, discs) {
-                (Self::Absolute, None) => position_from_rank(rng.random_range(0..POPULATION_SIZE))?,
-                (Self::Absolute, Some(discs)) => sample_fixed_discs(rng, discs)?,
-                (Self::Classes, None) => {
-                    position_from_rank(2 * rng.random_range(0..POPULATION_SIZE / 2))?
-                }
-                (Self::Classes, Some(discs)) => Position {
-                    board: sample_fixed_discs_board(rng, discs)?,
-                    side_to_move: Color::Black,
-                },
-            };
-            if self == Self::Absolute || is_representative(position.board) {
-                return Ok(position);
+    /// Sample one position with replacement from the selected population.
+    /// Equivalence sampling returns only Black-to-move representatives and omits
+    /// other proposals without resampling.
+    pub fn sample(
+        self,
+        rng: &mut impl Rng,
+        discs: Option<u32>,
+    ) -> Result<Option<Position>, String> {
+        let position = match (self, discs) {
+            (Self::Absolute, None) => position_from_rank(rng.random_range(0..POPULATION_SIZE))?,
+            (Self::Absolute, Some(discs)) => sample_fixed_discs(rng, discs)?,
+            (Self::Classes, None) => {
+                position_from_rank(2 * rng.random_range(0..POPULATION_SIZE / 2))?
             }
-        }
+            (Self::Classes, Some(discs)) => Position {
+                board: sample_fixed_discs_board(rng, discs)?,
+                side_to_move: Color::Black,
+            },
+        };
+        Ok((self == Self::Absolute || is_representative(position.board)).then_some(position))
     }
 }
 
@@ -87,12 +85,12 @@ impl Population {
 pub fn validate_generation(
     population: Population,
     discs: Option<u32>,
-    count: usize,
+    sample_size: usize,
 ) -> io::Result<()> {
-    if count == 0 {
+    if sample_size == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "count must be positive",
+            "sample_size must be positive",
         ));
     }
     population
@@ -106,10 +104,10 @@ pub fn generate(
     out_dir: &Path,
     population: Population,
     discs: Option<u32>,
-    count: usize,
+    sample_size: usize,
     seed: u64,
 ) -> io::Result<()> {
-    validate_generation(population, discs, count)?;
+    validate_generation(population, discs, sample_size)?;
     let population_metadata = population
         .metadata(discs)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -119,15 +117,20 @@ pub fn generate(
     let mut output = BufWriter::new(File::create(&positions_path)?);
     let mut mapping = BufWriter::new(File::create(&mapping_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    for index in 1..=count {
-        let position = population
+    let mut accepted_count = 0;
+    for input_line in 1..=sample_size {
+        let Some(position) = population
             .sample(&mut rng, discs)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        else {
+            continue;
+        };
+        accepted_count += 1;
         writeln!(output, "{}", format_position(position))?;
         serde_json::to_writer(
             &mut mapping,
             &json!({
-                "input_line": index, "output_line": index, "accepted": true,
+                "input_line": input_line, "output_line": accepted_count, "accepted": true,
                 "position": format_position(position), "absolute_rank": rank_of_position(position)
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
                     .to_string(),
@@ -142,12 +145,106 @@ pub fn generate(
         json!({
             "method": if discs.is_some() { "fixed-discs" } else { "uniform" },
             "population": population_metadata, "uniform": true, "with_replacement": true,
-            "seed": seed, "input": null, "input_count": count,
-            "accepted_count": count, "output": artifact(&positions_path)?,
+            "seed": seed, "input": null, "input_count": sample_size,
+            "accepted_count": accepted_count, "output": artifact(&positions_path)?,
             "mapping": artifact(&mapping_path)?,
         }),
     )?;
     Ok(())
+}
+
+/// Convert a uniform class sample into a uniform absolute-position sample.
+pub fn convert_classes(source: &Path, out_dir: &Path, seed: u64) -> io::Result<()> {
+    let sample = read_sample_dir(source)?;
+    if sample.population != Population::Classes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "conversion requires an equivalence-class sample",
+        ));
+    }
+    if sample.positions.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "conversion requires at least one equivalence representative",
+        ));
+    }
+    if sample.metadata["seed"].as_u64() == Some(seed) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "conversion seed must differ from the source sampling seed",
+        ));
+    }
+
+    let source_positions = source.join("positions.txt");
+    let source_sampling = source.join("sampling.json");
+    let positions_path = out_dir.join("positions.txt");
+    let mapping_path = out_dir.join("mapping.jsonl");
+    let record_path = out_dir.join("sampling.json");
+    let outputs = [
+        positions_path.as_path(),
+        mapping_path.as_path(),
+        record_path.as_path(),
+    ];
+    ensure_distinct_files(&source_positions, &outputs)?;
+    ensure_distinct_files(&source_sampling, &outputs)?;
+
+    let input = artifact(&source_positions)?;
+    let source_sampling = artifact(&source_sampling)?;
+    let population = Population::Absolute
+        .metadata(sample.discs)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    create_output_dir(out_dir, "sampling.json")?;
+    let mut output = BufWriter::new(File::create(&positions_path)?);
+    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut accepted_count = 0;
+    for (index, source_position) in sample.positions.iter().copied().enumerate() {
+        let candidates = representative_candidates(source_position.board);
+        let selection_index = rng.random_range(0..16);
+        let selected =
+            select_representative(&candidates, selection_index).map_err(io::Error::other)?;
+        let output_line = if let Some((_, position)) = selected {
+            accepted_count += 1;
+            writeln!(output, "{}", format_position(position))?;
+            Some(accepted_count)
+        } else {
+            None
+        };
+        serde_json::to_writer(
+            &mut mapping,
+            &json!({
+                "input_line": index + 1,
+                "output_line": output_line,
+                "source_position": format_position(source_position),
+                "accepted": selected.is_some(),
+                "candidate_count": candidates.len(),
+                "selection_index": selection_index,
+                "symmetry": selected.map(|(symmetry, _)| symmetry.as_str()),
+                "side_to_move": selected.map(|(_, position)| if position.side_to_move == Color::Black { "b" } else { "w" }),
+                "position": selected.map(|(_, position)| format_position(position)),
+            }),
+        )?;
+        writeln!(mapping)?;
+    }
+    output.flush()?;
+    mapping.flush()?;
+    write_sampling_record(
+        out_dir,
+        json!({
+            "method": "equivalence-conversion",
+            "population": population,
+            "uniform": true,
+            "with_replacement": true,
+            "seed": seed,
+            "input": input,
+            "source_sampling": source_sampling,
+            "input_count": sample.positions.len(),
+            "accepted_count": accepted_count,
+            "output": artifact(&positions_path)?,
+            "mapping": artifact(&mapping_path)?,
+            "candidate_order": "BoardSymmetry::ALL, then Black/White; retain first distinct Position",
+        }),
+    )
 }
 
 /// Validated sampling metadata and observations, preserving their multiplicity.
@@ -155,6 +252,7 @@ pub struct Sample {
     pub population: Population,
     pub discs: Option<u32>,
     pub positions: Vec<Position>,
+    pub sample_size: usize,
     pub metadata: Value,
 }
 
@@ -176,8 +274,8 @@ pub fn read_sample_dir(directory: &Path) -> io::Result<Sample> {
     let (population, fixed_discs) = match definition {
         POPULATION_DEFINITION => (Population::Absolute, false),
         "absolute_positions_fixed_discs" => (Population::Absolute, true),
-        "equivalence_classes_center_occupied" => (Population::Classes, false),
-        "equivalence_classes_fixed_discs" => (Population::Classes, true),
+        "black_to_move_positions_center_occupied" => (Population::Classes, false),
+        "black_to_move_positions_fixed_discs" => (Population::Classes, true),
         _ => return Err(invalid("unsupported sampling population")),
     };
     let discs = if fixed_discs {
@@ -201,15 +299,13 @@ pub fn read_sample_dir(directory: &Path) -> io::Result<Sample> {
     let method = metadata["method"]
         .as_str()
         .ok_or_else(|| invalid("sampling record must specify a method"))?;
-    let converted = matches!(method, "raw" | "representatives");
+    let converted = method == "equivalence-conversion";
     let expected_method = if fixed_discs {
         "fixed-discs"
     } else {
         "uniform"
     };
-    if method != expected_method
-        && !(converted && population == Population::Absolute && !fixed_discs)
-    {
+    if method != expected_method && !(converted && population == Population::Absolute) {
         return Err(invalid("sampling method does not match its population"));
     }
     let with_replacement = metadata["with_replacement"].as_bool().ok_or_else(|| {
@@ -218,19 +314,8 @@ pub fn read_sample_dir(directory: &Path) -> io::Result<Sample> {
     if metadata["seed"].as_u64().is_none() {
         return Err(invalid("sampling seed must be a u64 integer"));
     }
-    if converted {
-        let provenance = metadata["provenance"]["path"].as_str().ok_or_else(|| {
-            invalid("converted sampling record must identify its provenance file")
-        })?;
-        let provenance = Path::new(provenance);
-        if !provenance.is_absolute() {
-            return Err(invalid("sampling provenance path must be absolute"));
-        }
-        if !fs::metadata(provenance)?.is_file() {
-            return Err(invalid("sampling provenance must be a file"));
-        }
-    } else if !with_replacement {
-        return Err(invalid("uniform generation uses replacement"));
+    if !with_replacement {
+        return Err(invalid("estimation samples must use replacement"));
     }
     let positions_path = directory.join("positions.txt");
     let positions = parse_file_to_positions(
@@ -238,12 +323,38 @@ pub fn read_sample_dir(directory: &Path) -> io::Result<Sample> {
             .to_str()
             .ok_or_else(|| invalid("sample positions path must be valid UTF-8"))?,
     )?;
-    if metadata["accepted_count"].as_u64() != Some(positions.len() as u64) {
+    let accepted_count = metadata["accepted_count"]
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| invalid("sampling accepted_count must be a nonnegative integer"))?;
+    if accepted_count != positions.len() {
         return Err(invalid(
             "sampling accepted_count differs from positions.txt row count",
         ));
     }
-    if positions.is_empty() {
+    let sample_size = match population {
+        Population::Absolute => positions.len(),
+        Population::Classes => {
+            let input_count = metadata["input_count"]
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or_else(|| {
+                    invalid("equivalence sampling input_count must be a positive integer")
+                })?;
+            if input_count == 0 {
+                return Err(invalid(
+                    "equivalence sampling input_count must be a positive integer",
+                ));
+            }
+            if input_count < accepted_count {
+                return Err(invalid(
+                    "equivalence sampling input_count is less than accepted_count",
+                ));
+            }
+            input_count
+        }
+    };
+    if sample_size == 0 {
         return Err(invalid("cannot estimate from an empty sample"));
     }
     for (index, position) in positions.iter().enumerate() {
@@ -273,6 +384,7 @@ pub fn read_sample_dir(directory: &Path) -> io::Result<Sample> {
         population,
         discs,
         positions,
+        sample_size,
         metadata,
     })
 }
@@ -348,43 +460,6 @@ pub fn fixed_discs_population(discs: u32) -> Result<u128, String> {
     Ok(combinations * 2_u128.pow(discs + 1))
 }
 
-/// Burnside's lemma on Black-to-move boards. Each central cycle has two
-/// constant colors; a noncentral cycle of length l contributes 1 + 2*z^l.
-pub fn fixed_discs_class_population(discs: u32) -> Result<u128, String> {
-    if !(4..=64).contains(&discs) {
-        return Err("discs must be in 4..=64".into());
-    }
-    let mut fixed_sum = 0_u128;
-    for symmetry in BoardSymmetry::ALL {
-        let mut seen = 0_u64;
-        let mut central_cycles = 0;
-        let mut coefficients = [0_u128; 61];
-        coefficients[0] = 1;
-        for square in 0..64 {
-            let mut bit = 1_u64 << square;
-            if seen & bit != 0 {
-                continue;
-            }
-            let central = bit & CENTER_MASK != 0;
-            let mut length = 0;
-            while seen & bit == 0 {
-                seen |= bit;
-                length += 1;
-                bit = symmetry.apply(Board::new(bit, 0)).player;
-            }
-            if central {
-                central_cycles += 1;
-            } else {
-                for occupied in (length..=60).rev() {
-                    coefficients[occupied] += 2 * coefficients[occupied - length];
-                }
-            }
-        }
-        fixed_sum += 2_u128.pow(central_cycles) * coefficients[(discs - 4) as usize];
-    }
-    Ok(fixed_sum / 8)
-}
-
 /// Uniform subset of noncentral squares, then independent fair colors and turn.
 pub fn sample_fixed_discs(rng: &mut impl Rng, discs: u32) -> Result<Position, String> {
     Ok(Position {
@@ -420,6 +495,19 @@ pub fn is_representative(board: Board) -> bool {
     })
 }
 
+/// Return the Black-to-move representative of an absolute position's class.
+pub fn class_representative(position: Position) -> Position {
+    let board = BoardSymmetry::ALL
+        .into_iter()
+        .map(|symmetry| symmetry.apply(position.board))
+        .min_by_key(|board| (board.player | board.opponent, board.player))
+        .expect("BoardSymmetry::ALL is nonempty");
+    Position {
+        board,
+        side_to_move: Color::Black,
+    }
+}
+
 /// Deduplicated geometric images with Black then White for each image.
 /// The first symmetry producing a position labels it in the conversion map.
 pub fn representative_candidates(board: Board) -> Vec<(BoardSymmetry, Position)> {
@@ -438,54 +526,17 @@ pub fn representative_candidates(board: Board) -> Vec<(BoardSymmetry, Position)>
     candidates
 }
 
-/// One uniform integer in 0..16 implements both rejection and selection:
-/// m accepted integers give probability m/16, and each candidate gets 1/16.
+/// One uniform integer in 0..16 implements both rejection and selection.
+/// If there are m candidates, acceptance has probability m/16 and each
+/// candidate has probability 1/16.
 pub fn select_representative(
     candidates: &[(BoardSymmetry, Position)],
-    draw: usize,
+    selection_index: usize,
 ) -> Result<Option<(BoardSymmetry, Position)>, String> {
-    if draw >= 16 || candidates.is_empty() || candidates.len() > 16 {
-        return Err("invalid representative candidates or draw".into());
+    if selection_index >= 16 || candidates.is_empty() || candidates.len() > 16 {
+        return Err("invalid representative candidates or selection index".into());
     }
-    Ok(candidates.get(draw).copied())
-}
-
-/// Parse each 64-cell relative board without retaining the input file.
-/// The callback receives a one-based input line number.
-pub fn for_each_relative_board(
-    path: &Path,
-    mut visit: impl FnMut(usize, Board) -> io::Result<()>,
-) -> io::Result<usize> {
-    let reader = BufReader::new(File::open(path)?);
-    let mut count = 0;
-    for (index, line) in reader.lines().enumerate() {
-        let line_number = index + 1;
-        let line = line.map_err(|error| {
-            io::Error::new(error.kind(), format!("line {line_number}: {error}"))
-        })?;
-        let invalid = |message: &str| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("line {line_number}: {message}"),
-            )
-        };
-        if line.len() != 64 {
-            return Err(invalid("expected exactly 64 X/O/- cells"));
-        }
-        let mut board = Board::empty();
-        for (square, cell) in line.bytes().enumerate() {
-            match cell {
-                b'X' => board.player |= 1_u64 << square,
-                b'O' => board.opponent |= 1_u64 << square,
-                b'-' => (),
-                _ => return Err(invalid("invalid board character")),
-            }
-        }
-        validate_board(&board).map_err(|error| invalid(&format!("invalid board: {error:?}")))?;
-        visit(line_number, board)?;
-        count = line_number;
-    }
-    Ok(count)
+    Ok(candidates.get(selection_index).copied())
 }
 
 /// Reject output paths that resolve to the input file, including links.
