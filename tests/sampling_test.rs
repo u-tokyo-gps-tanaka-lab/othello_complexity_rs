@@ -6,11 +6,11 @@ use othello_complexity_rs::io::format_position;
 use othello_complexity_rs::othello::{Board, Color, Position, CENTER_MASK};
 use othello_complexity_rs::sampling::{
     artifact, class_representative, convert_classes, create_output_dir, ensure_distinct_files,
-    fixed_discs_population, generate, is_representative, position_from_rank, rank_of_position,
-    read_sample_dir, representative_candidates, sample_fixed_discs, select_representative, sha256,
-    Population, POPULATION_SIZE,
+    fixed_discs_population, generate, is_representative, position_from_rank, read_sample_dir,
+    representative_candidates, sample_fixed_discs, select_representative, sha256, Population,
+    POPULATION_SIZE,
 };
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -80,23 +80,16 @@ fn ranks_use_the_declared_low_turn_bit_and_cell_radices() {
             side_to_move: Color::White
         }
     );
-    for rank in (0..1000).chain([
-        POPULATION_SIZE / 2,
-        POPULATION_SIZE - 2,
-        POPULATION_SIZE - 1,
-    ]) {
-        assert_eq!(
-            rank_of_position(position_from_rank(rank).unwrap()).unwrap(),
-            rank
-        );
-    }
+    // Every non-central digit is 1 and every central digit is 0, so X fills the board.
+    assert_eq!(
+        position_from_rank(678_258_532_403_392_524_625_119_809_978).unwrap(),
+        Position {
+            board: Board::new(u64::MAX, 0),
+            side_to_move: Color::Black
+        }
+    );
     assert!(position_from_rank(POPULATION_SIZE).is_err());
     assert!(position_from_rank(u128::MAX).is_err());
-    assert!(rank_of_position(Position {
-        board: Board::empty(),
-        ..first
-    })
-    .is_err());
 }
 
 #[test]
@@ -415,23 +408,6 @@ fn equivalence_generation_records_sample_size_and_only_writes_representatives() 
     assert_eq!(sample.metadata["input_count"], sample_size);
     assert_eq!(sample.metadata["accepted_count"], expected.len());
 
-    let mapping = fs::read_to_string(directory.join("mapping.jsonl"))
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(mapping.len(), expected.len());
-    for (output_index, (row, (input_line, position))) in mapping.iter().zip(&expected).enumerate() {
-        assert_eq!(row["input_line"], *input_line);
-        assert_eq!(row["output_line"], output_index + 1);
-        assert_eq!(row["accepted"], true);
-        assert_eq!(row["position"], format_position(*position));
-    }
-    assert!(mapping
-        .iter()
-        .enumerate()
-        .any(|(index, row)| row["input_line"] != index + 1));
-
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -498,48 +474,21 @@ fn class_samples_convert_to_valid_uniform_absolute_samples() {
     assert_eq!(fixed.population, Population::Absolute);
     assert_eq!(fixed.discs, Some(5));
 
-    let verify = |source: &std::path::Path, output: &std::path::Path| {
+    let verify = |source: &std::path::Path, output: &std::path::Path, seed| {
         let source_sample = read_sample_dir(source).unwrap();
         let converted_sample = read_sample_dir(output).unwrap();
-        let rows = fs::read_to_string(output.join("mapping.jsonl"))
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(rows.len(), source_sample.positions.len());
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let mut accepted = Vec::new();
         let mut rejected = 0;
-        for (index, (&source_position, row)) in
-            source_sample.positions.iter().zip(&rows).enumerate()
-        {
+        for &source_position in &source_sample.positions {
             let candidates = representative_candidates(source_position.board);
-            let selection_index = row["selection_index"].as_u64().unwrap() as usize;
-            let selected = candidates.get(selection_index).copied();
-            assert_eq!(row["input_line"], index + 1);
-            assert_eq!(row["source_position"], format_position(source_position));
-            assert_eq!(row["candidate_count"], candidates.len());
-            assert_eq!(row["accepted"], selected.is_some());
-            assert_eq!(selection_index < candidates.len(), selected.is_some());
-            if let Some((symmetry, position)) = selected {
+            let selection_index = rng.random_range(0..16);
+            if selection_index < candidates.len() {
+                let position = candidates[selection_index].1;
                 accepted.push(position);
-                assert_eq!(row["output_line"], accepted.len());
-                assert_eq!(row["symmetry"], symmetry.as_str());
-                assert_eq!(
-                    row["side_to_move"],
-                    if position.side_to_move == Color::Black {
-                        "b"
-                    } else {
-                        "w"
-                    }
-                );
-                assert_eq!(row["position"], format_position(position));
                 assert_eq!(class_representative(position), source_position);
             } else {
                 rejected += 1;
-                assert!(row["output_line"].is_null());
-                assert!(row["symmetry"].is_null());
-                assert!(row["side_to_move"].is_null());
-                assert!(row["position"].is_null());
             }
         }
         assert_eq!(converted_sample.positions, accepted);
@@ -559,8 +508,8 @@ fn class_samples_convert_to_valid_uniform_absolute_samples() {
         (converted_sample.positions.len(), rejected)
     };
 
-    verify(&unrestricted_source, &unrestricted_output);
-    let (accepted, rejected) = verify(&fixed_source, &fixed_output);
+    verify(&unrestricted_source, &unrestricted_output, 201);
+    let (accepted, rejected) = verify(&fixed_source, &fixed_output, 202);
     assert!(accepted > 0);
     assert!(rejected > 0);
 
@@ -585,7 +534,6 @@ fn empty_equivalence_sample_cannot_be_converted() {
     let output = root.join("output");
     fs::create_dir_all(&source).unwrap();
     fs::write(source.join("positions.txt"), b"").unwrap();
-    fs::write(source.join("mapping.jsonl"), b"").unwrap();
     fs::write(
         source.join("sampling.json"),
         serde_json::to_vec(&serde_json::json!({

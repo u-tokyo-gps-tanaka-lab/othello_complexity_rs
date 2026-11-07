@@ -9,7 +9,7 @@
 //! are not representatives while counting every proposal in the sample size.
 
 use crate::io::{format_position, parse_file_to_positions};
-use crate::othello::{validate_board, Board, BoardSymmetry, Color, Position, CENTER_MASK};
+use crate::othello::{Board, BoardSymmetry, Color, Position, CENTER_MASK};
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use same_file::Handle;
@@ -113,12 +113,10 @@ pub fn generate(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     create_output_dir(out_dir, "sampling.json")?;
     let positions_path = out_dir.join("positions.txt");
-    let mapping_path = out_dir.join("mapping.jsonl");
     let mut output = BufWriter::new(File::create(&positions_path)?);
-    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut accepted_count = 0;
-    for input_line in 1..=sample_size {
+    for _ in 0..sample_size {
         let Some(position) = population
             .sample(&mut rng, discs)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
@@ -127,19 +125,8 @@ pub fn generate(
         };
         accepted_count += 1;
         writeln!(output, "{}", format_position(position))?;
-        serde_json::to_writer(
-            &mut mapping,
-            &json!({
-                "input_line": input_line, "output_line": accepted_count, "accepted": true,
-                "position": format_position(position), "absolute_rank": rank_of_position(position)
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-                    .to_string(),
-            }),
-        )?;
-        writeln!(mapping)?;
     }
     output.flush()?;
-    mapping.flush()?;
     write_sampling_record(
         out_dir,
         json!({
@@ -147,7 +134,6 @@ pub fn generate(
             "population": population_metadata, "uniform": true, "with_replacement": true,
             "seed": seed, "input": null, "input_count": sample_size,
             "accepted_count": accepted_count, "output": artifact(&positions_path)?,
-            "mapping": artifact(&mapping_path)?,
         }),
     )?;
     Ok(())
@@ -178,13 +164,8 @@ pub fn convert_classes(source: &Path, out_dir: &Path, seed: u64) -> io::Result<(
     let source_positions = source.join("positions.txt");
     let source_sampling = source.join("sampling.json");
     let positions_path = out_dir.join("positions.txt");
-    let mapping_path = out_dir.join("mapping.jsonl");
     let record_path = out_dir.join("sampling.json");
-    let outputs = [
-        positions_path.as_path(),
-        mapping_path.as_path(),
-        record_path.as_path(),
-    ];
+    let outputs = [positions_path.as_path(), record_path.as_path()];
     ensure_distinct_files(&source_positions, &outputs)?;
     ensure_distinct_files(&source_sampling, &outputs)?;
 
@@ -195,39 +176,19 @@ pub fn convert_classes(source: &Path, out_dir: &Path, seed: u64) -> io::Result<(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     create_output_dir(out_dir, "sampling.json")?;
     let mut output = BufWriter::new(File::create(&positions_path)?);
-    let mut mapping = BufWriter::new(File::create(&mapping_path)?);
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut accepted_count = 0;
-    for (index, source_position) in sample.positions.iter().copied().enumerate() {
+    for source_position in sample.positions.iter().copied() {
         let candidates = representative_candidates(source_position.board);
         let selection_index = rng.random_range(0..16);
-        let selected =
-            select_representative(&candidates, selection_index).map_err(io::Error::other)?;
-        let output_line = if let Some((_, position)) = selected {
+        if let Some((_, position)) =
+            select_representative(&candidates, selection_index).map_err(io::Error::other)?
+        {
             accepted_count += 1;
             writeln!(output, "{}", format_position(position))?;
-            Some(accepted_count)
-        } else {
-            None
-        };
-        serde_json::to_writer(
-            &mut mapping,
-            &json!({
-                "input_line": index + 1,
-                "output_line": output_line,
-                "source_position": format_position(source_position),
-                "accepted": selected.is_some(),
-                "candidate_count": candidates.len(),
-                "selection_index": selection_index,
-                "symmetry": selected.map(|(symmetry, _)| symmetry.as_str()),
-                "side_to_move": selected.map(|(_, position)| if position.side_to_move == Color::Black { "b" } else { "w" }),
-                "position": selected.map(|(_, position)| format_position(position)),
-            }),
-        )?;
-        writeln!(mapping)?;
+        }
     }
     output.flush()?;
-    mapping.flush()?;
     write_sampling_record(
         out_dir,
         json!({
@@ -241,7 +202,6 @@ pub fn convert_classes(source: &Path, out_dir: &Path, seed: u64) -> io::Result<(
             "input_count": sample.positions.len(),
             "accepted_count": accepted_count,
             "output": artifact(&positions_path)?,
-            "mapping": artifact(&mapping_path)?,
             "candidate_order": "BoardSymmetry::ALL, then Black/White; retain first distinct Position",
         }),
     )
@@ -417,34 +377,6 @@ pub fn position_from_rank(mut rank: u128) -> Result<Position, String> {
         board,
         side_to_move,
     })
-}
-
-/// Inverse of [`position_from_rank`], including both absolute turns.
-pub fn rank_of_position(position: Position) -> Result<u128, String> {
-    validate_board(&position.board).map_err(|error| format!("invalid board: {error:?}"))?;
-    let mut rank = u128::from(position.side_to_move == Color::White);
-    let mut weight = 2;
-    for square in 0..64 {
-        let mask = 1_u64 << square;
-        let central = mask & CENTER_MASK != 0;
-        let (radix, digit) = if central {
-            (2, u128::from(position.board.opponent & mask != 0))
-        } else {
-            (
-                3,
-                if position.board.player & mask != 0 {
-                    1
-                } else if position.board.opponent & mask != 0 {
-                    2
-                } else {
-                    0
-                },
-            )
-        };
-        rank += weight * digit;
-        weight *= radix;
-    }
-    Ok(rank)
 }
 
 /// Number of absolute positions having exactly `discs` occupied squares.

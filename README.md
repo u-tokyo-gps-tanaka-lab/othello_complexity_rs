@@ -159,7 +159,7 @@ cargo run --release --example estimate
 
 パイプラインの起点には、新しく標本を抽出する `Pipeline::sample` か、既存の標本を読み込む `Pipeline::from_sample_dir` のいずれかを指定します。
 
-- `Pipeline::sample(SampleSpec { .. })`: 母集団から指定した大きさの標本を一様に復元抽出し、出力ディレクトリの `sample/` に `positions.txt`、`mapping.jsonl`、`sampling.json` を書き出します。`equivalence` モードでは、代表局面だけを `positions.txt` に書きます。
+- `Pipeline::sample(SampleSpec { .. })`: 母集団から指定した大きさの標本を一様に復元抽出し、出力ディレクトリの `sample/` に `positions.txt` と `sampling.json` を書き出します。`equivalence` モードでは、代表局面だけを `positions.txt` に書きます。
 - `Pipeline::from_sample_dir(&Path)`: `gen_random_boards` または `convert_boards` で作成済みの標本ディレクトリを読み込みます。
 
 `SampleSpec` の各フィールドは次のとおりです。
@@ -305,7 +305,7 @@ cargo run --release --bin convert_boards -- \
 - 石数を固定した同値類の標本は、同じ石数の局面からなる標本に変換されます。
 - 代表局面が1件もない同値類の標本は変換できず、エラーになります。変換しても空の標本しかできないためです。
 - 変換後の標本の大きさは、変換で採った行数です。元の標本の大きさは引き継ぎません。採った各局面は局面全体から一様に1回抽出したものにあたり、元の標本で代表局面でなかった局面は変換の対象にならないからです。
-- 出力ディレクトリには `positions.txt`、`mapping.jsonl`、`sampling.json` が書き出されます。`mapping.jsonl` には、棄却した行も含めて、入力の各行と出力の対応、および抽選した整数が記録されます。1行あたり約310バイトなので、1億行の標本では約31 GB になります。
+- 出力ディレクトリには `positions.txt` と `sampling.json` が書き出されます。
 - 入力の `positions.txt` と `sampling.json` を、出力先の各ファイルと同じファイルにはできません。シンボリックリンクやハードリンクで同じファイルを指す場合もエラーになります。
 - 入力は、本ツールで一様に抽出した同値類の標本であることを前提とします。`convert_boards` は `sampling.json` の記載と、各行が黒番の代表局面であることを検査しますが、標本が実際に一様に抽出されたかどうかまでは検査できません。
 
