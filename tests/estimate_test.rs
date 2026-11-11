@@ -281,6 +281,13 @@ fn tree_files(directory: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     files
 }
 
+fn directory_entries(directory: &Path) -> HashSet<String> {
+    fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect()
+}
+
 fn assert_error_without_changes<T>(directory: &Path, operation: impl FnOnce() -> io::Result<T>) {
     let before = tree_files(directory);
     assert!(operation().is_err());
@@ -870,6 +877,9 @@ fn generated_equivalence_sample_size_survives_resume_and_branch() {
     let mut metadata = read_json(&metadata_path);
     metadata["input_count"] = json!(spec.sample_size + 1);
     write_json(&metadata_path, &metadata);
+    assert_error_without_changes(&branch, || {
+        Pipeline::from_run(&run, 1).filters().run(&branch, ALPHA)
+    });
     assert_error_without_changes(&run, || Pipeline::sample(spec).filters().run(&run, ALPHA));
 }
 
@@ -912,15 +922,29 @@ fn converted_sample_uses_its_rows_as_the_sample_size() {
 #[test]
 fn equivalence_ng_inherits_only_proven_unreachable_classes() {
     let fixture = Fixture::new();
-    let class_sample = fixture.path("class-sample");
-    generate(&class_sample, Population::Classes, Some(5), 4_096, 20261107).unwrap();
-
     let source_one = fixture.path("source-one");
-    let source_one_report = Pipeline::from_sample_dir(&class_sample)
+    let class_spec = SampleSpec {
+        population: Population::Classes,
+        discs: Some(5),
+        sample_size: 4_096,
+        seed: 20261107,
+    };
+    Pipeline::sample(class_spec.clone())
+        .filters()
+        .run(&source_one, ALPHA)
+        .unwrap();
+    let source_branch = fixture.path("source-branch");
+    let source_branch_report = Pipeline::from_run(&source_one, 1)
+        .reverse_search(complete_dfs())
+        .run(&source_branch, ALPHA)
+        .unwrap();
+    let source_one_report = Pipeline::sample(class_spec)
         .filters()
         .reverse_search(complete_dfs())
         .run(&source_one, ALPHA)
         .unwrap();
+    let class_sample = source_one.join("sample");
+    assert_eq!(source_branch_report.unknown, source_one_report.unknown);
     assert_eq!(source_one_report.unknown, 0);
     assert!(!ng_outputs(&source_one.join("01-filters")).is_empty());
     assert!(
@@ -989,6 +1013,32 @@ fn equivalence_ng_inherits_only_proven_unreachable_classes() {
     assert_eq!(
         carry_one_summary["stages"][0]["directory"],
         "01-equivalence-ng"
+    );
+
+    let carry_branch = fixture.path("carry-branch");
+    let carry_branch_report = Pipeline::from_sample_dir(&exact_sample)
+        .equivalence_ng(&source_branch)
+        .run(&carry_branch, ALPHA)
+        .unwrap();
+    assert_eq!(
+        (
+            carry_branch_report.ok,
+            carry_branch_report.ng,
+            carry_branch_report.unknown
+        ),
+        (
+            carry_one_report.ok,
+            carry_one_report.ng,
+            carry_one_report.unknown
+        )
+    );
+    assert_eq!(
+        read_positions(&carry_branch.join("01-equivalence-ng/equivalence_NG.txt")),
+        read_positions(&carry_one.join("01-equivalence-ng/equivalence_NG.txt"))
+    );
+    assert_eq!(
+        read_positions(&carry_branch.join("01-equivalence-ng/equivalence_UNKNOWN.txt")),
+        read_positions(&carry_one.join("01-equivalence-ng/equivalence_UNKNOWN.txt"))
     );
 
     let carry_two = fixture.path("carry-two");
@@ -1550,42 +1600,152 @@ fn existing_directories_keep_unrelated_files_and_inputs_cannot_be_outputs() {
 }
 
 #[test]
-fn from_run_copies_prefix_without_touching_source_and_survives_source_deletion() {
+fn from_run_references_its_source_without_copying_inherited_files() {
     let fixture = Fixture::new();
     let source = fixture.path("source");
     let spec = SampleSpec {
         population: Population::Absolute,
-        discs: Some(4),
-        sample_size: 4,
+        discs: Some(5),
+        sample_size: 64,
         seed: 20261022,
     };
-    Pipeline::sample(spec)
+    Pipeline::sample(spec.clone())
         .filters()
+        .reverse_search(limited_dfs())
         .run(&source, ALPHA)
         .unwrap();
     let source_before = tree_files(&source);
-    let source_sample = tree_files(&source.join("sample"));
-    let source_stage = tree_files(&source.join("01-filters"));
     let source_argument = source.join("..").join("source");
 
     let branch = fixture.path("branch");
-    Pipeline::from_run(&source_argument, 1)
+    Pipeline::from_run(&source_argument, 2)
         .filters()
         .run(&branch, ALPHA)
         .unwrap();
     assert_eq!(tree_files(&source), source_before);
-    assert_eq!(tree_files(&branch.join("sample")), source_sample);
-    assert_eq!(tree_files(&branch.join("01-filters")), source_stage);
-    assert!(summary(&branch)["stages"][1]["result"].is_object());
+    assert_eq!(
+        directory_entries(&branch),
+        HashSet::from(["03-filters".to_owned(), "summary.json".to_owned()])
+    );
+    assert!(!branch.join("sample").exists());
+    assert!(!branch.join("01-filters").exists());
+    assert!(!branch.join("02-reverse-search").exists());
+    assert!(summary(&branch)["stages"][2]["result"].is_object());
     assert_eq!(
         summary(&branch)["branched_from"],
-        json!({"run": source_argument, "stages": 1})
+        json!({"run": source_argument, "stages": 2})
     );
 
-    fs::remove_dir_all(&source).unwrap();
-    Pipeline::from_run(&source_argument, 1)
+    let inherited_interval = summary(&branch)["stages"][1]["result"]["wilson_interval"].clone();
+    Pipeline::from_run(&source_argument, 2)
         .filters()
         .run(&branch, 0.05)
         .unwrap();
-    assert_eq!(summary(&branch)["alpha"], 0.05);
+    let changed = summary(&branch);
+    assert_eq!(changed["alpha"], 0.05);
+    assert_ne!(
+        changed["stages"][1]["result"]["wilson_interval"],
+        inherited_interval
+    );
+    Pipeline::from_run(&source_argument, 2)
+        .filters()
+        .run(&branch, 0.05)
+        .unwrap();
+
+    Pipeline::sample(spec)
+        .filters()
+        .reverse_search(limited_dfs())
+        .filters()
+        .run(&source, ALPHA)
+        .unwrap();
+    Pipeline::from_run(&source_argument, 2)
+        .filters()
+        .run(&branch, 0.05)
+        .unwrap();
+
+    assert_error_without_changes(&source, || {
+        Pipeline::from_run(&source_argument, 2)
+            .filters()
+            .run(&source, 0.05)
+    });
+    assert_error_without_changes(&source, || {
+        Pipeline::from_run(&source_argument, 2)
+            .filters()
+            .run(&source.join("sample"), 0.05)
+    });
+
+    let source_summary = summary(&source);
+    let mut changed_source = source_summary.clone();
+    changed_source["stages"][1]["stage"]["settings"]["Dfs"]["max_nodes"] = json!(1);
+    write_json(&source.join("summary.json"), &changed_source);
+    assert_error_without_changes(&branch, || {
+        Pipeline::from_run(&source_argument, 2)
+            .filters()
+            .run(&branch, 0.05)
+    });
+    write_json(&source.join("summary.json"), &source_summary);
+
+    fs::remove_dir_all(&source).unwrap();
+    assert_error_without_changes(&branch, || {
+        Pipeline::from_run(&source_argument, 2)
+            .filters()
+            .run(&branch, 0.05)
+    });
+}
+
+#[test]
+fn nested_branches_follow_all_ancestors_and_reject_cycles() {
+    let fixture = Fixture::new();
+    let spec = SampleSpec {
+        population: Population::Absolute,
+        discs: Some(4),
+        sample_size: 256,
+        seed: 20261111,
+    };
+    let run_a = fixture.path("run-a");
+    let report_a = Pipeline::sample(spec.clone())
+        .filters()
+        .run(&run_a, ALPHA)
+        .unwrap();
+    assert!(report_a.unknown > 0);
+
+    let run_b = fixture.path("run-b");
+    let report_b = Pipeline::from_run(&run_a, 1)
+        .reverse_search(complete_dfs())
+        .run(&run_b, ALPHA)
+        .unwrap();
+    assert!(report_b.unknown < report_a.unknown);
+
+    let run_c = fixture.path("run-c");
+    let report_c = Pipeline::from_run(&run_b, 2)
+        .filters()
+        .run(&run_c, ALPHA)
+        .unwrap();
+    assert_eq!(
+        directory_entries(&run_c),
+        HashSet::from(["03-filters".to_owned(), "summary.json".to_owned()])
+    );
+
+    let baseline = fixture.path("baseline");
+    let baseline_report = Pipeline::sample(spec)
+        .filters()
+        .reverse_search(complete_dfs())
+        .filters()
+        .run(&baseline, ALPHA)
+        .unwrap();
+    assert_eq!(
+        (report_c.ok, report_c.ng, report_c.unknown),
+        (
+            baseline_report.ok,
+            baseline_report.ng,
+            baseline_report.unknown
+        )
+    );
+
+    let mut summary_a = summary(&run_a);
+    summary_a["branched_from"] = json!({"run": run_c, "stages": 1});
+    write_json(&run_a.join("summary.json"), &summary_a);
+    assert_error_without_changes(&run_c, || {
+        Pipeline::from_run(&run_b, 2).filters().run(&run_c, ALPHA)
+    });
 }

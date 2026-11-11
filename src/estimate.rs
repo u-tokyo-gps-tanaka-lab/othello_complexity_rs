@@ -246,6 +246,11 @@ struct RunState {
     table: ClassificationTable,
 }
 
+struct RunFiles {
+    sample_base: PathBuf,
+    stage_dirs: Vec<PathBuf>,
+}
+
 fn initialize_run(
     source: &Source,
     stages: &[Stage],
@@ -303,10 +308,15 @@ fn initialize_branch(
 ) -> io::Result<Summary> {
     let source_dir = canonical_directory(source_path, "source run directory")?;
     reject_same_directory(out_dir, &source_dir)?;
-    let source_summary = read_summary(&source_dir.join("summary.json"))?;
+    let source_summary = read_summary(&source_path.join("summary.json"))?;
+    let source_files = run_files(source_path, &source_summary)?;
     let prefix = inherited_entries(&source_summary, inherited)?.to_vec();
-    let sample = read_recorded_sample(&source_dir, &source_summary.sample)?;
-    reject_recorded_sample_output(out_dir, &source_dir, &source_summary.sample.source)?;
+    let sample = read_recorded_sample(&source_files.sample_base, &source_summary.sample)?;
+    reject_recorded_sample_output(
+        out_dir,
+        &source_files.sample_base,
+        &source_summary.sample.source,
+    )?;
     let declared = prefix
         .iter()
         .map(|entry| entry.stage.clone())
@@ -315,15 +325,6 @@ fn initialize_branch(
     validate_stages(&declared, population_goal_match(sample.population))?;
 
     fs::create_dir_all(out_dir)?;
-    if matches!(&source_summary.sample.source, SampleSource::Generated(_)) {
-        copy_directory(&source_dir.join("sample"), &out_dir.join("sample"))?;
-    }
-    for entry in &prefix {
-        copy_directory(
-            &source_dir.join(&entry.directory),
-            &out_dir.join(&entry.directory),
-        )?;
-    }
     let summary = Summary {
         sample: source_summary.sample,
         branched_from: Some(BranchedFrom {
@@ -344,9 +345,10 @@ fn resume_run(
     alpha: f64,
     mut summary: Summary,
 ) -> io::Result<Report> {
+    let files = run_files(out_dir, &summary)?;
     let stages = declared_stages(source, tail, out_dir, &summary)?;
-    let sample = read_recorded_sample(out_dir, &summary.sample)?;
-    reject_recorded_sample_output(out_dir, out_dir, &summary.sample.source)?;
+    let sample = read_recorded_sample(&files.sample_base, &summary.sample)?;
+    reject_recorded_sample_output(out_dir, &files.sample_base, &summary.sample.source)?;
     validate_stages(&stages, population_goal_match(sample.population))?;
 
     let completed = completed_prefix(&summary.stages)?;
@@ -378,7 +380,14 @@ fn resume_run(
         })
         .collect::<Vec<_>>();
     let mut table = ClassificationTable::new(&sample.positions);
-    reload_completed(out_dir, &sample, alpha, completed, &mut entries, &mut table)?;
+    reload_completed(
+        &files.stage_dirs,
+        &sample,
+        alpha,
+        completed,
+        &mut entries,
+        &mut table,
+    )?;
     summary.alpha = alpha;
     summary.stages = entries;
     let run = RunState {
@@ -428,12 +437,6 @@ fn declared_stages(
             directory,
             stages: inherited,
         } => {
-            if out_dir == directory {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("output directory is also an input: {}", out_dir.display()),
-                ));
-            }
             let expected = BranchedFrom {
                 run: directory.clone(),
                 stages: *inherited,
@@ -452,6 +455,68 @@ fn declared_stages(
                 .collect())
         }
     }
+}
+
+fn run_files(run_dir: &Path, summary: &Summary) -> io::Result<RunFiles> {
+    run_files_inner(run_dir, summary, &mut HashSet::new())
+}
+
+fn run_files_inner(
+    run_dir: &Path,
+    summary: &Summary,
+    visited: &mut HashSet<PathBuf>,
+) -> io::Result<RunFiles> {
+    let run_identity = canonical_directory(run_dir, "run directory")?;
+    if !visited.insert(run_identity) {
+        return Err(invalid("branched run ancestry contains a cycle"));
+    }
+
+    let Some(branch) = &summary.branched_from else {
+        return Ok(RunFiles {
+            sample_base: run_dir.to_owned(),
+            stage_dirs: summary
+                .stages
+                .iter()
+                .map(|entry| run_dir.join(&entry.directory))
+                .collect(),
+        });
+    };
+
+    let source_summary = read_summary(&branch.run.join("summary.json"))?;
+    let source_prefix = inherited_entries(&source_summary, branch.stages)?;
+    let branch_prefix = summary
+        .stages
+        .get(..branch.stages)
+        .ok_or_else(|| invalid("branched run has fewer inherited stages than recorded"))?;
+    for (index, (source, inherited)) in source_prefix.iter().zip(branch_prefix).enumerate() {
+        if source.stage != inherited.stage {
+            return Err(invalid(format!(
+                "inherited stage {} settings differ from the source run",
+                index + 1
+            )));
+        }
+        if source.directory != inherited.directory {
+            return Err(invalid(format!(
+                "inherited stage {} directory differs from the source run",
+                index + 1
+            )));
+        }
+    }
+    let source_files = run_files_inner(&branch.run, &source_summary, visited)?;
+    let mut stage_dirs = source_files
+        .stage_dirs
+        .get(..branch.stages)
+        .ok_or_else(|| invalid("source run has fewer stage directories than requested"))?
+        .to_vec();
+    stage_dirs.extend(
+        summary.stages[branch.stages..]
+            .iter()
+            .map(|entry| run_dir.join(&entry.directory)),
+    );
+    Ok(RunFiles {
+        sample_base: source_files.sample_base,
+        stage_dirs,
+    })
 }
 
 fn inherited_entries(summary: &Summary, count: usize) -> io::Result<&[StageEntry]> {
@@ -677,11 +742,11 @@ fn run_equivalence_ng_stage(
     discs: Option<u32>,
     directory: &Path,
 ) -> io::Result<()> {
-    let source_dir = canonical_directory(run, "equivalence source run directory")?;
-    let source_summary = read_summary(&source_dir.join("summary.json"))?;
+    let source_summary = read_summary(&run.join("summary.json"))?;
+    let source_files = run_files(run, &source_summary)?;
     let completed = source_summary.stages.len();
     let mut entries = inherited_entries(&source_summary, completed)?.to_vec();
-    let source_sample = read_recorded_sample(&source_dir, &source_summary.sample)?;
+    let source_sample = read_recorded_sample(&source_files.sample_base, &source_summary.sample)?;
     if source_sample.population != Population::Classes {
         return Err(invalid(
             "equivalence-ng source must use an equivalence-class sample",
@@ -702,7 +767,7 @@ fn run_equivalence_ng_stage(
     )?;
     let mut source_table = ClassificationTable::new(&source_sample.positions);
     reload_completed(
-        &source_dir,
+        &source_files.stage_dirs,
         &source_sample,
         source_summary.alpha,
         completed,
@@ -1093,7 +1158,7 @@ fn validate_record_query(record: &ReachabilityRecord, mode: GoalMatch) -> io::Re
 }
 
 fn reload_completed(
-    out_dir: &Path,
+    stage_dirs: &[PathBuf],
     sample: &Sample,
     alpha: f64,
     completed: usize,
@@ -1101,7 +1166,7 @@ fn reload_completed(
     table: &mut ClassificationTable,
 ) -> io::Result<()> {
     let mode = population_goal_match(sample.population);
-    for entry in entries.iter_mut().take(completed) {
+    for (index, entry) in entries.iter_mut().take(completed).enumerate() {
         let saved = entry
             .result
             .as_ref()
@@ -1122,8 +1187,10 @@ fn reload_completed(
             }
         };
         let input = table.pending();
-        let directory = out_dir.join(&entry.directory);
-        let loaded = load_stage(&entry.stage, &directory, input, table, mode)?;
+        let directory = stage_dirs
+            .get(index)
+            .ok_or_else(|| invalid("completed stage has no input directory"))?;
+        let loaded = load_stage(&entry.stage, directory, input, table, mode)?;
         if let Some(nodes) = &nodes {
             if nodes.len() != loaded.input {
                 return Err(invalid(
@@ -1266,32 +1333,6 @@ fn read_summary(path: &Path) -> io::Result<Summary> {
             format!("source run has no {}", path.display()),
         )
     })
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
-    if !fs::metadata(source)?.is_dir() {
-        return Err(invalid(format!(
-            "copy source is not a directory: {}",
-            source.display()
-        )));
-    }
-    fs::create_dir_all(destination)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let target = destination.join(entry.file_name());
-        if file_type.is_dir() {
-            copy_directory(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            fs::copy(entry.path(), target)?;
-        } else {
-            return Err(invalid(format!(
-                "cannot copy non-file entry: {}",
-                entry.path().display()
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn validate_output_path(path: &Path) -> io::Result<()> {
